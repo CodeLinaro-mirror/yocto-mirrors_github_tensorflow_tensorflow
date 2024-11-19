@@ -35,7 +35,9 @@ limitations under the License.
 #include "xla/service/hlo_verifier.h"
 #include "xla/shape.h"
 #include "xla/shape_util.h"
+#include "xla/stream_executor/cuda/cuda_compute_capability.h"
 #include "xla/stream_executor/device_description.h"
+#include "xla/tsl/platform/statusor.h"
 #include "xla/xla_data.pb.h"
 #include "tsl/platform/statusor.h"
 
@@ -270,6 +272,36 @@ ENTRY main {
   TF_ASSERT_OK_AND_ASSIGN(auto module,
                           ParseAndReturnVerifiedModule(kHloModule));
   EXPECT_FALSE(Normalize(module.get(), cc, BF16, F32));
+}
+
+TEST_F(FloatSupportTest, SortTotalOrder) {
+  auto cc = se::CudaComputeCapability::Volta();
+  const char* hlo_text = R"(
+total_order_expanded_comparator {
+  %Arg_0 = bf16[] parameter(0)
+  %convert = f32[] convert(%Arg_0)
+  %bitcast-convert = s32[] bitcast-convert(%convert)
+  %constant = s32[] constant(0)
+  %compare = pred[] compare(%bitcast-convert, %constant), direction=LT
+  %constant.2 = s32[] constant(2147483647)
+  %xor = s32[] xor(%constant.2, %bitcast-convert)
+  %select = s32[] select(%compare, %xor, %bitcast-convert)
+  %Arg_1 = bf16[] parameter(1)
+  %convert.1 = f32[] convert(%Arg_1)
+  %bitcast-convert.1 = s32[] bitcast-convert(%convert.1)
+  %compare.1 = pred[] compare(%bitcast-convert.1, %constant), direction=LT
+  %xor.1 = s32[] xor(%constant.2, %bitcast-convert.1)
+  %select.1 = s32[] select(%compare.1, %xor.1, %bitcast-convert.1)
+  ROOT %compare.20017 = pred[] compare(%select, %select.1), direction=LT
+}
+
+ENTRY sort {
+  p0 = bf16[1024]{0} parameter(0)
+  ROOT sort = bf16[1024]{0} sort(p0), dimensions={0}, is_stable=false, to_apply=total_order_expanded_comparator
+}
+)";
+  TF_ASSERT_OK_AND_ASSIGN(auto module, ParseAndReturnVerifiedModule(hlo_text));
+  EXPECT_FALSE(Normalize(module.get(), cc, BF16, F32)) << module->ToString();
 }
 
 TEST_F(FloatSupportTest, Bf16ExpIsNotNormalized) {

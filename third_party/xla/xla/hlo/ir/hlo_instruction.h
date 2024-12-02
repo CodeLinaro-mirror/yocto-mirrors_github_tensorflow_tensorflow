@@ -41,6 +41,7 @@ limitations under the License.
 #include "absl/container/flat_hash_set.h"
 #include "absl/container/inlined_vector.h"
 #include "absl/functional/function_ref.h"
+#include "absl/hash/hash.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
@@ -1734,6 +1735,11 @@ class HloInstruction {
                              layout_sensitive, sharding_sensitive,
                              /*ignore_channel_id_values=*/true,
                              /*ignore_commutative_operand_order=*/true);
+  }
+
+  virtual size_t AbslHashWithOperandHashes(
+      absl::Span<const size_t> operand_hashes) const {
+    return absl::HashOf(opcode(), shape(), operand_hashes);
   }
 
   // Generates a hash value of an HLO instruction. Hash considers

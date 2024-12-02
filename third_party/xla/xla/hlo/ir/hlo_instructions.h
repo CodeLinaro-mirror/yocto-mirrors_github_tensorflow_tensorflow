@@ -18,6 +18,7 @@ limitations under the License.
 #ifndef XLA_HLO_IR_HLO_INSTRUCTIONS_H_
 #define XLA_HLO_IR_HLO_INSTRUCTIONS_H_
 
+#include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <optional>
@@ -28,6 +29,7 @@ limitations under the License.
 #include "absl/base/attributes.h"
 #include "absl/container/inlined_vector.h"
 #include "absl/functional/function_ref.h"
+#include "absl/hash/hash.h"
 #include "absl/status/status.h"
 #include "absl/strings/string_view.h"
 #include "absl/types/span.h"
@@ -1356,6 +1358,13 @@ class HloConstantInstruction : public HloInstruction {
     return false;
   }
 
+  size_t AbslHashWithOperandHashes(
+      absl::Span<const size_t> operand_hashes) const override {
+    return absl::HashOf(opcode(), shape(),
+                        Literal::MakeAbslHashable<true>(literal()),
+                        operand_hashes);
+  }
+
  private:
   bool IsElementwiseImpl(
       const std::optional<int64_t>& operand_idx) const override;
@@ -1712,6 +1721,11 @@ class HloParameterInstruction : public HloInstruction {
 
   static bool ClassOf(const HloInstruction* hlo) {
     return hlo->opcode() == HloOpcode::kParameter;
+  }
+
+  size_t AbslHashWithOperandHashes(
+      absl::Span<const size_t> operand_hashes) const override {
+    return absl::HashOf(opcode(), shape(), parameter_number(), operand_hashes);
   }
 
  private:

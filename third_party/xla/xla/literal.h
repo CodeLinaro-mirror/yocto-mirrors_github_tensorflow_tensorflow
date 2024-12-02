@@ -367,9 +367,9 @@ class LiteralBase {
     static_assert(sizeof(H) == 0,
                   "Do not use Literal directly as a hash key, because it has "
                   "multiple definitions of equality - layout sensitive or "
-                  "insensitive. Instead, provide an external hash function "
-                  "that uses Literal::Hash which allows you to specify layout "
-                  "sensitivity.");
+                  "insensitive. Instead, use MakeAbslHashable() to create a "
+                  "wrapper with layout sensitivity specified suitable for "
+                  "passing to Absl::Hash.");
   }
 
   // Always use this together with the Equal method and not operator== in order
@@ -417,6 +417,27 @@ class LiteralBase {
     });
 
     return std::move(state);
+  }
+
+  // Define a wrapper struct to allow Absl::Hash to call the correct Hash()
+  // implementation on LiteralBase, determined by the kIsLayoutSensitive
+  // parameter.
+  template <bool kIsLayoutSensitive = true>
+  struct AbslHashableLiteralBaseWrapper {
+    const LiteralBase& impl;
+    explicit AbslHashableLiteralBaseWrapper(const LiteralBase& impl)
+        : impl(impl) {}
+    template <typename H>
+    friend H AbslHashValue(H h, const AbslHashableLiteralBaseWrapper& w) {
+      return LiteralBase::Hash<H, kIsLayoutSensitive>(std::move(h), w.impl);
+    }
+  };
+
+  // Returns a wrapper struct that can be passed to Absl::Hash.
+  template <bool kIsLayoutSensitive = true>
+  static AbslHashableLiteralBaseWrapper<kIsLayoutSensitive> MakeAbslHashable(
+      const LiteralBase& literal) {
+    return AbslHashableLiteralBaseWrapper<kIsLayoutSensitive>(literal);
   }
 
   // Converts this literal to the given shape. Returns an error is the

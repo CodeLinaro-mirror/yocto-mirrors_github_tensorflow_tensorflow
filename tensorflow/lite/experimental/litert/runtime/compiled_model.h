@@ -119,7 +119,7 @@ class LiteRtCompiledModelT {
   // locked and use it with CustomAllocation. The buffer is locked by
   // LiteRtTensorBufferScopedLock and kept in the `scoped_locks`. It will be
   // unlocked automatically when the `scoped_locks` are destroyed.
-  litert::Expected<void> BufferRegister(
+  litert::Expected<void> RegisterBuffer(
       tflite::SignatureRunner* runner, const TfLiteTensor* tensor,
       const char* tensor_name, LiteRtTensorBuffer buffer, bool is_input,
       std::vector<litert::TensorBufferScopedLock>& scoped_locks);

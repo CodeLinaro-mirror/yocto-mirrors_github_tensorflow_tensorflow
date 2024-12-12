@@ -1,6 +1,8 @@
 ################################################################################
-ARG BASE_IMAGE=ubuntu:22.04@sha256:58b87898e82351c6cf9cf5b9f3c20257bb9e2dcf33af051e12ce532d7f94e3fe
+ARG BASE_IMAGE
 FROM $BASE_IMAGE AS devel
+# See https://docs.docker.com/reference/dockerfile/#understand-how-arg-and-from-interact on why we have to declare twice.
+ARG BASE_IMAGE
 ################################################################################
 
 # Install devtoolset build dependencies
@@ -43,11 +45,7 @@ RUN ln -sf /usr/lib/python3.12 /usr/lib/tf_python
 RUN ln -s /usr/lib/llvm-18/bin/clang /usr/bin/clang
 
 # Link the compat driver to the location where tensorflow is searching for it
-RUN if [[ "$BASE_IMAGE" == nvidia* ]]; then \
-        echo "NVIDIA base image detected, linking libcuda.so.1 from compat directory"; \
-        ln -s /usr/local/cuda/compat/libcuda.so.1 /usr/lib/x86_64-linux-gnu/libcuda.so.1; \
-    fi
-RUN
+RUN if [[ "$BASE_IMAGE" == nvidia* ]]; then ln -s /usr/local/cuda/compat/libcuda.so.1 /usr/lib/x86_64-linux-gnu/libcuda.so.1; fi
 
 # Install various tools.
 # - bats: bash unit testing framework

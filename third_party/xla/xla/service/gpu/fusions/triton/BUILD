@@ -367,6 +367,7 @@ gentbl_cc_library(
 cc_library(
     name = "xla_triton_passes",
     srcs = [
+        "xla_triton_int4_passes.cc",
         "xla_triton_prevent_mmav3_loop_unrolling_pass.cc",
         "xla_triton_sparse_passes.cc",
     ],
@@ -376,9 +377,12 @@ cc_library(
     deps = [
         ":xla_triton",
         ":xla_triton_passes_inc_gen",
+        "//xla/service/llvm_ir:llvm_util",
+        "@com_google_absl//absl/log",
         "@com_google_absl//absl/log:check",
         "@llvm-project//llvm:Support",
         "@llvm-project//mlir:ArithDialect",
+        "@llvm-project//mlir:FuncDialect",
         "@llvm-project//mlir:GPUDialect",
         "@llvm-project//mlir:GPUToNVVMTransforms",
         "@llvm-project//mlir:IR",
@@ -386,6 +390,7 @@ cc_library(
         "@llvm-project//mlir:NVVMDialect",
         "@llvm-project//mlir:Pass",
         "@llvm-project//mlir:SCFDialect",
+        "@llvm-project//mlir:SCFTransforms",
         "@llvm-project//mlir:Support",
         "@llvm-project//mlir:TransformUtils",
         "@triton//:TritonAnalysis",

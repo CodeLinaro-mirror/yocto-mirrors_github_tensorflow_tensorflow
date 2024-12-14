@@ -26,7 +26,6 @@ limitations under the License.
 #include <memory>
 #include <optional>
 #include <string>
-#include <string_view>
 #include <type_traits>
 #include <utility>
 #include <vector>
@@ -3169,7 +3168,7 @@ struct EncodedInfo {
 };
 
 template <typename Args>
-static EncodedInfo StoreEncodedTypes(std::string_view alloca_name,
+static EncodedInfo StoreEncodedTypes(absl::string_view alloca_name,
                                      const Args& args,
                                      llvm::IRBuilderBase& ir) {
   // Store the types of `args` into the allocated memory. These types are stored
@@ -3198,7 +3197,7 @@ static EncodedInfo StoreEncodedTypes(std::string_view alloca_name,
 };
 
 template <typename Args>
-static EncodedInfo StoreEncodedShapes(std::string_view alloca_name,
+static EncodedInfo StoreEncodedShapes(absl::string_view alloca_name,
                                       const Args& args,
                                       llvm::IRBuilderBase& ir) {
   // Prepare metadata for all buffers. A tuple shape is flattened to only encode

@@ -79,6 +79,19 @@ using TensorToArrayTest = ::testing::TestWithParam<TensorToArrayTestParam>;
 xla::HloSharding Tile(absl::Span<const int64_t> dims) {
   return xla::HloSharding::IotaTile(dims);
 }
+xla::HloSharding TileWithLastTileReplicated(
+    absl::Span<const int64_t> dims, absl::Span<const int64_t> device_list) {
+  xla::OpSharding op_sharding;
+  op_sharding.set_type(xla::OpSharding::OTHER);
+  for (int64_t dim : dims) {
+    op_sharding.add_tile_assignment_dimensions(dim);
+  }
+  op_sharding.set_replicate_on_last_tile_dim(true);
+  for (int64_t device : device_list) {
+    op_sharding.add_tile_assignment_devices(device);
+  }
+  return *xla::HloSharding::FromProto(op_sharding);
+}
 xla::HloSharding PartialTile(absl::Span<const int64_t> dims) {
   return xla::HloSharding::PartialTile(xla::TileAssignment(dims));
 }
@@ -143,7 +156,7 @@ TEST_P(ReshardToTensorTest, MakeHostTensorFromDeviceArrays) {
                           device_list, thread_pool)
           .Await());
 
-  EXPECT_THAT(GetParam().expected_out_tensor, TensorEq(output_tensor));
+  EXPECT_THAT(output_tensor, TensorEq(GetParam().expected_out_tensor));
 }
 
 INSTANTIATE_TEST_SUITE_P(
@@ -322,6 +335,41 @@ INSTANTIATE_TEST_SUITE_P(
                     TensorShape({4, 1, 4})),
                 .device_indices = {3, 2, 1, 0},
                 .sharding = Tile({2, 1, 2}),
+            },
+            // 2-d sharding with last tile replicated.
+            {
+                .split_tensors =
+                    {
+                        test::AsTensor<int32_t>({1, 2, 5, 6},
+                                                TensorShape({2, 2})),
+                        test::AsTensor<int32_t>({1, 2, 5, 6},
+                                                TensorShape({2, 2})),
+                        test::AsTensor<int32_t>({3, 4, 7, 8},
+                                                TensorShape({2, 2})),
+                        test::AsTensor<int32_t>({3, 4, 7, 8},
+                                                TensorShape({2, 2})),
+                    },
+                .expected_out_tensor = test::AsTensor<int32_t>(
+                    {1, 2, 5, 6, 3, 4, 7, 8}, TensorShape({4, 2})),
+                .device_indices = {0, 1, 2, 3},
+                .sharding = TileWithLastTileReplicated({2, 1, 2}, {0, 1, 2, 3}),
+            },
+            {
+                .split_tensors =
+                    {
+                        test::AsTensor<int32_t>({1, 2, 5, 6},
+                                                TensorShape({2, 2})),
+                        test::AsTensor<int32_t>({1, 2, 5, 6},
+                                                TensorShape({2, 2})),
+                        test::AsTensor<int32_t>({3, 4, 7, 8},
+                                                TensorShape({2, 2})),
+                        test::AsTensor<int32_t>({3, 4, 7, 8},
+                                                TensorShape({2, 2})),
+                    },
+                .expected_out_tensor = test::AsTensor<int32_t>(
+                    {1, 1, 2, 2, 3, 3, 4, 4}, TensorShape({4, 2})),
+                .device_indices = {0, 1, 2, 3},
+                .sharding = TileWithLastTileReplicated({2, 2, 1}, {0, 1, 2, 3}),
             },
         }));
 

@@ -18,6 +18,7 @@ limitations under the License.
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
+#include <cstring>
 #include <functional>
 #include <memory>
 #include <numeric>
@@ -30,6 +31,7 @@ limitations under the License.
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 #include "absl/container/flat_hash_map.h"
+#include "absl/log/check.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/str_format.h"
@@ -700,6 +702,53 @@ TEST(PjrtCApiGpuExtensionTest, CustomCallTyped) {
       xla::ffi::FindHandler(function_name, stream_executor::GpuPlatformName())
           .value();
   EXPECT_EQ(reinterpret_cast<void*>(registration.bundle.execute), kNoop);
+}
+
+TEST_F(PjrtCApiGpuTest, DeviceDescriptionAndMemorySpaces) {
+  PJRT_Device_GetDescription_Args get_description =
+      PJRT_Device_GetDescription_Args{
+          .struct_size = PJRT_Device_GetDescription_Args_STRUCT_SIZE,
+          .extension_start = nullptr,
+          .device = GetClientDevices()[0],
+      };
+  PJRT_Error* error;
+  error = api_->PJRT_Device_GetDescription(&get_description);
+  EXPECT_EQ(error, nullptr);
+
+  PJRT_DeviceDescription_MemorySpaces_Args memory_spaces =
+      PJRT_DeviceDescription_MemorySpaces_Args{
+          .struct_size = PJRT_DeviceDescription_MemorySpaces_Args_STRUCT_SIZE,
+          .extension_start = nullptr,
+          .device_description = get_description.device_description,
+      };
+
+  const PJRT_Extension_Base* next =
+      reinterpret_cast<const PJRT_Extension_Base*>(api_->extension_start);
+  while (next != nullptr &&
+         next->type !=
+             PJRT_Extension_Type::PJRT_Extension_Type_MemoryDescriptions) {
+    next = next->next;
+  }
+  const PJRT_MemoryDescriptions_Extension* extension =
+      reinterpret_cast<const PJRT_MemoryDescriptions_Extension*>(next);
+  if (extension != nullptr) {
+    error = extension->PJRT_DeviceDescription_MemorySpaces(&memory_spaces);
+    EXPECT_EQ(error, nullptr);
+
+    for (int i = 0; i < memory_spaces.num_memory_spaces; i++) {
+      PJRT_MemoryDescription_Kind_Args space_description =
+          PJRT_MemoryDescription_Kind_Args{
+              .struct_size =
+                  PJRT_DeviceDescription_MemorySpaces_Args_STRUCT_SIZE,
+              .extension_start = nullptr,
+              .memory_description = memory_spaces.memory_spaces[i],
+          };
+      error = extension->PJRT_MemoryDescription_Kind(&space_description);
+      EXPECT_EQ(error, nullptr);
+      std::string s(space_description.kind, space_description.kind_size);
+      EXPECT_EQ(space_description.kind_size, strlen(s.c_str()));
+    }
+  }
 }
 
 }  // namespace

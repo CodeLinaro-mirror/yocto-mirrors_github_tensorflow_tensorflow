@@ -44,6 +44,7 @@ limitations under the License.
 #include "xla/literal_util.h"
 #include "xla/pjrt/c/pjrt_c_api.h"
 #include "xla/pjrt/c/pjrt_c_api_helpers.h"
+#include "xla/pjrt/c/pjrt_c_api_memory_descriptions_extension.h"
 #include "xla/pjrt/c/pjrt_c_api_test_base.h"
 #include "xla/pjrt/compile_options.pb.h"
 #include "xla/pjrt/pjrt_client.h"
@@ -549,6 +550,39 @@ TEST_F(PjrtCApiTest, DeviceLocalHardwareId) {
   PJRT_Error* error = api_->PJRT_Device_LocalHardwareId(&args);
   ASSERT_EQ(error, nullptr);
   CHECK_EQ(args.local_hardware_id, 0);
+}
+
+TEST_F(PjrtCApiTest, DeviceDescriptionAndMemorySpaces) {
+  PJRT_Device_GetDescription_Args get_description =
+      PJRT_Device_GetDescription_Args{
+          .struct_size = PJRT_Device_GetDescription_Args_STRUCT_SIZE,
+          .extension_start = nullptr,
+          .device = GetClientDevices()[0],
+      };
+  PJRT_Error* error;
+  error = api_->PJRT_Device_GetDescription(&get_description);
+  EXPECT_EQ(error, nullptr);
+
+  PJRT_DeviceDescription_MemorySpaces_Args memory_spaces =
+      PJRT_DeviceDescription_MemorySpaces_Args{
+          .struct_size = PJRT_DeviceDescription_MemorySpaces_Args_STRUCT_SIZE,
+          .extension_start = nullptr,
+          .device_description = get_description.device_description,
+      };
+
+  const PJRT_Extension_Base* next =
+      reinterpret_cast<const PJRT_Extension_Base*>(api_->extension_start);
+  while (next != nullptr &&
+         next->type !=
+             PJRT_Extension_Type::PJRT_Extension_Type_MemoryDescriptions) {
+    next = next->next;
+  }
+  const PJRT_MemoryDescriptions_Extension* extension =
+      reinterpret_cast<const PJRT_MemoryDescriptions_Extension*>(next);
+  if (extension) {
+    error = extension->PJRT_DeviceDescription_MemorySpaces(&memory_spaces);
+    EXPECT_EQ(error, nullptr);
+  }
 }
 
 // ---------------------------------- Buffers ----------------------------------

@@ -55,7 +55,9 @@ xla_cc_test(
         ":parallel_loop_runner",
         "//xla/tsl/concurrency:async_value",
         "@com_google_absl//absl/algorithm:container",
+        "@com_google_absl//absl/cleanup",
         "@com_google_absl//absl/synchronization",
+        "@com_google_absl//absl/types:span",
         "@eigen_archive//:eigen3",
         "@local_tsl//tsl/platform:env",
         "@local_tsl//tsl/platform:test",
@@ -96,7 +98,6 @@ cc_library(
 xla_cc_test(
     name = "xnn_threadpool_test",
     srcs = ["xnn_threadpool_test.cc"],
-    tags = ["no_oss"],
     deps = [
         ":parallel_loop_runner",
         ":xnn_threadpool",

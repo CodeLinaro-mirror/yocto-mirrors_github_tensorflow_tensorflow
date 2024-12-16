@@ -302,6 +302,32 @@ TEST(TensorBuffer, NotOwned) {
   LiteRtDestroyTensorBuffer(litert_tensor_buffer);
 }
 
+TEST(TensorBuffer, ExternalHostMemory) {
+  // Allocate a tensor buffer with host memory.
+  const int kTensorBufferSize = sizeof(kTensorData);
+  const litert::RankedTensorType kTensorType(::kTensorType);
+  auto tensor_buffer = litert::TensorBuffer::CreateManaged(
+      kLiteRtTensorBufferTypeHostMemory, kTensorType, kTensorBufferSize);
+  ASSERT_TRUE(tensor_buffer);
+  auto lock_and_addr_host_memory =
+      litert::TensorBufferScopedLock::Create(*tensor_buffer);
+  ASSERT_TRUE(lock_and_addr_host_memory);
+  std::memcpy(lock_and_addr_host_memory->second, kTensorData,
+              sizeof(kTensorData));
+
+  // Create a tensor buffer that wraps the host memory.
+  auto tensor_buffer_from_external_memory =
+      litert::TensorBuffer::CreateFromHostMemory(
+          kTensorType, lock_and_addr_host_memory->second, kTensorBufferSize);
+
+  auto lock_and_addr_external_memory = litert::TensorBufferScopedLock::Create(
+      *tensor_buffer_from_external_memory);
+  ASSERT_TRUE(lock_and_addr_external_memory);
+  ASSERT_EQ(std::memcmp(lock_and_addr_external_memory->second, kTensorData,
+                        sizeof(kTensorData)),
+            0);
+}
+
 TEST(TensorBuffer, Duplicate) {
   LiteRtTensorBuffer litert_tensor_buffer;
   ASSERT_EQ(LiteRtCreateManagedTensorBuffer(kLiteRtTensorBufferTypeHostMemory,

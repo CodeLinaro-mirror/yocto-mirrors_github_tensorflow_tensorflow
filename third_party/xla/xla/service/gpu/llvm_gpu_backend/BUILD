@@ -100,8 +100,6 @@ cc_library(
         "@local_config_rocm//rocm:rocm_headers",
         "@llvm-project//llvm:AMDGPUCodeGen",
         "@llvm-project//llvm:AMDGPUAsmParser",
-    ]) + if_sycl_is_configured([
-        "@spirv_llvm_translator//:spirv_llvm_translator",
     ]),
 )
 

@@ -318,6 +318,7 @@ class MemorySpaceAssignment {
   // If alt_mem_bytes_occupied is not null, it will be populated with the number
   // of bytes occupied in the alternate memory space at each instruction time.
   absl::Status VerifyAndExportHeapSimulatorTrace(
+      const HloAliasAnalysis& alias_analysis,
       std::vector<int64_t>* alt_mem_bytes_occupied = nullptr);
 
  protected:
@@ -372,7 +373,7 @@ class MemorySpaceAssignment {
 
   // Export the alternate memory assignments to the PresetAssignments and color
   // the HLO graph with the determined memory spaces.
-  absl::Status ExportAndColorBuffers();
+  absl::Status ExportAndColorBuffers(const HloAliasAnalysis& alias_analysis);
 
   // Schedules asynchronous copies and ensures that the CopyStarts and their
   // corresponding CopyDones follow the same order.

@@ -409,19 +409,14 @@ MemorySpaceAssignment::RunMemorySpaceAssignment(
   ScheduleAsynchronousCopies();
   TF_RETURN_IF_ERROR(SimplifyGraph());
   TF_RETURN_IF_ERROR(FixSchedule());
-  TF_RETURN_IF_ERROR(ExportAndColorBuffers());
+  TF_RETURN_IF_ERROR(ExportAndColorBuffers(alias_analysis));
   std::vector<int64_t> alt_mem_bytes_occupied;
   // alt_mem_bytes_occupied is used for logging in the RuntimeSimulator below.
   // We only populate it in VerifyAndExportHeapSimulatorTrace if the
   // RuntimeSimulator is present.
   TF_RETURN_IF_ERROR(VerifyAndExportHeapSimulatorTrace(
+      alias_analysis,
       runtime_simulator.has_value() ? &alt_mem_bytes_occupied : nullptr));
-  if (runtime_simulator.has_value()) {
-    float estimated_time = runtime_simulator->SimulateElapsedTime(
-        module_, allocations_, &alt_mem_bytes_occupied);
-    VLOG(1) << "Estimated elapsed time with async copies (sec): "
-            << estimated_time;
-  }
 
   if (VLOG_IS_ON(3)) {
     LOG(INFO) << "Module after memory space assignment: ";
@@ -539,15 +534,15 @@ absl::Status MemorySpaceAssignment::Process(
   return absl::OkStatus();
 }
 
-absl::Status MemorySpaceAssignment::ExportAndColorBuffers() {
+absl::Status MemorySpaceAssignment::ExportAndColorBuffers(
+    const HloAliasAnalysis& alias_analysis) {
   VLOG(1) << "Exporting buffers...";
-  TF_ASSIGN_OR_RETURN(auto alias_analysis, HloAliasAnalysis::Run(module_));
   absl::flat_hash_map<int64_t, int64_t> seen_buffer_offsets;
   VLOG(3) << "Exported alternate memory allocations:";
   for (const auto& position_and_chunk : alternate_memory_assignments_) {
     const HloPosition& defining_position = position_and_chunk.first;
     const HeapSimulator::Chunk& chunk = position_and_chunk.second;
-    const HloBuffer& buffer = alias_analysis->GetUniqueBufferAt(
+    const HloBuffer& buffer = alias_analysis.GetUniqueBufferAt(
         defining_position.instruction, defining_position.index);
     auto seen_buffer_offset_it = seen_buffer_offsets.find(buffer.id());
     if (seen_buffer_offset_it != seen_buffer_offsets.end()) {
@@ -589,7 +584,7 @@ absl::Status MemorySpaceAssignment::ExportAndColorBuffers() {
   for (const auto& defining_position_and_chunk :
        preset_assignments_->chunks()) {
     const HloPosition& defining_position = defining_position_and_chunk.first;
-    for (auto& buffer : alias_analysis->ComputeBuffersAt(
+    for (auto& buffer : alias_analysis.ComputeBuffersAt(
              defining_position.instruction, defining_position.index)) {
       for (auto& value : buffer->values()) {
         for (auto& position : value->positions()) {
@@ -1049,12 +1044,11 @@ absl::Status MemorySpaceAssignment::FixSchedule() {
 }
 
 absl::Status MemorySpaceAssignment::VerifyAndExportHeapSimulatorTrace(
+    const HloAliasAnalysis& alias_analysis,
     std::vector<int64_t>* alt_mem_bytes_occupied) {
   VLOG(1) << "Verifying...";
-  TF_ASSIGN_OR_RETURN(std::unique_ptr<HloAliasAnalysis> alias_analysis,
-                      HloAliasAnalysis::Run(module_));
   TF_ASSIGN_OR_RETURN(std::unique_ptr<HloLiveRange> hlo_live_range,
-                      HloLiveRange::Run(module_->schedule(), *alias_analysis,
+                      HloLiveRange::Run(module_->schedule(), alias_analysis,
                                         module_->entry_computation()));
 
   BufferIntervalTree interval_tree;
@@ -1120,7 +1114,7 @@ absl::Status MemorySpaceAssignment::VerifyAndExportHeapSimulatorTrace(
     const HloPosition& position = position_and_chunk.first;
     const HeapSimulator::Chunk& chunk = position_and_chunk.second;
     const HloBuffer& buffer =
-        alias_analysis->GetUniqueBufferAt(position.instruction, position.index);
+        alias_analysis.GetUniqueBufferAt(position.instruction, position.index);
     CHECK(!seen_buffers.contains(buffer.id()))
         << "Multiple preset assignments for the same buffer: "
         << buffer.ToString() << ", pos: " << position.ToString()

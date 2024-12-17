@@ -1081,7 +1081,10 @@ message DebugOptions {
   // be deterministic, although with additional overhead.
   bool xla_gpu_enable_scatter_determinism_expander = 345;
 
-  // Next id: 355
+  // When possible, XLA will use Triton's experimental TMA feature.
+  bool xla_gpu_triton_enable_tma = 355;
+
+  // Next id: 356
 
   // Extra options to pass to the compilation backend (e.g. LLVM); specific
   // interpretation of these values is left to the backend.

@@ -37,6 +37,9 @@ limitations under the License.
 #include "xla/hlo/testlib/hlo_hardware_independent_test_base.h"
 #include "xla/hlo/testlib/verified_hlo_module.h"
 #include "xla/literal.h"
+#include "xla/literal_util.h"
+#include "xla/service/backend.h"
+#include "xla/service/computation_layout.h"
 #include "xla/service/computation_placer.h"
 #include "xla/service/executable.h"
 #include "xla/service/hlo_module_config.h"
@@ -131,6 +134,11 @@ class HloRunnerAgnosticTestBase : public HloHardwareIndependentTestBase {
   absl::StatusOr<std::unique_ptr<Executable>> CreateExecutable(
       std::unique_ptr<HloModule> module, bool run_hlo_passes) {
     return test_runner_->CreateExecutable(std::move(module), run_hlo_passes);
+  }
+
+  absl::StatusOr<std::unique_ptr<AotCompilationResult>> Export(
+      Executable* executable) {
+    return test_runner_->Export(executable);
   }
 
   // Executes the given module on multiple replicas.

@@ -143,6 +143,9 @@ class HloRunner : public HloRunnerInterface {
       const BufferAssignmentProto* /*buffer_assignment_proto*/,
       bool run_hlo_passes) override;
 
+  absl::StatusOr<std::unique_ptr<AotCompilationResult>> Export(
+      Executable* executable) override;
+
   // Executes a given HLO module into a set of replicas, and returns a map
   // with the replica number as key, and the corresponding returned literal as
   // value.

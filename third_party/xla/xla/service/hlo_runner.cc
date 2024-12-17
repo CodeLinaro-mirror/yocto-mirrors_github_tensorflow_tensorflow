@@ -12,6 +12,7 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
+
 #define EIGEN_USE_THREADS
 
 #include "xla/service/hlo_runner.h"
@@ -21,10 +22,11 @@ limitations under the License.
 #include <utility>
 #include <vector>
 
+#include "absl/status/statusor.h"
 #include "unsupported/Eigen/CXX11/Tensor"
 #include "xla/hlo/ir/hlo_module_group.h"
-#include "xla/hlo/parser/hlo_parser.h"
-#include "xla/layout_util.h"
+#include "xla/service/backend.h"
+#include "xla/service/compiler.h"
 #include "xla/service/executable.h"
 #include "xla/service/gpu/gpu_executable_run_options.h"
 #include "xla/service/hlo_module_util.h"
@@ -32,9 +34,9 @@ limitations under the License.
 #include "xla/shape.h"
 #include "xla/shape_util.h"
 #include "xla/stream_executor/device_memory_allocator.h"
+#include "xla/stream_executor/platform.h"
 #include "xla/stream_executor/stream_executor_memory_allocator.h"
-#include "tsl/platform/blocking_counter.h"
-#include "tsl/platform/logging.h"
+#include "xla/tsl/platform/errors.h"
 #include "tsl/platform/statusor.h"
 
 namespace xla {
@@ -51,7 +53,7 @@ HloRunner::HloRunner(se::Platform* platform, int intra_op_parallelism_threads) {
   VLOG(1) << "Created HloRunner for platform: " << platform->Name();
 }
 
-HloRunner::~HloRunner() {}
+HloRunner::~HloRunner() = default;
 
 se::DeviceMemoryAllocator* HloRunner::GetAllocator() {
   if (allocator_ == nullptr) {
@@ -677,6 +679,11 @@ HloRunner::CreateExecutableWithBufferAssignment(
   return backend().compiler()->RunBackendWithBufferAssignment(
       std::move(module), buffer_assignment_proto,
       backend().default_stream_executor(), backend().memory_allocator());
+}
+
+absl::StatusOr<std::unique_ptr<AotCompilationResult>> HloRunner::Export(
+    Executable* executable) {
+  return backend().compiler()->Export(executable);
 }
 
 ServiceExecutableRunOptions HloRunner::GetServiceRunOptionsForDevice(

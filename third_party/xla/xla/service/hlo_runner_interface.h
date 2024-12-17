@@ -25,10 +25,12 @@ limitations under the License.
 #include <utility>
 #include <vector>
 
+#include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/types/span.h"
 #include "xla/hlo/ir/hlo_computation.h"
 #include "xla/hlo/ir/hlo_module.h"
+#include "xla/service/compiler.h"
 #include "xla/service/computation_placer.h"
 #include "xla/service/executable.h"
 #include "xla/status_macros.h"
@@ -118,6 +120,12 @@ class HloRunnerInterface {
   // true, the HLO passes will be run as part of compilation.
   virtual absl::StatusOr<std::unique_ptr<Executable>> CreateExecutable(
       std::unique_ptr<HloModule> module, bool run_hlo_passes) = 0;
+
+  // Export an executable to a aot compilation result.
+  virtual absl::StatusOr<std::unique_ptr<AotCompilationResult>> Export(
+      Executable* executable) {
+    return absl::UnimplementedError("Export unimplemented");
+  }
 
   // Same as above, except it takes buffer assignment as input.
   // Note: The default implementation of the API here does not utilize the given

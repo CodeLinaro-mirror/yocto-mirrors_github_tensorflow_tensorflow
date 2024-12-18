@@ -224,7 +224,6 @@ absl::StatusOr<llvm::Function*> IrEmitter::EmitComputation(
   std::string function_name = name_uniquer_.GetUniqueName(function_name_prefix);
   VLOG(2) << "Emitting IR for CPU function [" << function_name_prefix << "]";
   is_top_level_computation_ = is_top_level_computation;
-  allow_reassociation_ = allow_reassociation;
   num_dynamic_loop_bounds_ = 0;
   auto backend_config_or =
       computation->root_instruction()->backend_config<BackendConfig>();
@@ -706,8 +705,7 @@ absl::Status IrEmitter::HandleSort(HloInstruction* hlo) {
   }
 
   auto less_than_function =
-      FindOrDie(emitted_functions_,
-                ComputationToEmit{sort->to_apply(), allow_reassociation_});
+      FindOrDie(emitted_functions_, ComputationToEmit{sort->to_apply(), false});
   EmitCallToFunc(
       runtime::kKeyValueSortSymbolName,
       {b()->getInt64(higher_dimensions), b()->getInt64(sort_dimension_elements),
@@ -747,10 +745,7 @@ absl::Status IrEmitter::HandleReduceWindow(HloInstruction* reduce_window) {
   //
   // This is completely un-optimized and just here to have something
   // that works.
-  bool saved_allow_reassociation = allow_reassociation_;
-  allow_reassociation_ = true;
   absl::Status status = DefaultAction(reduce_window);
-  allow_reassociation_ = saved_allow_reassociation;
   return status;
 }
 
@@ -1896,11 +1891,6 @@ absl::Status IrEmitter::HandleReduce(HloInstruction* reduce) {
   auto init_value = reduce->mutable_operand(1);
   absl::Span<const int64_t> dimensions(reduce->dimensions());
   HloComputation* function = reduce->to_apply();
-  bool saved_allow_reassociation = allow_reassociation_;
-  allow_reassociation_ = true;
-  auto cleanup = absl::MakeCleanup([saved_allow_reassociation, this]() {
-    allow_reassociation_ = saved_allow_reassociation;
-  });
   if (!options::VectorizedReduceDisabled(hlo_module_config_)) {
     std::string vectorization_failure_reason;
     TF_ASSIGN_OR_RETURN(
@@ -2245,8 +2235,8 @@ absl::Status IrEmitter::HandleFusion(HloInstruction* fusion) {
 
 absl::Status IrEmitter::HandleCall(HloInstruction* call) {
   HloComputation* computation = call->to_apply();
-  llvm::Function* call_ir_function = FindOrDie(
-      emitted_functions_, ComputationToEmit{computation, allow_reassociation_});
+  llvm::Function* call_ir_function =
+      FindOrDie(emitted_functions_, ComputationToEmit{computation, false});
 
   TF_RETURN_IF_ERROR(EmitTargetAddressForOp(call));
 
@@ -4084,18 +4074,16 @@ std::vector<llvm::Value*> IrEmitter::EmitThreadLocalCall(
 
   llvm::Value* null_ptr = llvm::Constant::getNullValue(b()->getPtrTy());
 
-  Call(
-      FindOrDie(emitted_functions_,
-                ComputationToEmit{&callee, allow_reassociation_ || is_reducer}),
-      GetArrayFunctionCallArguments(
-          parameter_addrs, b(), name,
-          /*return_value_buffer=*/return_value_buffer,
-          /*exec_run_options_arg=*/
-          in_compute_function ? GetExecutableRunOptionsArgument() : null_ptr,
-          /*buffer_table_arg=*/null_ptr,
-          /*status_arg=*/in_compute_function ? GetStatusArgument() : null_ptr,
-          /*profile_counters_arg=*/
-          in_compute_function ? GetProfileCountersArgument() : null_ptr));
+  Call(FindOrDie(emitted_functions_, ComputationToEmit{&callee, is_reducer}),
+       GetArrayFunctionCallArguments(
+           parameter_addrs, b(), name,
+           /*return_value_buffer=*/return_value_buffer,
+           /*exec_run_options_arg=*/
+           in_compute_function ? GetExecutableRunOptionsArgument() : null_ptr,
+           /*buffer_table_arg=*/null_ptr,
+           /*status_arg=*/in_compute_function ? GetStatusArgument() : null_ptr,
+           /*profile_counters_arg=*/
+           in_compute_function ? GetProfileCountersArgument() : null_ptr));
 
   if (ComputationTransitivelyContainsCustomCall(&callee)) {
     DCHECK(!in_compute_function) << "Custom call inside nested computations "
@@ -4116,8 +4104,7 @@ void IrEmitter::EmitGlobalCall(const HloComputation& callee,
                                absl::string_view name) {
   CHECK(absl::c_binary_search(global_computations_, &callee));
 
-  Call(FindOrDie(emitted_functions_,
-                 ComputationToEmit{&callee, allow_reassociation_}),
+  Call(FindOrDie(emitted_functions_, ComputationToEmit{&callee, false}),
        GetArrayFunctionCallArguments(
            /*parameter_addresses=*/{}, b(), name,
            /*return_value_buffer=*/

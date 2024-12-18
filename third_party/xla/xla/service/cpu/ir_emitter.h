@@ -631,7 +631,6 @@ class IrEmitter : public DfsHloVisitorWithDefault,
   llvm::IRBuilderBase* current_builder_;
   std::stack<IrFunction> compute_function_;
   mlir::MLIRContext* mlir_context_;
-  bool allow_reassociation_;
 
   // The buffer allocation slice for the root of the computation being compiled.
   // Only relevant for thread local computations.

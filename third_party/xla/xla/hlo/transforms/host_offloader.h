@@ -84,6 +84,18 @@ class HostOffloader : public HloModulePass {
   absl::flat_hash_set<host_offload_utils::InstructionAndShapeIndex>
       already_inserted_copy_before_;
 
+  // DynamicUpdateSlices are a bit special because they are the only op which
+  // has multiple operands that host memory offloading supports. As a result,
+  // different memory propagation paths can pass through the same
+  // DynamicUpdateSlice. These track which paths have been seen.
+  std::vector<HloInstruction*> dynamic_update_slices_seen_with_annotation_;
+  std::vector<HloInstruction*> dynamic_update_slices_seen_without_annotation_;
+
+  // Maybe set DynamicUpdateSlice as host compute. Also maybe convert
+  // broadcast(0) to an "AllocateBuffer". Should be called only after all host
+  // memory propagation is done. Returns true if the module was changed.
+  absl::StatusOr<bool> HandleDynamicUpdateSlices();
+
   // Sometimes previous transformations turn a DynamicSlice into a Slice. Since
   // we're doing a DMA between the host and device, we need to turn the Slice
   // back into a DynamicSlice.

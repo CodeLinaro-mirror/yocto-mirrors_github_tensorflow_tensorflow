@@ -1174,8 +1174,8 @@ class LowerTensorsPass : public impl::LowerTensorsPassBase<LowerTensorsPass> {
         .add<RewriteAllocateShared, RewriteNonScalarConstants,
              RewriteSyncThreads, RewriteTensorExtract, RewriteTransferRead,
              RewriteTensorInsert, RewriteTransferWrite>(mlir_context);
-    if (mlir::failed(mlir::applyPatternsAndFoldGreedily(
-            getOperation(), std::move(tensor_patterns)))) {
+    if (mlir::failed(mlir::applyPatternsGreedily(getOperation(),
+                                                 std::move(tensor_patterns)))) {
       signalPassFailure();
       return;
     }
@@ -1186,7 +1186,7 @@ class LowerTensorsPass : public impl::LowerTensorsPassBase<LowerTensorsPass> {
         mlir_context);
     scf::ForOp::getCanonicalizationPatterns(function_patterns, mlir_context);
     scf::IfOp::getCanonicalizationPatterns(function_patterns, mlir_context);
-    if (mlir::failed(mlir::applyPatternsAndFoldGreedily(
+    if (mlir::failed(mlir::applyPatternsGreedily(
             getOperation(), std::move(function_patterns)))) {
       signalPassFailure();
       return;

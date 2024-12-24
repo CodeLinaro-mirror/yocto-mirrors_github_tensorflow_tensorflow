@@ -1,3 +1,4 @@
+// RUN: tf-opt -verify-diagnostics -tf-saved-model-lift-variables-test=import-variables-as-dense-resources=true -split-input-file %s | FileCheck %s --dump-input=fail
 // RUN: tf-opt -verify-diagnostics -tf-saved-model-lift-variables-test -split-input-file %s | FileCheck %s --dump-input=fail
 
 module attributes {tf_saved_model.semantics, tf_saved_model.under_construction} {

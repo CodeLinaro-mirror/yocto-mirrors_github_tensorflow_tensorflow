@@ -26,15 +26,15 @@ limitations under the License.
 #include "xla/backends/cpu/runtime/resource_use.h"
 #include "xla/backends/cpu/runtime/thunk.h"
 #include "xla/backends/cpu/runtime/thunk_testlib.h"
+#include "xla/literal_util.h"
 #include "xla/runtime/buffer_use.h"
 #include "xla/service/buffer_assignment.h"
-#include "xla/service/maybe_owning_device_memory.h"
 #include "xla/stream_executor/device_memory.h"
 #include "xla/tsl/concurrency/async_value_ref.h"
-#include "tsl/platform/env.h"
-#include "tsl/platform/statusor.h"
-#include "tsl/platform/test.h"
-#include "tsl/platform/threadpool.h"
+#include "xla/tsl/platform/env.h"
+#include "xla/tsl/platform/statusor.h"
+#include "xla/tsl/platform/test.h"
+#include "xla/tsl/platform/threadpool.h"
 
 #define EIGEN_USE_THREADS
 
@@ -161,20 +161,14 @@ class BodyThunk : public Thunk {
 TEST(WhileThunkTest, NonBlockingExecute) {
   static constexpr size_t kNumIterations = 100;
 
-  BufferAllocation pred_alloc(0, sizeof(char), 0);
-  BufferAllocation cnt_alloc(1, sizeof(int32_t), 0);
+  auto pred = LiteralUtil::CreateR0<uint8_t>(false);
+  auto cnt = LiteralUtil::CreateR0<int32_t>(0);
 
-  BufferAllocation::Slice pred_slice(&pred_alloc, 0, sizeof(char));
-  BufferAllocation::Slice cnt_slice(&cnt_alloc, 0, sizeof(int32_t));
+  BufferAllocations allocations = CreateBufferAllocations(pred, cnt);
 
-  std::vector<MaybeOwningDeviceMemory> buffers;
-  std::vector<char> predicate = {false};
-  std::vector<int32_t> counter = {0};
-
-  buffers.emplace_back(se::DeviceMemoryBase(predicate.data(), sizeof(char)));
-  buffers.emplace_back(se::DeviceMemoryBase(counter.data(), sizeof(int32_t)));
-
-  BufferAllocations allocations(buffers);
+  auto [pred_alloc, cnt_alloc] = CreateBufferAllocation(pred, cnt);
+  auto [pred_slice, cnt_slice] =
+      CreateBufferAllocationSlice(pred_alloc, cnt_alloc);
 
   ThunkSequence cond_sequence;
   cond_sequence.push_back(
@@ -200,26 +194,20 @@ TEST(WhileThunkTest, NonBlockingExecute) {
   tsl::BlockUntilReady(execute_event);
   ASSERT_FALSE(execute_event.IsError());
 
-  EXPECT_EQ(counter[0], kNumIterations);
+  EXPECT_EQ(cnt, LiteralUtil::CreateR0<int32_t>(kNumIterations));
 }
 
 TEST(WhileThunkTest, NonBlockingExecuteWithTripCount) {
   static constexpr size_t kNumIterations = 100;
 
-  BufferAllocation pred_alloc(0, sizeof(char), 0);
-  BufferAllocation cnt_alloc(1, sizeof(int32_t), 0);
+  auto pred = LiteralUtil::CreateR0<uint8_t>(false);
+  auto cnt = LiteralUtil::CreateR0<int32_t>(0);
 
-  BufferAllocation::Slice pred_slice(&pred_alloc, 0, sizeof(char));
-  BufferAllocation::Slice cnt_slice(&cnt_alloc, 0, sizeof(int32_t));
+  BufferAllocations allocations = CreateBufferAllocations(pred, cnt);
 
-  std::vector<MaybeOwningDeviceMemory> buffers;
-  std::vector<char> predicate = {false};
-  std::vector<int32_t> counter = {0};
-
-  buffers.emplace_back(se::DeviceMemoryBase(predicate.data(), sizeof(char)));
-  buffers.emplace_back(se::DeviceMemoryBase(counter.data(), sizeof(int32_t)));
-
-  BufferAllocations allocations(buffers);
+  auto [pred_alloc, cnt_alloc] = CreateBufferAllocation(pred, cnt);
+  auto [pred_slice, cnt_slice] =
+      CreateBufferAllocationSlice(pred_alloc, cnt_alloc);
 
   // We pass empty cond sequence, because we know the trip count, and check that
   // predicate value is ignored (it is initialized to false) and body executed
@@ -246,7 +234,7 @@ TEST(WhileThunkTest, NonBlockingExecuteWithTripCount) {
   tsl::BlockUntilReady(execute_event);
   ASSERT_FALSE(execute_event.IsError());
 
-  EXPECT_EQ(counter[0], kNumIterations);
+  EXPECT_EQ(cnt, LiteralUtil::CreateR0<int32_t>(kNumIterations));
 }
 
 }  // namespace

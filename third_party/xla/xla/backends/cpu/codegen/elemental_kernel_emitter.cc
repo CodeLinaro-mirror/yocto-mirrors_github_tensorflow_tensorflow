@@ -13,7 +13,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
 
-#include "xla/backends/cpu/testlib/elemental_kernel_emitter.h"
+#include "xla/backends/cpu/codegen/elemental_kernel_emitter.h"
 
 #include <cstddef>
 #include <cstdint>
@@ -37,8 +37,8 @@ limitations under the License.
 #include "llvm/IR/Module.h"
 #include "llvm/IR/Value.h"
 #include "xla/backends/cpu/codegen/kernel_api_ir_builder.h"
+#include "xla/backends/cpu/codegen/llvm_ir_kernel_spec.h"
 #include "xla/backends/cpu/codegen/target_machine_features.h"
-#include "xla/backends/cpu/testlib/llvm_ir_kernel_spec.h"  // Move this outside of testlib?
 #include "xla/codegen/kernel_spec.h"
 #include "xla/codegen/llvm_ir_kernel_source.h"
 #include "xla/hlo/ir/hlo_computation.h"

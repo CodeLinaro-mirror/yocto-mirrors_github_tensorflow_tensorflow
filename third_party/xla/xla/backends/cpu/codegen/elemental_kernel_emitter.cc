@@ -13,7 +13,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
 
-#include "xla/backends/cpu/testlib/elemental_kernel_emitter.h"
+#include "xla/backends/cpu/codegen/elemental_kernel_emitter.h"
 
 #include <cstddef>
 #include <cstdint>
@@ -37,8 +37,8 @@ limitations under the License.
 #include "llvm/IR/Module.h"
 #include "llvm/IR/Value.h"
 #include "xla/backends/cpu/codegen/kernel_api_ir_builder.h"
+#include "xla/backends/cpu/codegen/llvm_ir_kernel_spec.h"
 #include "xla/backends/cpu/codegen/target_machine_features.h"
-#include "xla/backends/cpu/testlib/llvm_ir_kernel_spec.h"  // Move this outside of testlib?
 #include "xla/codegen/kernel_spec.h"
 #include "xla/codegen/llvm_ir_kernel_source.h"
 #include "xla/hlo/ir/hlo_computation.h"
@@ -198,16 +198,12 @@ ComputationsTransitivelyContainCustomCall(const HloInstruction& op_hlo) {
 }  // namespace
 
 ElementalKernelEmitter::ElementalKernelEmitter(const HloInstruction& op_hlo)
-    : op_hlo_(op_hlo),
-      context_(std::make_unique<llvm::LLVMContext>()),
-      kernel_api_ir_builder_(*context_.getContext(),
-                             KernelApiIrBuilder::Options{true, 256}) {}
+    : ElementalKernelEmitter(op_hlo, nullptr, nullptr) {}
 
 ElementalKernelEmitter::ElementalKernelEmitter(
-    const HloModule* hlo_module, const BufferAssignment* buffer_assignment,
+    const HloInstruction& op_hlo, const BufferAssignment* buffer_assignment,
     const TargetMachineFeatures* target_machine)
-    : op_hlo_(*hlo_module->entry_computation()->root_instruction()),
-      hlo_module_(hlo_module),
+    : op_hlo_(op_hlo),
       buffer_assignment_(buffer_assignment),
       target_machine_(target_machine),
       context_(std::make_unique<llvm::LLVMContext>()),
@@ -317,12 +313,13 @@ absl::StatusOr<se::ThreadDim> ElementalKernelEmitter::EmitElementalLoops(
 absl::StatusOr<CpuElementalIrEmitter::ThreadLocalCallCallback>
 ElementalKernelEmitter::ThreadLocalCallbackFactory(llvm::IRBuilderBase& builder,
                                                    llvm::Module& module) const {
-  if (hlo_module_ == nullptr) {
+  const HloModule* hlo_module = op_hlo_.GetModule();
+  if (hlo_module == nullptr) {
     return nullptr;
   }
 
   auto ir_emitter = std::make_unique<IrEmitter>(
-      nullptr, *hlo_module_, *buffer_assignment_, &module,
+      nullptr, *hlo_module, *buffer_assignment_, &module,
       /*instruction_to_profile_idx=*/
       absl::flat_hash_map<const HloInstruction*, int64_t>{},
       /*computation_to_profile_idx=*/

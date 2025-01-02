@@ -13,8 +13,8 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
 
-#ifndef XLA_BACKENDS_CPU_TESTLIB_ELEMENTAL_KERNEL_EMITTER_H_
-#define XLA_BACKENDS_CPU_TESTLIB_ELEMENTAL_KERNEL_EMITTER_H_
+#ifndef XLA_BACKENDS_CPU_CODEGEN_ELEMENTAL_KERNEL_EMITTER_H_
+#define XLA_BACKENDS_CPU_CODEGEN_ELEMENTAL_KERNEL_EMITTER_H_
 
 #include <cstddef>
 #include <memory>
@@ -39,7 +39,7 @@ class ElementalKernelEmitter final : public KernelEmitter {
  public:
   explicit ElementalKernelEmitter(const HloInstruction& op_hlo);
 
-  ElementalKernelEmitter(const HloModule* hlo_module,
+  ElementalKernelEmitter(const HloInstruction& op_hlo,
                          const BufferAssignment* buffer_assignment,
                          const TargetMachineFeatures* target_machine);
 
@@ -63,7 +63,6 @@ class ElementalKernelEmitter final : public KernelEmitter {
  private:
   const HloInstruction& op_hlo_;
 
-  const HloModule* hlo_module_ = nullptr;
   const BufferAssignment* buffer_assignment_ = nullptr;
   const TargetMachineFeatures* target_machine_ = nullptr;
 
@@ -74,4 +73,4 @@ class ElementalKernelEmitter final : public KernelEmitter {
 
 }  // namespace xla::cpu
 
-#endif  // XLA_BACKENDS_CPU_TESTLIB_ELEMENTAL_KERNEL_EMITTER_H_
+#endif  // XLA_BACKENDS_CPU_CODEGEN_ELEMENTAL_KERNEL_EMITTER_H_

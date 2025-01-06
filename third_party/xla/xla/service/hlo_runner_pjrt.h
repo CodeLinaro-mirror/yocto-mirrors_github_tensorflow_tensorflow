@@ -117,6 +117,8 @@ class HloRunnerPjRt : public HloRunnerInterface {
     return device_shape_size_fn_;
   }
 
+  int device_count() const override { return pjrt_client_->device_count(); }
+
  private:
   std::unique_ptr<PjRtClient> pjrt_client_;
   DeviceShapeRepresentationFn device_shape_representation_fn_;

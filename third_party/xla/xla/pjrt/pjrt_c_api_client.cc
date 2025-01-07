@@ -688,10 +688,10 @@ absl::StatusOr<Layout> PjRtCApiClient::GetDefaultLayout(
 
   std::string serialized_layout(serialize_args.serialized_bytes,
                                 serialize_args.serialized_bytes_size);
-  TF_ASSIGN_OR_RETURN(PjRtXlaLayout pjrt_xla_layout,
-                      PjRtXlaLayout::Deserialize(serialized_layout));
+  TF_ASSIGN_OR_RETURN(std::shared_ptr<const PjRtLayout> pjrt_layout,
+                      PjRtLayout::Deserialize(serialized_layout));
 
-  return pjrt_xla_layout.xla_layout();
+  return pjrt_layout->xla_layout();
 }
 
 class PjRtCApiAsyncHostToDeviceTransferManager
@@ -2030,7 +2030,7 @@ std::shared_ptr<const PjRtLayout> PjRtCApiBuffer::layout() const {
           pjrt::FindExtension<PJRT_Layouts_Extension>(
               c_api, PJRT_Extension_Type::PJRT_Extension_Type_Layouts);
       if (extension == nullptr) {
-        layout_ = std::make_shared<PjRtXlaLayout>(
+        layout_ = std::make_shared<PjRtLayout>(
             LayoutUtil::MakeDescendingLayout(dimensions().size()));
       } else {
         std::unique_ptr<PJRT_Layouts_MemoryLayout,
@@ -2056,10 +2056,10 @@ std::shared_ptr<const PjRtLayout> PjRtCApiBuffer::layout() const {
 
         std::string serialized_layout(serialize_args.serialized_bytes,
                                       serialize_args.serialized_bytes_size);
-        absl::StatusOr<PjRtXlaLayout> pjrt_xla_layout =
-            PjRtXlaLayout::Deserialize(serialized_layout);
-        TF_CHECK_OK(pjrt_xla_layout.status());
-        layout_ = std::make_shared<PjRtXlaLayout>(*std::move(pjrt_xla_layout));
+        absl::StatusOr<std::shared_ptr<const PjRtLayout>> pjrt_layout =
+            PjRtLayout::Deserialize(serialized_layout);
+        TF_CHECK_OK(pjrt_layout.status());
+        layout_ = *std::move(pjrt_layout);
       }
     }
   }

@@ -40,8 +40,16 @@ class HloParserOptions {
 
   bool fill_missing_layouts() const { return fill_missing_layouts_; }
 
+  // Fill `...` with deterministic (garbage) values in ParseDenseLiteral.
+  HloParserOptions& set_fill_k_dots(bool value) {
+    fill_k_dots_ = value;
+    return *this;
+  }
+  bool fill_k_dots() const { return fill_k_dots_; }
+
  private:
   bool fill_missing_layouts_ = true;
+  bool fill_k_dots_ = true;
 };
 
 // Given a string in the HloModule::ToString() format, parses the string and

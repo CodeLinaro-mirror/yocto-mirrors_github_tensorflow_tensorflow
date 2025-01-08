@@ -132,7 +132,7 @@ cc_library(
     hdrs = ["test.h"],
     visibility = internal_visibility([":friends"]),
     deps = [
-        "@com_google_googletest//:gtest",
+        "//testing/base/public:gunit_for_library_testonly",
         "@local_tsl//tsl/platform",
         "@local_tsl//tsl/platform:test",
     ],

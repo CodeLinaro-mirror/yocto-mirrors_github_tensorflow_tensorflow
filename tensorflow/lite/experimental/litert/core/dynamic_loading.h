@@ -38,8 +38,10 @@ inline void LogDlError() {
   LITERT_LOG(LITERT_WARNING, "::dlerror() : %s", err);
 }
 
-// Loads shared library at given path.
-LiteRtStatus OpenLib(absl::string_view so_path, void** lib_handle);
+// Loads shared library at given path. Logging can be disabled to probe for
+// shared libraries.
+LiteRtStatus OpenLib(absl::string_view so_path, void** lib_handle,
+                     bool enable_logging = true);
 
 // Closes reference to loaded shared library held by lib_handle.
 LiteRtStatus CloseLib(void* lib_handle);

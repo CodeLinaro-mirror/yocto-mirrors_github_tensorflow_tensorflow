@@ -13,36 +13,36 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
 
-#include "xla/service/cpu/in_process_collectives.h"
+#ifndef XLA_BACKENDS_CPU_COLLECTIVES_IN_PROCESS_COLLECTIVES_H_
+#define XLA_BACKENDS_CPU_COLLECTIVES_IN_PROCESS_COLLECTIVES_H_
 
+#include <cstdint>
 #include <memory>
-#include <utility>
+#include <optional>
+#include <vector>
 
-#include "absl/log/log.h"
+#include "absl/base/thread_annotations.h"
 #include "absl/status/statusor.h"
 #include "absl/synchronization/mutex.h"
 #include "absl/types/span.h"
+#include "xla/backends/cpu/collectives/cpu_collectives.h"
 #include "xla/backends/cpu/collectives/in_process_communicator.h"
+#include "xla/core/collectives/clique_id.h"
+#include "xla/core/collectives/clique_key.h"
 #include "xla/core/collectives/communicator.h"
-#include "xla/service/global_device_id.h"
 #include "xla/xla_data.pb.h"
 
-namespace xla::cpu::runtime {
+namespace xla::cpu {
 
-absl::StatusOr<std::shared_ptr<Communicator>>
-InProcessCollectives::GetCommunicator(absl::Span<GlobalDeviceId const> devices,
-                                      int rank) {
-  absl::MutexLock lock(&mu_);
+class InProcessCollectives : public CpuCollectives {
+ public:
+  absl::StatusOr<std::vector<std::unique_ptr<Communicator>>>
+  CreateCommunicators(const CliqueKey& clique_key,
+                      const std::optional<CliqueId>& clique_id,
+                      absl::Span<const DeviceRank> ranks,
+                      const Config& config) final;
+};
 
-  std::shared_ptr<InProcessCommunicator::State> state = state_.lock();
-  if (state == nullptr) {
-    state = InProcessCommunicator::CreateState();
-    state_ = state;
-  }
+}  // namespace xla::cpu
 
-  // We don't care about devices here: we share rendezvous state globally.
-  return std::make_shared<InProcessCommunicator>(std::move(state), rank,
-                                                 devices.size());
-}
-
-}  // namespace xla::cpu::runtime
+#endif  // XLA_BACKENDS_CPU_COLLECTIVES_IN_PROCESS_COLLECTIVES_H_

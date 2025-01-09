@@ -103,8 +103,7 @@ absl::StatusOr<std::unique_ptr<tsl::BFCAllocator>> CreateBFCAllocator(
       /*memory_type=*/
       enable_unified_memory ? stream_executor::MemoryType::kUnified
                             : stream_executor::MemoryType::kDevice,
-      /*alloc_visitors=*/std::vector<tsl::SubAllocator::Visitor>(),
-      /*free_visitors=*/std::vector<tsl::SubAllocator::Visitor>());
+      /*alloc_visitors=*/{});
 
   int64_t free_memory;
   int64_t total_memory;
@@ -147,8 +146,7 @@ absl::StatusOr<std::unique_ptr<tsl::BFCAllocator>> CreateCollectiveBFCAllocator(
   auto sub_allocator = std::make_unique<se::DeviceMemAllocator>(
       executor, tsl::PlatformDeviceId(device_ordinal),
       /*memory_type=*/stream_executor::MemoryType::kCollective,
-      /*alloc_visitors=*/std::vector<tsl::SubAllocator::Visitor>(),
-      /*free_visitors=*/std::vector<tsl::SubAllocator::Visitor>());
+      /*alloc_visitors=*/{});
 
   int64_t free_memory;
   int64_t total_memory;

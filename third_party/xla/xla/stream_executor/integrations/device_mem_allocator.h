@@ -34,9 +34,8 @@ class DeviceMemAllocator : public tsl::SubAllocator {
   explicit DeviceMemAllocator(StreamExecutor* stream_exec,
                               tsl::PlatformDeviceId device_id,
                               MemoryType memory_type,
-                              const std::vector<Visitor>& alloc_visitors,
-                              const std::vector<Visitor>& free_visitors)
-      : SubAllocator(alloc_visitors, free_visitors),
+                              const std::vector<Visitor>& alloc_visitors)
+      : SubAllocator(alloc_visitors, {}),
         stream_exec_(stream_exec),
         device_id_(device_id),
         memory_type_(memory_type) {

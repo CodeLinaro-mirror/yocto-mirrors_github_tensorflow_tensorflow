@@ -636,6 +636,11 @@ class SpmdPartitioningVisitor : public DfsHloVisitorWithDefault {
   // Common handle for elementwise HLOs.
   absl::Status HandleElementwise(HloInstruction* hlo);
 
+  // All dimensions in the hlo are element-wise except that we replicate
+  // `dims_to_replicate`.
+  absl::Status HandleElementwiseWithDimsToReplicate(
+      HloInstruction* hlo, absl::Span<const int64_t> dims_to_replicate);
+
   // Common handle for HLOs that runs on a single device.
   absl::Status HandleSingleDevice(const HloInstruction* hlo);
 

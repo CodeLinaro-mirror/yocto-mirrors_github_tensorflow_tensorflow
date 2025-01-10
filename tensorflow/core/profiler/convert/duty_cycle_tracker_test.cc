@@ -32,11 +32,33 @@ using ::tsl::profiler::Timespan;
 
 TEST(DutyCycleTrackerTest, TimeIntervalsTest) {
   DutyCycleTracker tracker;
-  tracker.AddInterval(Timespan::FromEndPoints(0, 10), true);
-  tracker.AddInterval(Timespan::FromEndPoints(20, 30), true);
+  tracker.AddInterval(Timespan::FromEndPoints(10, 20), true);
+  tracker.AddInterval(Timespan::FromEndPoints(30, 40), true);
   EXPECT_EQ(tracker.GetActiveTimePs(), 20);
   EXPECT_EQ(tracker.GetIdleTimePs(), 10);
   EXPECT_EQ(tracker.GetDurationPs(), 30);
+  EXPECT_NEAR(tracker.DutyCycle(), 0.6666, 0.0001);
+}
+
+TEST(DutyCycleTrackerTest, TimeIntervalMergeTest) {
+  DutyCycleTracker tracker;
+  tracker.AddInterval(Timespan::FromEndPoints(10, 20), true);
+  tracker.AddInterval(Timespan::FromEndPoints(30, 40), true);
+  tracker.AddInterval(Timespan::FromEndPoints(20, 35), true);
+  EXPECT_EQ(tracker.GetActiveTimePs(), 30);
+  EXPECT_EQ(tracker.GetIdleTimePs(), 0);
+  EXPECT_EQ(tracker.GetDurationPs(), 30);
+  EXPECT_EQ(tracker.DutyCycle(), 1.0);
+}
+
+TEST(DutyCycleTrackerTest, DutyCycleTestWithEnclosedIntervals) {
+  DutyCycleTracker tracker;
+  tracker.AddInterval(Timespan::FromEndPoints(10, 40), true);
+  tracker.AddInterval(Timespan::FromEndPoints(20, 30), true);
+  EXPECT_EQ(tracker.GetActiveTimePs(), 30);
+  EXPECT_EQ(tracker.GetIdleTimePs(), 0);
+  EXPECT_EQ(tracker.GetDurationPs(), 30);
+  EXPECT_EQ(tracker.DutyCycle(), 1.0);
 }
 
 TEST(DutyCycleTrackerTest, UnionTest) {
@@ -57,8 +79,17 @@ TEST(DutyCycleTrackerTest, UnionTest) {
 TEST(DutyCycleTrackerTest, ActiveTimeTest) {
   DutyCycleTracker tracker;
   EXPECT_EQ(tracker.GetActiveTimePs(), 0);
-  tracker.AddInterval(Timespan::FromEndPoints(0, 10), true);
+  tracker.AddInterval(Timespan::FromEndPoints(10, 20), true);
+  tracker.AddInterval(Timespan::FromEndPoints(20, 30), false);
   EXPECT_EQ(tracker.GetActiveTimePs(), 10);
+}
+
+TEST(DutyCycleTrackerTest, IdleTimeTest) {
+  DutyCycleTracker tracker;
+  EXPECT_EQ(tracker.GetIdleTimePs(), 0);
+  tracker.AddInterval(Timespan::FromEndPoints(10, 20), true);
+  tracker.AddInterval(Timespan::FromEndPoints(20, 30), false);
+  EXPECT_EQ(tracker.GetIdleTimePs(), 10);
 }
 
 void BM_DutyCycleTracker_AddInterval(::testing::benchmark::State& state) {

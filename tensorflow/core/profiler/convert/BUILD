@@ -361,6 +361,7 @@ cc_library(
     hdrs = ["xplane_to_op_stats.h"],
     copts = tf_profiler_copts(),
     deps = [
+        ":duty_cycle_analysis",
         ":op_metrics_db_combiner",
         ":repository",
         ":step_events_to_steps_db",
@@ -1344,6 +1345,26 @@ cc_library(
     ],
 )
 
+cc_library(
+    name = "duty_cycle_analysis",
+    hdrs = ["duty_cycle_analysis.h"],
+    deps = [
+        ":duty_cycle_tracker",
+        "//tensorflow/core:portable_gif_internal",
+        "//tensorflow/core/profiler/protobuf:op_stats_proto_cc",
+        "//tensorflow/core/profiler/utils:xplane_schema",
+        "@com_google_absl//absl/container:flat_hash_map",
+        "@com_google_absl//absl/strings:string_view",
+        "@local_tsl//tsl/profiler/protobuf:xplane_proto_cc",
+        "@local_xla//xla/tsl/profiler/convert:xla_op_utils",
+        "@local_xla//xla/tsl/profiler/utils:tf_xplane_visitor",
+        "@local_xla//xla/tsl/profiler/utils:timespan",
+        "@local_xla//xla/tsl/profiler/utils:xplane_schema",
+        "@local_xla//xla/tsl/profiler/utils:xplane_utils",
+        "@local_xla//xla/tsl/profiler/utils:xplane_visitor",
+    ],
+)
+
 tf_cc_test(
     name = "duty_cycle_tracker_test",
     srcs = ["duty_cycle_tracker_test.cc"],
@@ -1363,5 +1384,22 @@ tf_cc_test(
         ":compute_inference_latency",
         "//tensorflow/core/profiler/protobuf:inference_stats_proto_cc",
         "@com_google_googletest//:gtest_main",
+    ],
+)
+
+tf_cc_test(
+    name = "duty_cycle_analysis_test",
+    srcs = ["duty_cycle_analysis_test.cc"],
+    deps = [
+        ":duty_cycle_analysis",
+        "//tensorflow/core:test",
+        "//tensorflow/core:test_main",
+        "//tensorflow/core/profiler/protobuf:op_stats_proto_cc",
+        "//tensorflow/core/profiler/utils:xplane_builder",
+        "//tensorflow/core/profiler/utils:xplane_schema",
+        "//tensorflow/core/profiler/utils:xplane_test_utils",
+        "@local_tsl//tsl/profiler/protobuf:xplane_proto_cc",
+        "@local_xla//xla/tsl/profiler/convert:xla_op_utils",
+        "@local_xla//xla/tsl/profiler/utils:xplane_schema",
     ],
 )

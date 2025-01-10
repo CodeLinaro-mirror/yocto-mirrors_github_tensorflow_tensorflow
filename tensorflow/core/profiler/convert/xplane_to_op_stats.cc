@@ -28,6 +28,7 @@ limitations under the License.
 #include "xla/tsl/profiler/utils/tpu_xplane_utils.h"
 #include "xla/tsl/profiler/utils/xplane_schema.h"
 #include "xla/tsl/profiler/utils/xplane_utils.h"
+#include "tensorflow/core/profiler/convert/duty_cycle_analysis.h"
 #include "tensorflow/core/profiler/convert/op_metrics_db_combiner.h"
 #include "tensorflow/core/profiler/convert/step_events_to_steps_db.h"
 #include "tensorflow/core/profiler/convert/xplane_to_kernel_stats_db.h"
@@ -378,6 +379,13 @@ OpStats ConvertXSpaceToOpStats(const XSpace& space,
         }
       }
     }
+  }
+
+  if (is_tpu) {
+    OpMetricsDb* device_op_metrics_db = op_stats.mutable_device_op_metrics_db();
+    DutyCycleAnalysis duty_cycle_analysis = ComputeTpuDutyCycleAnalysis(space);
+    device_op_metrics_db->set_busy_time_ps(duty_cycle_analysis.busy_time_ps);
+    device_op_metrics_db->set_idle_time_ps(duty_cycle_analysis.idle_time_ps);
   }
 
   // Set program_id_to_name map in OpStats from Xspace

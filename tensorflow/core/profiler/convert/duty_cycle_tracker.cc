@@ -63,12 +63,17 @@ DutyCycleTracker::MergeOrInsert(const Timespan& timespan,
 
 void DutyCycleTracker::AddInterval(tsl::profiler::Timespan time_span,
                                    bool is_active) {
-  total_time_span_.ExpandToInclude(time_span);
+  if (total_time_span_.Empty()) {
+    total_time_span_ = time_span;
+  } else {
+    total_time_span_.ExpandToInclude(time_span);
+  }
   if (!is_active) {
     return;
   }
-
-  MergeOrInsert(time_span, active_time_spans_.lower_bound(time_span));
+  auto hint = active_time_spans_.lower_bound(time_span);
+  if (hint != active_time_spans_.begin()) --hint;
+  MergeOrInsert(time_span, hint);
 }
 
 void DutyCycleTracker::Union(const DutyCycleTracker& other) {

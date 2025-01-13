@@ -1,4 +1,4 @@
-/* Copyright 2024 The OpenXLA Authors.
+/* Copyright 2025 The OpenXLA Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -13,30 +13,26 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
 
-#ifndef XLA_BACKENDS_CPU_RUNTIME_ALL_GATHER_THUNK_H_
-#define XLA_BACKENDS_CPU_RUNTIME_ALL_GATHER_THUNK_H_
+#ifndef XLA_BACKENDS_CPU_RUNTIME_SERDES_BASE_H_
+#define XLA_BACKENDS_CPU_RUNTIME_SERDES_BASE_H_
 
 #include <memory>
+#include <string>
 
 #include "absl/status/statusor.h"
-#include "xla/backends/cpu/runtime/collective_thunk.h"
-#include "xla/tsl/concurrency/async_value_ref.h"
 
 namespace xla::cpu {
 
-class AllGatherThunk final : public CollectiveThunk {
+template <typename T>
+class SerDesBase {
  public:
-  static absl::StatusOr<std::unique_ptr<AllGatherThunk>> Create(
-      Info info, OpParams op_params, OpBuffers op_buffers,
-      OpResources op_resources);
+  virtual absl::StatusOr<std::string> Serialize(const T& serializable) = 0;
+  virtual absl::StatusOr<std::unique_ptr<T>> Deserialize(
+      const std::string& serialized) = 0;
 
-  tsl::AsyncValueRef<ExecuteEvent> Execute(const ExecuteParams& params) final;
-
- private:
-  AllGatherThunk(Info info, OpParams op_params, OpBuffers op_buffers,
-                 OpResources op_resources);
+  virtual ~SerDesBase() = default;
 };
 
 }  // namespace xla::cpu
 
-#endif  // XLA_BACKENDS_CPU_RUNTIME_ALL_GATHER_THUNK_H_
+#endif  // XLA_BACKENDS_CPU_RUNTIME_SERDES_BASE_H_

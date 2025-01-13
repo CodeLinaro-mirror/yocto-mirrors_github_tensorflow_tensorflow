@@ -46,6 +46,9 @@ class XnnDotThunk final : public XnnFusionThunk {
       BufferAllocation::Slice rhs_buffer, Shape rhs_shape,
       BufferAllocation::Slice out_buffer, Shape out_shape);
 
+  DotDimensionNumbers dot_dimensions() const { return dot_dimensions_; }
+  DotSlices dot_slices() const { return dot_slices_; }
+
  protected:
   std::string fusion_kind() const final;
   std::string fusion_description() const final;

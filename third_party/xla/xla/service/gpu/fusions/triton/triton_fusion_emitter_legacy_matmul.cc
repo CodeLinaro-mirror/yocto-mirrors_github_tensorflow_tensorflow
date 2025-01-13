@@ -1477,7 +1477,8 @@ class MatMulEmitterHelper {
             .getResult());
     if (hlo->shape().element_type() == PrimitiveType::S4 &&
         IsTritonInt4RewritesEnabled(*hlo)) {
-      tensor_ptr.getDefiningOp()->setAttr("packed_dim", GetPackedDimAttr(side));
+      tensor_ptr.getDefiningOp()->setAttr(
+          "packed_dim", GetPackedDimAttr(side, hlo->shape().layout()));
     }
     tensor_ptr = b_.create<mt::AdvanceOp>(tensor_ptr.getType(), tensor_ptr,
                                           block_offsets);
@@ -1486,16 +1487,19 @@ class MatMulEmitterHelper {
 
   // Naive implementation of the packed_dim attribute for the int4 tensors.
   // It doesn't take into account different layout schemes.
-  mlir::IntegerAttr GetPackedDimAttr(const Side& side) const {
+  mlir::IntegerAttr GetPackedDimAttr(const Side& side,
+                                     const Layout& layout) const {
     int packed_dim = 0;
     if (side.scope == TritonFusionAnalysis::Scope::LHS) {
-      if (dims_.lhs_contracting_dim_idx > dims_.lhs_noncontracting_dim_idx) {
+      if (LayoutUtil::Major(layout, dims_.lhs_contracting_dim_idx) >
+          LayoutUtil::Major(layout, dims_.lhs_noncontracting_dim_idx)) {
         packed_dim = 0;
       } else {
         packed_dim = 1;
       }
     } else if (side.scope == TritonFusionAnalysis::Scope::RHS) {
-      if (dims_.rhs_contracting_dim_idx > dims_.rhs_noncontracting_dim_idx) {
+      if (LayoutUtil::Major(layout, dims_.rhs_contracting_dim_idx) >
+          LayoutUtil::Major(layout, dims_.rhs_noncontracting_dim_idx)) {
         packed_dim = 1;
       } else {
         packed_dim = 0;

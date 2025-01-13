@@ -1,32 +1,633 @@
+diff --git a/docs/sdy_dialect.md b/docs/sdy_dialect.md
+index 2987634..b51e0e7 100755
+--- a/docs/sdy_dialect.md
++++ b/docs/sdy_dialect.md
+@@ -16,35 +16,30 @@ _Gathers chunks of a tensor along axes_
+ Syntax:
+ 
+ ```
+-operation ::= `sdy.all_gather` $gathering_axes $tensor `out_sharding````=```$out_sharding attr-dict `:` type($result)
++operation ::= `sdy.all_gather` $gatheringAxes $tensor `out_sharding````=```$outSharding attr-dict `:` type($result)
+ ```
+ 
+-Gathers chunks of a tensor along axes specified in `gathering_axes`.
++Gathers chunks of a tensor along axes specified in `gatheringAxes`.
+ 
+-The `gathering_axes` is a list of lists of axes. Each inner list specifies
++The `gatheringAxes` is a list of lists of axes. Each inner list specifies
+ the axes along which a separate gather should be performed. The outer list
+ is over the dimensions of the tensor. It will be applied to the sharding of
+-the operand (`tensor`) to obtain the sharding of the result (`out_sharding`).
++the operand (`tensor`) to obtain the sharding of the result (`outSharding`).
+ 
+-Note that `out_sharding` is not used to determine the sharding of the
+-result. Instead, the sharding of the result is determined by the sharding of
+-the operand and the `gathering_axes`, and `out_sharding` must match this
+-inferred sharding.
++Note that `outSharding` is not used to determine the sharding of the result.
++Instead, the sharding of the result is determined by the sharding of the
++operand and the `gatheringAxes`, and `outSharding` must match this inferred
++sharding.
+ 
+ Example:
+ ```mlir
+ %1 = stablehlo.tanh(%0) {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"a", "b", "c"}, {}, {"d"}\]>]>} : tensor<8x8xf32>
+-%2 = sdy.all_gather [{"b", "c"}, {}, {"d"}\] %1 to_sharding=<@mesh, [{"a"}, {}, {}\]> : tensor<8x8xf32>
++%2 = sdy.all_gather gathering_axes=[{"b", "c"}, {}, {"d"}\] %1 to_sharding=<@mesh, [{"a"}, {}, {}\]> : tensor<8x8xf32>
+ ```
+ 
+ **Constraints:**
+-- Elements in `gatheringAxes` must satisfy the constraints listed in
+-  `AxisRefListAttr`.
+-- `out_sharding` must satisfy the constraints listed in
+-  `TensorShardingAttr`.
+-- The operand must have a sharding.
++- Elements in `gatheringAxes` must satisfy the constraints listed in `AxisRefListAttr`.
+ - Both operand and result shardings should be bound to the same `MeshAttr`.
+-- Applying `gathering_axes` to the operand sharding gets `out_sharding`.
+ 
+ Traits: `SameOperandsAndResultType`
+ 
+@@ -54,8 +49,8 @@ Interfaces: `InferTypeOpInterface`
+ 
+ <table>
+ <tr><th>Attribute</th><th>MLIR Type</th><th>Description</th></tr>
+-<tr><td><code>gathering_axes</code></td><td>::mlir::sdy::ListOfAxisRefListsAttr</td><td>List of axis ref lists</td></tr>
+-<tr><td><code>out_sharding</code></td><td>::mlir::sdy::TensorShardingAttr</td><td>Tensor sharding</td></tr>
++<tr><td><code>gatheringAxes</code></td><td>::mlir::sdy::ListOfAxisRefListsAttr</td><td>List of axis ref lists</td></tr>
++<tr><td><code>outSharding</code></td><td>::mlir::sdy::TensorShardingAttr</td><td>Tensor sharding</td></tr>
+ </table>
+ 
+ #### Operands:
+@@ -580,8 +575,7 @@ Syntax:
+ 
+ **Constraints:**
+ - `name` must be present in the bound `MeshAttr`.
+-- If `sub_axis_info` is present, it must satisfy the constraints of
+-  `SubAxisInfoAttr`.
++- If `sub_axis_info` is present, it must satisfy the constraints of `SubAxisInfoAttr`.
+ 
+ #### Parameters:
+ 
+diff --git a/shardy/dialect/sdy/transforms/propagation/basic_propagation.cc b/shardy/dialect/sdy/transforms/propagation/basic_propagation.cc
+index 353f247..146f7a2 100644
+--- a/shardy/dialect/sdy/transforms/propagation/basic_propagation.cc
++++ b/shardy/dialect/sdy/transforms/propagation/basic_propagation.cc
+@@ -27,8 +27,8 @@ limitations under the License.
+ #include "mlir/Dialect/Func/IR/FuncOps.h"
+ #include "mlir/IR/BuiltinAttributes.h"
+ #include "mlir/IR/BuiltinOps.h"
+-#include "mlir/IR/BuiltinTypeInterfaces.h"
+ #include "mlir/IR/BuiltinTypes.h"
++#include "mlir/IR/BuiltinTypeInterfaces.h"
+ #include "mlir/IR/Diagnostics.h"
+ #include "mlir/IR/MLIRContext.h"
+ #include "mlir/IR/OpDefinition.h"
+@@ -51,7 +51,6 @@ limitations under the License.
+ #include "shardy/dialect/sdy/transforms/propagation/factor_propagation.h"
+ #include "shardy/dialect/sdy/transforms/propagation/op_sharding_rule_builder.h"
+ #include "shardy/dialect/sdy/transforms/propagation/op_sharding_rule_registry.h"
+-#include "shardy/dialect/sdy/transforms/propagation/passes.h"
+ #include "shardy/dialect/sdy/transforms/propagation/sharding_group_map.h"
+ #include "shardy/dialect/sdy/transforms/propagation/sharding_projection.h"
+ 
+@@ -256,6 +255,17 @@ LogicalResult propagateTensorShardings(
+   }
+   MeshAttr mesh = getMeshAttr(op, meshName.value());
+   assert(mesh && "unknown mesh");
++
++  ShardingProjection shardingProjection = ShardingProjection::build(
++      operandShardings, resultShardings, shardingRule, mesh);
++
++  auto [updateOperand, updateResult] =
++      factorPropagation.propagateFactorShardings(
++          shardingProjection, direction, shardingRule.getFactorSizes(), mesh,
++          op, conservativePropagation);
++
++  // We need to update the tensor sharding attributes explicitly, as we have
++  // been modifying our internal `shardingProjection` so far.
+   std::optional<NotifyOpModifiedCallback> notifyOpModified = std::nullopt;
+   if (rewriter) {
+     notifyOpModified = [op, rewriter](Operation* modifiedOp) {
+@@ -268,37 +278,18 @@ LogicalResult propagateTensorShardings(
+       }
+     };
+   }
+-  ShardingProjection shardingProjection = ShardingProjection::build(
+-      operandShardings, resultShardings, shardingRule, mesh);
+-  bool anyUpdated = false;
+-  auto updateShardings = [&]() {
+-    auto [updateOperand, updateResult] =
+-        factorPropagation.propagateFactorShardings(
+-            shardingProjection, direction, shardingRule.getFactorSizes(), mesh,
+-            op, conservativePropagation);
+-
+-    // We need to update the tensor sharding attributes explicitly, as we
+-    // have been modifying our internal `shardingProjection` so far.
+-    updateTensorShardings(operands, results, operandShardings, resultShardings,
+-                          setOperandShardingCallback, setResultShardingCallback,
+-                          shardingRule, shardingProjection, updateOperand,
+-                          updateResult, meshName.value(), mesh,
+-                          shardingGroupMap, notifyOpModified);
+-    anyUpdated = updateOperand.any() || updateResult.any();
+-  };
+-  MLIRContext* context = op->getContext();
+-  // NOTE: assuming the existence of an action handler is the
+-  // `SourceShardingHandler`. Need to check for it here to avoid copying
+-  // `shardingProjection` when debugging is disabled.
+-  if (context->hasActionHandler()) {
+-    context->executeAction<SourceShardingAction>(
+-        updateShardings,
+-        /*IRUnits=*/{op}, operands, results, operandShardings, resultShardings,
+-        shardingProjection);
+-  } else {
+-    updateShardings();
+-  }
+ 
++  op->getContext()->executeAction<SourceShardingAction>(
++      [&, &updateOperand = updateOperand, &updateResult = updateResult]() {
++        updateTensorShardings(
++            operands, results, operandShardings, resultShardings,
++            setOperandShardingCallback, setResultShardingCallback, shardingRule,
++            shardingProjection, updateOperand, updateResult, meshName.value(),
++            mesh, shardingGroupMap, notifyOpModified);
++      },
++      /*IRUnits=*/{op}, operands, results, operandShardings, resultShardings);
++
++  bool anyUpdated = updateOperand.any() || updateResult.any();
+   if (rewriter && !anyUpdated) {
+     return rewriter->notifyMatchFailure(op, [](Diagnostic& diag) {
+       diag << "Couldn't update any of the factor shardings";
+diff --git a/shardy/dialect/sdy/transforms/propagation/debugging/BUILD b/shardy/dialect/sdy/transforms/propagation/debugging/BUILD
+index b93ed22..7e64db2 100644
+--- a/shardy/dialect/sdy/transforms/propagation/debugging/BUILD
++++ b/shardy/dialect/sdy/transforms/propagation/debugging/BUILD
+@@ -8,7 +8,6 @@ cc_library(
+     hdrs = ["source_sharding.h"],
+     deps = [
+         "//shardy/dialect/sdy/ir:dialect",
+-        "//shardy/dialect/sdy/transforms/propagation:sharding_projection",
+         "@llvm-project//llvm:Support",
+         "@llvm-project//mlir:FuncDialect",
+         "@llvm-project//mlir:IR",
+diff --git a/shardy/dialect/sdy/transforms/propagation/debugging/source_sharding.cc b/shardy/dialect/sdy/transforms/propagation/debugging/source_sharding.cc
+index b606ed2..f686049 100644
+--- a/shardy/dialect/sdy/transforms/propagation/debugging/source_sharding.cc
++++ b/shardy/dialect/sdy/transforms/propagation/debugging/source_sharding.cc
+@@ -18,7 +18,6 @@ limitations under the License.
+ #include <algorithm>
+ #include <cassert>
+ #include <cstdint>
+-#include <optional>
+ #include <string>
+ 
+ #include "llvm/ADT/STLExtras.h"
+@@ -34,118 +33,37 @@ limitations under the License.
+ #include "mlir/IR/MLIRContext.h"
+ #include "mlir/IR/Operation.h"
+ #include "mlir/IR/Value.h"
++#include "mlir/IR/ValueRange.h"
+ #include "mlir/Support/LLVM.h"
+ #include "shardy/dialect/sdy/ir/constants.h"
+ #include "shardy/dialect/sdy/ir/data_flow_utils.h"
+ #include "shardy/dialect/sdy/ir/dialect.h"
+ #include "shardy/dialect/sdy/ir/utils.h"
+-#include "shardy/dialect/sdy/transforms/propagation/sharding_projection.h"
+ 
+ namespace mlir {
+ namespace sdy {
+ 
+ namespace {
+ 
+-// The map from factor to edge source for operands and results.
+-struct FactorsToEdgeSourceMap {
+-  llvm::SmallVector<AxisToEdgeSourceMap> operands, results;
+-};
+-
+-// Finds what operand/result the new sharding axes came from for a given
+-// `factorIndex`.
+-std::optional<int64_t> findNewAxisRefMatch(
+-    ArrayRef<AxisRefAttr> newAxisRefs, int64_t factorIndex,
+-    ArrayRef<TensorFactorShardings> oldTensorFactorShardings) {
+-  for (auto [valueIndex, tensorFactorSharding] :
+-       llvm::enumerate(oldTensorFactorShardings)) {
+-    auto oldAxisRefsIt =
+-        tensorFactorSharding.factorIndexToSharding.find(factorIndex);
+-    if (oldAxisRefsIt != tensorFactorSharding.factorIndexToSharding.end() &&
+-        isAxisListPrefixOf(newAxisRefs, oldAxisRefsIt->second.axisRefs) !=
+-            PrefixStatus::NOT_A_PREFIX) {
+-      return valueIndex;
++// Saves what operand/result each axis came from to `axisToEdgeSourceMap`.
++// When multiple operands/results have the same axis, the first one inserted
++// into `axisToEdgeSourceMap` will be used.
++// TODO(b/379280210): This algorithm is very naive and not correct when handling
++// conflicts.
++void saveEdgeSources(EdgeSourceType type,
++                     ArrayRef<TensorShardingAttr> oldShardings,
++                     AxisToEdgeSourceMap& axisToEdgeSourceMap) {
++  for (auto [i, oldSharding] : llvm::enumerate(oldShardings)) {
++    if (!oldSharding) {
++      continue;
+     }
+-  }
+-  return std::nullopt;
+-}
+-
+-// Creates a map from factor to edge source for operands and results.
+-//
+-// This only saves any newly introduced factor shardings, not any pre-existing
+-// ones. So if no operand/result sharding changes, the map will be empty.
+-FactorsToEdgeSourceMap createSourceMap(
+-    const ShardingProjection& oldShardingProjection,
+-    const ShardingProjection& newShardingProjection) {
+-  FactorsToEdgeSourceMap axisToEdgeSourceMap{
+-      llvm::SmallVector<AxisToEdgeSourceMap>(
+-          oldShardingProjection.getNumOperands(), AxisToEdgeSourceMap()),
+-      llvm::SmallVector<AxisToEdgeSourceMap>(
+-          oldShardingProjection.getNumResults(), AxisToEdgeSourceMap())};
+-
+-  // Saves the `axisRefs` to the specified `valueSourceMap` of
+-  // `axisToEdgeSourceMap`.
+-  auto saveEdgeSources = [&](ArrayRef<AxisRefAttr> newAxisRefs,
+-                             ArrayRef<AxisRefAttr> oldAxisRefs,
+-                             EdgeSourceType type, int64_t sourceIndex,
+-                             AxisToEdgeSourceMap& valueSourceMap) {
+-    // To avoid iterating over all the new axes, only compare the very last old
+-    // axis (since there could have been a sub-axis update) and then the
+-    // trailing new axes.
+-    int64_t oldAxisIndex = oldAxisRefs.size() - 1;
+-    if (!oldAxisRefs.empty() &&
+-        oldAxisRefs[oldAxisIndex] != newAxisRefs[oldAxisIndex]) {
+-      valueSourceMap.try_emplace(newAxisRefs[oldAxisIndex],
+-                                 EdgeSource{type, sourceIndex});
+-    }
+-    newAxisRefs = newAxisRefs.drop_front(oldAxisRefs.size());
+-    for (AxisRefAttr axisRef : newAxisRefs) {
+-      valueSourceMap.try_emplace(axisRef, EdgeSource{type, sourceIndex});
++    for (DimensionShardingAttr dimSharding : oldSharding.getDimShardings()) {
++      for (AxisRefAttr axisRef : dimSharding.getAxes()) {
++        axisToEdgeSourceMap.try_emplace(axisRef, EdgeSource{
++            type, static_cast<int64_t>(i)});
++      }
+     }
+-  };
+-
+-  auto visitValue =
+-      [&](const TensorFactorShardings& oldValue,
+-          const TensorFactorShardings& newValue, int64_t valueIndex,
+-          llvm::SmallVector<AxisToEdgeSourceMap>& valueSourceMap) {
+-        for (const auto& [factorIndex, oldFactorSharding] :
+-             oldValue.factorIndexToSharding) {
+-          const FactorSharding& newFactorSharding =
+-              newValue.factorIndexToSharding.at(factorIndex);
+-          if (oldFactorSharding.axisRefs == newFactorSharding.axisRefs) {
+-            continue;
+-          }
+-          // This factor sharding has changed, let's find who changed it.
+-          if (std::optional<int64_t> operandSource =
+-                  findNewAxisRefMatch(newFactorSharding.axisRefs, factorIndex,
+-                                      oldShardingProjection.getOperands())) {
+-            saveEdgeSources(newFactorSharding.axisRefs,
+-                            oldFactorSharding.axisRefs,
+-                            EdgeSourceType::OPERAND, *operandSource,
+-                            valueSourceMap[valueIndex]);
+-          } else if (std::optional<int64_t> resultSource = findNewAxisRefMatch(
+-                         newFactorSharding.axisRefs, factorIndex,
+-                         oldShardingProjection.getResults())) {
+-            saveEdgeSources(newFactorSharding.axisRefs,
+-                            oldFactorSharding.axisRefs,
+-                            EdgeSourceType::RESULT, *resultSource,
+-                            valueSourceMap[valueIndex]);
+-          }
+-        }
+-      };
+-
+-  for (auto [i, packedOperands] :
+-       llvm::enumerate(llvm::zip_equal(oldShardingProjection.getOperands(),
+-                                       newShardingProjection.getOperands()))) {
+-    auto [oldOperand, newOperand] = packedOperands;
+-    visitValue(oldOperand, newOperand, i, axisToEdgeSourceMap.operands);
+   }
+-  for (auto [i, packedResults] :
+-       llvm::enumerate(llvm::zip_equal(oldShardingProjection.getResults(),
+-                                       newShardingProjection.getResults()))) {
+-    auto [oldResult, newResult] = packedResults;
+-    visitValue(oldResult, newResult, i, axisToEdgeSourceMap.results);
+-  }
+-  return axisToEdgeSourceMap;
+ }
+ 
+ std::string manualComputationOriginName(OriginShardingType type, StringRef name,
+@@ -465,17 +383,17 @@ SourceShardingHandler::SourceShardingHandler(ShardingDebugMappings* mappings)
+ 
+ void SourceShardingHandler::operator()(function_ref<void()> transform,
+                                        const tracing::Action& action) {
+-  // NOTE: need to call `transform` first so that the `newShardingProjection`
+-  // is up to date.
+   transform();
+   if (action.getTag() != SourceShardingAction::tag) {
+     return;
+   }
+ 
+   auto sourceShardingAction = cast<SourceShardingAction>(action);
+-  FactorsToEdgeSourceMap factorsToEdgeSources =
+-      createSourceMap(sourceShardingAction.oldShardingProjection,
+-                      sourceShardingAction.newShardingProjection);
++  AxisToEdgeSourceMap axisToEdgeSourceMap;
++  saveEdgeSources(OPERAND, sourceShardingAction.oldOperandShardings,
++                  axisToEdgeSourceMap);
++  saveEdgeSources(RESULT, sourceShardingAction.oldResultShardings,
++                  axisToEdgeSourceMap);
+   // If the new and old shardings are different, something was propagated to it.
+   // Find and save it.
+   auto lookUpOriginSharding = [&](EdgeSource edgeSource,
+@@ -497,27 +415,80 @@ void SourceShardingHandler::operator()(function_ref<void()> transform,
+     }
+     llvm_unreachable("unknown EdgeSource");
+   };
+-
+-  auto updateMappings = [&](ShardingDebugMappings* mappings,
+-                            AxisToEdgeSourceMap axisToEdgeSource, Value value) {
+-    for (auto [axisRef, edgeSource] : axisToEdgeSource) {
+-      if (mappings->debugEdgeSourceSharding) {
+-        mappings->valueToEdgeSourceMap[value].try_emplace(axisRef, edgeSource);
++  auto updateEdgeMap = [&](AxisRefAttr newAxisRef, Value value) {
++    // Axis may not be in the map for region ops like `ManualComputationOp`
++    // where the `out_sharding` refers to a manual axis, but the body's
++    // `ReturnOp` doesn't have the manual axis.
++    auto it = axisToEdgeSourceMap.find(newAxisRef);
++    if (it == axisToEdgeSourceMap.end()) {
++      return;
++    }
++    EdgeSource source = it->getSecond();
++    if (mappings->debugEdgeSourceSharding) {
++      mappings->valueToEdgeSourceMap[value][newAxisRef] = source;
++    }
++    if (mappings->debugShardingOrigins) {
++      mappings->valueToOriginShardingMap[value][newAxisRef] =
++          lookUpOriginSharding(source, newAxisRef);
++    }
++  };
++  auto setValueSources = [&](ValueRange values,
++                             ArrayRef<TensorShardingAttr> oldShardings) {
++    for (auto [value, oldShardingRef, newSharding] :
++         llvm::zip_equal(values, oldShardings, getShardings(values))) {
++      // Skip if there is no sharding or the sharding didn't change.
++      if (!newSharding || oldShardingRef == newSharding) {
++        continue;
+       }
+-      if (mappings->debugShardingOrigins) {
+-        mappings->valueToOriginShardingMap[value].try_emplace(
+-            axisRef, lookUpOriginSharding(edgeSource, axisRef));
++      TensorShardingAttr oldSharding = oldShardingRef;
++      if (!oldSharding) {
++        oldSharding = TensorShardingAttr::getFullyOpenLike(newSharding);
++      }
++      for (auto [oldDimSharding, newDimSharding] : llvm::zip_equal(
++               oldSharding.getDimShardings(), newSharding.getDimShardings())) {
++        // Skip if the sharding is empty or didn't change. The sharding may
++        // be empty when data flow ops are added for the block arguments of
++        // `ManualComputationOp`s, where the `in_sharding` only refers to
++        // manual axes.
++        if (newDimSharding.emptyAxes() || oldDimSharding == newDimSharding) {
++          continue;
++        }
++        const int oldDimShardingSize = oldDimSharding.getAxes().size();
++        ArrayRef<AxisRefAttr> newDimAxes = newDimSharding.getAxes();
++        // Check in case the new axis introduced was an update to a sub axis.
++        // E.g. going from "x":(1)2 to "x":(1)4.
++        // To grab the possibly updated sub axis, look at the very last axis in
++        // the old sharding (if it exists).
++        if (!oldDimSharding.emptyAxes()) {
++          AxisRefAttr possibleNewSubAxis = newDimAxes[oldDimShardingSize - 1];
++          // Only save it when:
++          // 1. There is an axis in the old sharding.
++          // 2. The new axis in the same place is different, aka both are not
++          //    just "x" and "x".
++          // Then it must be a new sub axis.
++          if (oldDimSharding.getAxes().back() != possibleNewSubAxis) {
++            AxisRefAttr oldLastAxis = oldDimSharding.getAxes().back();
++            if (mappings->debugEdgeSourceSharding) {
++              mappings->valueToEdgeSourceMap[value].erase(oldLastAxis);
++            }
++            if (mappings->debugShardingOrigins) {
++              mappings->valueToOriginShardingMap[value].erase(oldLastAxis);
++            }
++            updateEdgeMap(possibleNewSubAxis, value);
++          }
++        }
++        // Skip any pre-existing axes in the old sharding.
++        for (AxisRefAttr newAxisRef :
++             newDimAxes.drop_front(oldDimShardingSize)) {
++          updateEdgeMap(newAxisRef, value);
++        }
+       }
+     }
+   };
+-  for (auto [operand, axisToEdgeSource] : llvm::zip_equal(
+-           sourceShardingAction.operands, factorsToEdgeSources.operands)) {
+-    updateMappings(mappings, axisToEdgeSource, operand);
+-  }
+-  for (auto [result, axisToEdgeSource] : llvm::zip_equal(
+-           sourceShardingAction.results, factorsToEdgeSources.results)) {
+-    updateMappings(mappings, axisToEdgeSource, result);
+-  }
++  setValueSources(sourceShardingAction.operands,
++                  sourceShardingAction.oldOperandShardings);
++  setValueSources(sourceShardingAction.results,
++                  sourceShardingAction.oldResultShardings);
+ }
+ 
+ void SourceShardingHandler::prepareHandler(ModuleOp moduleOp) {
+diff --git a/shardy/dialect/sdy/transforms/propagation/debugging/source_sharding.h b/shardy/dialect/sdy/transforms/propagation/debugging/source_sharding.h
+index 4651bb5..6b567d8 100644
+--- a/shardy/dialect/sdy/transforms/propagation/debugging/source_sharding.h
++++ b/shardy/dialect/sdy/transforms/propagation/debugging/source_sharding.h
+@@ -19,8 +19,8 @@ limitations under the License.
+ #include <cstdint>
+ 
+ #include "llvm/ADT/DenseMap.h"
+-#include "llvm/ADT/SmallVector.h"
+ #include "mlir/IR/Action.h"
++#include "mlir/IR/BuiltinAttributes.h"
+ #include "mlir/IR/BuiltinOps.h"
+ #include "mlir/IR/MLIRContext.h"
+ #include "mlir/IR/Unit.h"
+@@ -28,7 +28,6 @@ limitations under the License.
+ #include "mlir/IR/ValueRange.h"
+ #include "mlir/Support/LLVM.h"
+ #include "shardy/dialect/sdy/ir/dialect.h"
+-#include "shardy/dialect/sdy/transforms/propagation/sharding_projection.h"
+ 
+ namespace mlir {
+ namespace sdy {
+@@ -94,15 +93,12 @@ class SourceShardingAction : public tracing::ActionImpl<SourceShardingAction> {
+   SourceShardingAction(ArrayRef<IRUnit> irUnits, ValueRange operands,
+                        ValueRange results,
+                        ArrayRef<TensorShardingAttr> oldOperandShardings,
+-                       ArrayRef<TensorShardingAttr> oldResultShardings,
+-                       const ShardingProjection& shardingProjection)
++                       ArrayRef<TensorShardingAttr> oldResultShardings)
+       : Base(irUnits),
+         operands(operands),
+         results(results),
+         oldOperandShardings(oldOperandShardings),
+-        oldResultShardings(oldResultShardings),
+-        oldShardingProjection(shardingProjection),
+-        newShardingProjection(shardingProjection) {}
++        oldResultShardings(oldResultShardings) {}
+ 
+   static constexpr StringLiteral tag = "SourceShardingAction";
+   static constexpr StringLiteral desc =
+@@ -112,11 +108,6 @@ class SourceShardingAction : public tracing::ActionImpl<SourceShardingAction> {
+ 
+   ValueRange operands, results;
+   ArrayRef<TensorShardingAttr> oldOperandShardings, oldResultShardings;
+-  // NOTE: `oldShardingProjection` is a copy while `newShardingProjection` is a
+-  // reference as when the action is executed, we want to see how the old and
+-  // new sharding projections differ.
+-  const ShardingProjection oldShardingProjection;
+-  const ShardingProjection& newShardingProjection;
+ };
+ 
+ // Handles `SourceShardingAction`s, figuring out what operand/result shardings
+diff --git a/shardy/dialect/sdy/transforms/propagation/debugging/test/sharding_origins.mlir b/shardy/dialect/sdy/transforms/propagation/debugging/test/sharding_origins.mlir
+index b384860..cb922c3 100644
+--- a/shardy/dialect/sdy/transforms/propagation/debugging/test/sharding_origins.mlir
++++ b/shardy/dialect/sdy/transforms/propagation/debugging/test/sharding_origins.mlir
+@@ -29,44 +29,6 @@ func.func @input_output_source_sharding(
+   return %1 : tensor<8x16xf32>
+ }
+ 
+-// CHECK-LABEL: partial_axes_match
+-// CHECK-SAME:    %arg0: tensor<8x8xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"a", "b", ?}, {?}]>,
+-// CHECK-SAME:                            sdy.sharding_origins = {a = "self", b = "self"}},
+-// CHECK-SAME:    %arg1: tensor<8x8xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"a", ?}, {"b", ?}]>,
+-// CHECK-SAME:                            sdy.sharding_origins = {a = "input: 0", b = "self"}}
+-// CHECK-SAME:  ) -> (tensor<8x8xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"a", "b", ?}, {?}]>,
+-// CHECK-SAME:                         sdy.sharding_origins = {a = "input: 0", b = "input: 0"}}) {
+-func.func @partial_axes_match(
+-  %arg0: tensor<8x8xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"a", "b", ?}, {?}]>},
+-  %arg1: tensor<8x8xf32> {sdy.sharding = #sdy.sharding<@mesh, [{?}, {"b", ?}]>}
+-  ) -> tensor<8x8xf32> {
+-  // CHECK-NEXT: %[[ADD:.*]] = stablehlo.add %arg0, %arg1 {
+-  // CHECK-SAME:   sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"a", "b", ?}, {?}]>]>,
+-  // CHECK-SAME:   sdy.sharding_origins = [{a = "input: 0", b = "input: 0"}]}
+-  // CHECK-NEXT: return %[[ADD]]
+-  %0 = stablehlo.add %arg0, %arg1 : tensor<8x8xf32>
+-  return %0 : tensor<8x8xf32>
+-}
+-
+-// CHECK-LABEL: larger_prefix_match
+-// CHECK-SAME:    %arg0: tensor<8x8xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"a"}, {?}]>,
+-// CHECK-SAME:                            sdy.sharding_origins = {a = "self"}},
+-// CHECK-SAME:    %arg1: tensor<8x8xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"a", "b", ?}, {?}]>,
+-// CHECK-SAME:                            sdy.sharding_origins = {a = "self", b = "self"}}
+-// CHECK-SAME:  ) -> (tensor<8x8xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"a", "b", ?}, {?}]>,
+-// CHECK-SAME:                         sdy.sharding_origins = {a = "input: 1", b = "input: 1"}}) {
+-func.func @larger_prefix_match(
+-  %arg0: tensor<8x8xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"a"}, {?}]>},
+-  %arg1: tensor<8x8xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"a", "b", ?}, {?}]>}
+-  ) -> tensor<8x8xf32> {
+-  // CHECK-NEXT: %[[ADD:.*]] = stablehlo.add %arg0, %arg1 {
+-  // CHECK-SAME:   sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"a", "b", ?}, {?}]>]>,
+-  // CHECK-SAME:   sdy.sharding_origins = [{a = "input: 1", b = "input: 1"}]}
+-  // CHECK-NEXT: return %[[ADD]]
+-  %0 = stablehlo.add %arg0, %arg1 : tensor<8x8xf32>
+-  return %0 : tensor<8x8xf32>
+-}
+-
+ // TODO(b/379627411): This should say the output sharding on axis `a` came from
+ // self.
+ // CHECK-LABEL: direct_returned_arg_new_axis_input
+@@ -126,18 +88,15 @@ func.func @multiple_axes(%arg0: tensor<8x8xf32> {sdy.sharding = #sdy.sharding<@m
+   return %0 : tensor<8x8xf32>
+ }
+ 
+-// TODO(b/381870366): pick something smarter for merging sub axis. Below we are
+-// saving intermediate shardings for the output, when it starts with c:(1)2 and
+-// then c:(1)4, but this may not be the best way to do it.
+ // CHECK-LABEL: sub_axis_update
+ // CHECK-SAME:    %arg0: tensor<8x8xf32> {sdy.sharding = #sdy.sharding<@mesh, [{?}, {"c":(1)4, ?}]>,
+ // CHECK-SAME:                            sdy.sharding_origins = {"c:(1)4" = "self"}}
+ // CHECK-SAME:    -> (tensor<8x8xf32> {sdy.sharding = #sdy.sharding<@mesh, [{?}, {"c":(1)4, ?}]>,
+-// CHECK-SAME:                         sdy.sharding_origins = {"c:(1)2" = "self", "c:(1)4" = "input: 0"}}) {
++// CHECK-SAME:                         sdy.sharding_origins = {"c:(1)4" = "input: 0"}})
+ func.func @sub_axis_update(%arg0: tensor<8x8xf32> {sdy.sharding = #sdy.sharding<@mesh, [{?}, {"c":(1)4, ?}]>}) -> (tensor<8x8xf32> {sdy.sharding = #sdy.sharding<@mesh, [{?}, {"c":(1)2, ?}]>}) {
+   // CHECK-NEXT: %[[ADD:.*]] = stablehlo.add %arg0, %arg0 {
+   // CHECK-SAME:   sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{?}, {"c":(1)4, ?}]>]>,
+-  // CHECK-SAME:   sdy.sharding_origins = [{"c:(1)2" = "output: 0", "c:(1)4" = "input: 0"}]}
++  // CHECK-SAME:   sdy.sharding_origins = [{"c:(1)4" = "input: 0"}]}
+   %1 = stablehlo.add %arg0, %arg0 : tensor<8x8xf32>
+   return %1 : tensor<8x8xf32>
+ }
+@@ -308,6 +267,7 @@ func.func @push_sharding_constraints_to_func_results(
+   return %1, %2 : tensor<8xf32>, tensor<8xf32>
+ }
+ 
++// TODO(b/379280210): The origin sharding on `a` should be `input: 1`.
+ // CHECK-LABEL: real_conflict_across_factors_diff_tensors_size
+ func.func @real_conflict_across_factors_diff_tensors_size(
+     %arg0: tensor<8x4xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"a", "b"}, {?}]>},
+@@ -315,7 +275,7 @@ func.func @real_conflict_across_factors_diff_tensors_size(
+     -> tensor<8x16xf32> {
+   // CHECK-NEXT: stablehlo.dot_general %arg0, %arg1, contracting_dims = [1] x [0] {
+   // CHECK-SAME:   sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{?}, {"a", "c", ?}]>]>,
+-  // CHECK-SAME:   sdy.sharding_origins = [{a = "input: 1", c = "input: 1"}]} : (tensor<8x4xf32>, tensor<4x16xf32>) -> tensor<8x16xf32>
++  // CHECK-SAME:   sdy.sharding_origins = [{a = "input: 0", c = "input: 1"}]} : (tensor<8x4xf32>, tensor<4x16xf32>) -> tensor<8x16xf32>
+   %0 = stablehlo.dot_general %arg0, %arg1, contracting_dims = [1] x [0] :
+     (tensor<8x4xf32>, tensor<4x16xf32>) -> tensor<8x16xf32>
+   return %0 : tensor<8x16xf32>
 diff --git a/third_party/llvm/generated.patch b/third_party/llvm/generated.patch
-index 509398d..c14fe64 100644
+index c14fe64..cdcd43c 100644
 --- a/third_party/llvm/generated.patch
 +++ b/third_party/llvm/generated.patch
-@@ -1 +1,12 @@
+@@ -1,12 +1,22 @@
  Auto generated patch. Do not edit or delete it, even if empty.
-+diff -ruN --strip-trailing-cr a/llvm/test/CodeGen/Hexagon/isel/isel-tfrrp.ll b/llvm/test/CodeGen/Hexagon/isel/isel-tfrrp.ll
-+--- a/llvm/test/CodeGen/Hexagon/isel/isel-tfrrp.ll
-++++ b/llvm/test/CodeGen/Hexagon/isel/isel-tfrrp.ll
-+@@ -2,6 +2,7 @@
-+ ; The constant 0 is generated by a transfer immediate instruction.
-+ 
-+ ; RUN: llc -march=hexagon -debug-only=isel 2>&1 < %s - | FileCheck %s
-++; REQUIRES: asserts
-+ 
-+ ; CHECK: [[R0:%[0-9]+]]:intregs = A2_tfrsi 0
-+ ; CHECK-NEXT: predregs = C2_tfrrp killed [[R0]]:intregs
+-diff -ruN --strip-trailing-cr a/llvm/test/CodeGen/Hexagon/isel/isel-tfrrp.ll b/llvm/test/CodeGen/Hexagon/isel/isel-tfrrp.ll
+---- a/llvm/test/CodeGen/Hexagon/isel/isel-tfrrp.ll
+-+++ b/llvm/test/CodeGen/Hexagon/isel/isel-tfrrp.ll
+-@@ -2,6 +2,7 @@
+- ; The constant 0 is generated by a transfer immediate instruction.
+- 
+- ; RUN: llc -march=hexagon -debug-only=isel 2>&1 < %s - | FileCheck %s
+-+; REQUIRES: asserts
+- 
+- ; CHECK: [[R0:%[0-9]+]]:intregs = A2_tfrsi 0
+- ; CHECK-NEXT: predregs = C2_tfrrp killed [[R0]]:intregs
++diff -ruN --strip-trailing-cr a/clang/unittests/AST/ASTImporterTest.cpp b/clang/unittests/AST/ASTImporterTest.cpp
++--- a/clang/unittests/AST/ASTImporterTest.cpp
+++++ b/clang/unittests/AST/ASTImporterTest.cpp
++@@ -10182,7 +10182,7 @@
++         struct X { int A; };
++       }
++       )";
++-  Decl *ToTU = getToTuDecl(ToCode, Lang_CXX11);
+++  getToTuDecl(ToCode, Lang_CXX11);
++   const char *Code =
++       R"(
++       namespace a {
++@@ -10205,7 +10205,7 @@
++       namespace a {
++       }
++       )";
++-  Decl *ToTU = getToTuDecl(ToCode, Lang_CXX11);
+++  getToTuDecl(ToCode, Lang_CXX11);
++   const char *Code =
++       R"(
++       namespace a {
 diff --git a/third_party/llvm/workspace.bzl b/third_party/llvm/workspace.bzl
-index 02401a7..c35f4e4 100644
+index c35f4e4..e5186f5 100644
 --- a/third_party/llvm/workspace.bzl
 +++ b/third_party/llvm/workspace.bzl
 @@ -4,8 +4,8 @@ load("//third_party:repo.bzl", "tf_http_archive")
  
  def repo(name):
      """Imports LLVM."""
--    LLVM_COMMIT = "a531800344dc54e9c197a13b22e013f919f3f5e1"
--    LLVM_SHA256 = "74a873f8d4c677d192e9bfade095af3363c76b0fb23c5f6260121d74322744bc"
-+    LLVM_COMMIT = "35e76b6a4fc74e64bd6c91e5b9b9eb6a03aa802e"
-+    LLVM_SHA256 = "bf4e52c430ff8eb2b055a4abcbd70468d2e6ea7f277e472575e92903bd7d8981"
+-    LLVM_COMMIT = "35e76b6a4fc74e64bd6c91e5b9b9eb6a03aa802e"
+-    LLVM_SHA256 = "bf4e52c430ff8eb2b055a4abcbd70468d2e6ea7f277e472575e92903bd7d8981"
++    LLVM_COMMIT = "b270525f730be6e7196667925f5a9bfa153262e9"
++    LLVM_SHA256 = "fcf77da395cd5097eac5951471b04aa887f565c3447545239421a0eb7089da7c"
  
      tf_http_archive(
          name = name,

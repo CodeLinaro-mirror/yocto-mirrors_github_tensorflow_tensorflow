@@ -87,7 +87,6 @@ cc_library(
         # xla-legalize-tf-with-tf2xla pass.
         "//tensorflow/compiler/jit",
         "//tensorflow/compiler/mlir/lite:tensorflow_lite",
-        "//tensorflow/compiler/mlir/lite:tensorflow_lite_legalize_tf",
         "//tensorflow/compiler/mlir/lite:tensorflow_lite_optimize",
         "//tensorflow/compiler/mlir/lite:tensorflow_lite_quantize",
         "//tensorflow/compiler/mlir/lite:lift_tflite_flex_ops",

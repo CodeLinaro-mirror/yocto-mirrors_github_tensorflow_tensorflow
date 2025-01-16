@@ -16,6 +16,7 @@
 #define TENSORFLOW_LITE_EXPERIMENTAL_LITERT_CC_LITERT_COMPILED_MODEL_H_
 
 #include <cstddef>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -54,6 +55,65 @@ namespace litert {
 class CompiledModel
     : public internal::Handle<LiteRtCompiledModel, LiteRtDestroyCompiledModel> {
  public:
+  class Options {
+    struct Deleter {
+      void operator()(LiteRtCompilationOptions options) {
+        LiteRtDestroyCompilationOptions(options);
+      }
+    };
+
+    // Were making the default constructor private to avoid  null options
+    // created by mistake.
+    Options() = default;
+    explicit Options(LiteRtCompilationOptions options) : impl_(options) {}
+
+   public:
+    Options(const Options&) = default;
+    Options(Options&&) = default;
+    Options& operator=(const Options&) = default;
+    Options& operator=(Options&&) = default;
+
+    using Ptr = std::unique_ptr<LiteRtCompilationOptionsT, Deleter>;
+
+    // Creates a new LiteRtCompilationOptions object wrapped in a `unique_ptr`.
+    static Expected<Options> Create() {
+      LiteRtCompilationOptions options;
+      if (auto status = LiteRtCreateCompilationOptions(&options);
+          status != kLiteRtStatusOk) {
+        return Error(status, "Could not create default compilation options");
+      }
+      return Options(options);
+    }
+
+    // Create a NULL pointer.
+    static Options None() { return {}; }
+
+    Ptr GetUnderlyingPtr() { return Ptr(release()); }
+
+    Expected<void> SetHardwareAccelerators(
+        LiteRtHwAcceleratorSet accelerators) {
+      if (auto status = LiteRtSetCompilationOptionsHardwareAccelerators(
+              get(), accelerators);
+          status != kLiteRtStatusOk) {
+        return Error(
+            status,
+            "Could not set hardware accelerators in compilation options");
+      }
+      return {};
+    }
+
+    // Mimic unique_ptr API.
+
+    Ptr::pointer release() noexcept { return impl_.release(); }
+    void reset(Ptr::pointer ptr = nullptr) noexcept { return impl_.reset(ptr); }
+
+    Ptr::pointer get() const noexcept { return impl_.get(); }
+    Ptr::pointer operator->() const noexcept { return impl_.operator->(); }
+    auto& operator*() const noexcept { return impl_.operator*(); }
+
+   private:
+    Ptr impl_;
+  };
   CompiledModel() = default;
 
   // Parameter `owned` indicates if the created CompiledModel object should take
@@ -67,12 +127,11 @@ class CompiledModel
   // Creates a CompiledModel from a TFLite file.
   // The model is loaded into memory and the caller takes ownership of the
   // returned object.
-  static Expected<CompiledModel> Create(
-      litert::Model& model,
-      LiteRtCompilationOptions compilation_options = kLiteRtHwAccelatorCpu) {
+  static Expected<CompiledModel> Create(litert::Model& model,
+                                        Options&& compilation_options) {
     LiteRtCompiledModel compiled_model;
     if (auto status = LiteRtCreateCompiledModel(
-            model.Get(), compilation_options, &compiled_model);
+            model.Get(), compilation_options.release(), &compiled_model);
         status != kLiteRtStatusOk) {
       return Unexpected(status, "Failed to create compiled model");
     }

@@ -42,8 +42,6 @@ cc_library(
         "convert_float_nvidia.cc",
         "convert_xla_gpu_pure_call_ops.cc",
         "erase_dead_functions.cc",
-        "expand_float_ops.cc",
-        "flatten_tensors.cc",
         "fuse_loops.cc",
         "lower_tensors.cc",
         "lower_to_llvm.cc",

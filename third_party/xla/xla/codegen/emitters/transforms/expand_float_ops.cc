@@ -40,13 +40,13 @@ limitations under the License.
 #include "mlir/Support/LLVM.h"
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
-#include "xla/backends/gpu/codegen/transforms/passes.h"
+#include "xla/codegen/emitters/transforms/passes.h"
 #include "xla/mlir_hlo/mhlo/IR/hlo_ops.h"
 #include "xla/mlir_hlo/mhlo/transforms/map_mhlo_to_scalar_op.h"
 #include "xla/xla_data.pb.h"
 
 namespace xla {
-namespace gpu {
+namespace emitters {
 
 namespace ma = ::mlir::arith;
 
@@ -54,7 +54,7 @@ using ma::SelectOp;
 using mlir::Value;
 
 #define GEN_PASS_DEF_EXPANDFLOATOPSPASS
-#include "xla/backends/gpu/codegen/transforms/passes.h.inc"
+#include "xla/codegen/emitters/transforms/passes.h.inc"
 
 namespace {
 
@@ -708,5 +708,5 @@ std::unique_ptr<mlir::Pass> CreateExpandFloatOpsPass() {
   return std::make_unique<ExpandFloatOpsPass>();
 }
 
-}  // namespace gpu
+}  // namespace emitters
 }  // namespace xla

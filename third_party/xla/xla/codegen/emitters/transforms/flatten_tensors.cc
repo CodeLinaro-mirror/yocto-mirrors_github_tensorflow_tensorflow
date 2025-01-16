@@ -54,11 +54,11 @@ limitations under the License.
 #include "xla/xla_data.pb.h"
 
 namespace xla {
-namespace gpu {
+namespace emitters {
 namespace {
 
 #define GEN_PASS_DEF_FLATTENTENSORSPASS
-#include "xla/backends/gpu/codegen/transforms/passes.h.inc"
+#include "xla/codegen/emitters/transforms/passes.h.inc"
 
 using mlir::Attribute;
 using mlir::Location;
@@ -238,10 +238,10 @@ Value LinearizeIndex(Value value, ShapedType type, ValueRange indices,
   return result.front();
 }
 
-struct RewriteAllocateShared : OpRewritePattern<AllocateSharedOp> {
+struct RewriteAllocateShared : OpRewritePattern<gpu::AllocateSharedOp> {
   using OpRewritePattern::OpRewritePattern;
 
-  LogicalResult matchAndRewrite(AllocateSharedOp op,
+  LogicalResult matchAndRewrite(gpu::AllocateSharedOp op,
                                 PatternRewriter& rewriter) const override {
     auto tensor_type = op.getResult().getType();
     if (IsScalarOrFlat(tensor_type)) {
@@ -249,7 +249,8 @@ struct RewriteAllocateShared : OpRewritePattern<AllocateSharedOp> {
     }
     auto flat_type = GetFlattenedType(tensor_type);
     Location loc = op.getLoc();
-    Value new_op = rewriter.create<AllocateSharedOp>(op.getLoc(), flat_type);
+    Value new_op =
+        rewriter.create<gpu::AllocateSharedOp>(op.getLoc(), flat_type);
     auto cast_to_orig_type =
         rewriter.create<UnrealizedConversionCastOp>(loc, tensor_type, new_op);
     rewriter.replaceOp(op, cast_to_orig_type.getResult(0));
@@ -631,10 +632,10 @@ struct RewriteIndexSwitch : public OpRewritePattern<IndexSwitchOp> {
   }
 };
 
-struct RewriteSyncThreads : OpRewritePattern<SyncThreadsOp> {
+struct RewriteSyncThreads : OpRewritePattern<gpu::SyncThreadsOp> {
   using OpRewritePattern::OpRewritePattern;
 
-  LogicalResult matchAndRewrite(SyncThreadsOp op,
+  LogicalResult matchAndRewrite(gpu::SyncThreadsOp op,
                                 PatternRewriter& rewriter) const override {
     auto types = op.getResultTypes();
     if (HasOnlyFlatTensorsFlatVectorsOrScalars(types)) {
@@ -656,8 +657,8 @@ struct RewriteSyncThreads : OpRewritePattern<SyncThreadsOp> {
                   loc, GetFlattenedType(tensor_type), operand.get())
               .getResult(0));
     }
-    auto new_op = rewriter.create<SyncThreadsOp>(loc, TypeRange(new_operands),
-                                                 new_operands);
+    auto new_op = rewriter.create<gpu::SyncThreadsOp>(
+        loc, TypeRange(new_operands), new_operands);
     SmallVector<Value> new_results;
     new_results.reserve(op.getNumResults());
     for (auto [index, result] : llvm::enumerate(new_op.getResults())) {
@@ -724,5 +725,5 @@ std::unique_ptr<mlir::Pass> CreateFlattenTensorsPass() {
   return std::make_unique<FlattenTensorsPass>();
 }
 
-}  // namespace gpu
+}  // namespace emitters
 }  // namespace xla

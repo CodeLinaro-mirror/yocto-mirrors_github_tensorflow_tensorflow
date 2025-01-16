@@ -24,6 +24,7 @@ xla_cc_binary(
         "//xla/backends/gpu/codegen/emitters:emitter_base",
         "//xla/backends/gpu/codegen/ir:xla_gpu",
         "//xla/backends/gpu/codegen/transforms:passes",
+        "//xla/codegen/emitters/transforms:passes",
         "//xla/codegen/ir:xla",
         "//xla/mlir_hlo",
         "//xla/service/gpu:gpu_device_info_for_tests",

@@ -25,6 +25,7 @@ limitations under the License.
 #include "absl/functional/any_invocable.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/str_format.h"
+#include "xla/backends/cpu/runtime/xnnpack/xnn_dot_thunk.h"
 #include "xla/backends/cpu/runtime/xnnpack/xnn_interop.h"
 #include "xla/hlo/ir/hlo_computation.h"
 #include "xla/hlo/ir/hlo_instruction.h"
@@ -32,9 +33,9 @@ limitations under the License.
 #include "xla/primitive_util.h"
 #include "xla/shape.h"
 #include "xla/tsl/platform/logging.h"
+#include "xla/tsl/platform/statusor.h"
 #include "xla/util.h"
 #include "xla/xla_data.pb.h"
-#include "tsl/platform/statusor.h"
 
 namespace xla::cpu {
 
@@ -162,6 +163,40 @@ static absl::StatusOr<uint32_t> DefineBinaryOp(xnn_subgraph_t subgraph,
   return out;
 }
 
+static absl::StatusOr<uint32_t> DefineBatchMatMul(xnn_subgraph_t subgraph,
+                                                  TensorIdMap& tensor_ids,
+                                                  const HloInstruction* instr) {
+  // Verify that this Dot is supported by XNNPACK.
+  auto dnums = instr->dot_dimension_numbers();
+  auto lhs_shape = instr->operand(0)->shape();
+  auto rhs_shape = instr->operand(1)->shape();
+  TF_ASSIGN_OR_RETURN(
+      auto is_supported,
+      XnnDotThunk::IsSupported(dnums, lhs_shape, rhs_shape, instr->shape()));
+
+  if (!is_supported) {
+    if (subgraph != nullptr) XNN_LOG_IF_ERROR(xnn_delete_subgraph(subgraph));
+    return InvalidArgument("Unsupported XNNPACK Dot op variation: %s",
+                           instr->ToString());
+  }
+
+  VLOG(3) << "Define tensor value for batch_matrix_multiply op";
+
+  TF_ASSIGN_OR_RETURN(auto lhs, FindTensorValue(tensor_ids, instr->operand(0)));
+  TF_ASSIGN_OR_RETURN(auto rhs, FindTensorValue(tensor_ids, instr->operand(1)));
+  TF_ASSIGN_OR_RETURN(auto out, DefineTensorValue(subgraph, instr));
+
+  VLOG(3) << absl::StreamFormat("  tensors: lhs=%d, rhs=%d, out=%d", lhs, rhs,
+                                out);
+
+  bool rhs_canonical = dnums.rhs_contracting_dimensions(0) == 0;
+  XNN_RETURN_IF_ERROR(xnn_define_batch_matrix_multiply(
+      subgraph, lhs, rhs, out,
+      /*flags=*/rhs_canonical ? 0 : XNN_FLAG_TRANSPOSE_B));
+
+  return out;
+}
+
 //===----------------------------------------------------------------------===//
 // Emit XNNPACK subgraph for the given HLO computation.
 //===----------------------------------------------------------------------===//
@@ -171,8 +206,9 @@ static absl::StatusOr<xnn_subgraph_t> EmitXnnSubgraph(
   VLOG(3) << "Emit XNNPACK subgraph for computation: " << computation->name();
 
   xnn_subgraph_t subgraph = nullptr;
-  XNN_RETURN_IF_ERROR(xnn_create_subgraph(/*external_value_ids=*/3,
-                                          /*flags=*/0, &subgraph));
+  XNN_RETURN_IF_ERROR(xnn_create_subgraph(
+      /*external_value_ids=*/computation->num_parameters() + 1,
+      /*flags=*/0, &subgraph));
 
   // Traverse fused computation in post-order and define XNNPACK operations
   // corresponding to each HLO instruction.
@@ -193,9 +229,16 @@ static absl::StatusOr<xnn_subgraph_t> EmitXnnSubgraph(
                             DefineBinaryOp(subgraph, tensor_ids, instr));
       } break;
 
-      default:
+      case HloOpcode::kDot: {
+        TF_ASSIGN_OR_RETURN(tensor_ids[instr],
+                            DefineBatchMatMul(subgraph, tensor_ids, instr));
+      } break;
+
+      default: {
+        XNN_LOG_IF_ERROR(xnn_delete_subgraph(subgraph));
         return InvalidArgument("Unsupported XNNPACK fusion instruction: %s",
                                instr->ToString());
+      }
     }
   }
 

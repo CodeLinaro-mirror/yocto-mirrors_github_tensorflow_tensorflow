@@ -428,9 +428,28 @@ xla_cc_test(
         "//xla/service/cpu:onednn_config_proto_cc",
         "//xla/service/cpu:onednn_ops_rewriter",
         "//xla/service/cpu:onednn_util",
-        "//xla/tests:hlo_test_base",
         "//xla/tests:test_macros_header",
         "//xla/tests:xla_internal_test_main",
         "@com_google_absl//absl/strings",
+    ],
+)
+
+xla_cc_test(
+    name = "xnn_fusion_test",
+    srcs = ["xnn_fusion_test.cc"],
+    deps = [
+        "//xla:error_spec",
+        "//xla:literal",
+        "//xla:literal_util",
+        "//xla:shape_util",
+        "//xla/service:cpu_plugin",
+        "//xla/tests:hlo_test_base",
+        "//xla/tests:test_macros_header",
+        "//xla/tsl/platform:test",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/strings:string_view",
+        "@com_google_googletest//:gtest_main",
+        "@local_tsl//tsl/platform:statusor",
+        "@local_tsl//tsl/platform:test",
     ],
 )

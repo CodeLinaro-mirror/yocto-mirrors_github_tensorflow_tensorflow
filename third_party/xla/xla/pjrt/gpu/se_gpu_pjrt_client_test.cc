@@ -842,7 +842,7 @@ TEST(StreamExecutorGpuClientTest, CopyRawToHostFullBuffer) {
   auto literal = xla::LiteralUtil::CreateR1<float>({41.0f, 42.0f});
   TF_ASSERT_OK_AND_ASSIGN(
       std::unique_ptr<PjRtBuffer> buffer,
-      client->BufferFromHostLiteral(literal, client->addressable_devices()[0]));
+      client->BufferFromHostLiteral(literal, client->memory_spaces()[0]));
 
   TF_ASSERT_OK_AND_ASSIGN(int64_t size, buffer->GetOnDeviceSizeInBytes());
   void* dst =
@@ -863,7 +863,7 @@ TEST(StreamExecutorGpuClientTest, CopyRawToHostSubBuffer) {
 
   TF_ASSERT_OK_AND_ASSIGN(
       std::unique_ptr<PjRtBuffer> buffer,
-      client->BufferFromHostLiteral(literal, client->addressable_devices()[0]));
+      client->BufferFromHostLiteral(literal, client->memory_spaces()[0]));
   TF_ASSERT_OK_AND_ASSIGN(int64_t size, buffer->GetOnDeviceSizeInBytes());
   void* dst =
       tsl::port::AlignedMalloc(size, tsl::Allocator::kAllocatorAlignment);
@@ -882,7 +882,7 @@ TEST(StreamExecutorGpuClientTest, CopyRawToHostOutOfRange) {
 
   TF_ASSERT_OK_AND_ASSIGN(
       std::unique_ptr<PjRtBuffer> buffer,
-      client->BufferFromHostLiteral(literal, client->addressable_devices()[0]));
+      client->BufferFromHostLiteral(literal, client->memory_spaces()[0]));
   TF_ASSERT_OK_AND_ASSIGN(int64_t size, buffer->GetOnDeviceSizeInBytes());
   void* dst =
       tsl::port::AlignedMalloc(size, tsl::Allocator::kAllocatorAlignment);
@@ -899,7 +899,7 @@ TEST(StreamExecutorGpuClientTest, CopyRawToHostFuture) {
   auto literal = xla::LiteralUtil::CreateR1<float>({41.0f, 42.0f});
   TF_ASSERT_OK_AND_ASSIGN(
       std::unique_ptr<PjRtBuffer> buffer,
-      client->BufferFromHostLiteral(literal, client->addressable_devices()[0]));
+      client->BufferFromHostLiteral(literal, client->memory_spaces()[0]));
 
   auto dst_promise = xla::PjRtFuture<void*>::CreatePromise();
   xla::PjRtFuture<void*> dst_future(dst_promise);
@@ -1073,8 +1073,10 @@ TEST(StreamExecutorGpuClientTest, GetAllocatorStatsTest) {
 
   for (auto device : client->addressable_devices()) {
     const xla::Literal literal = xla::LiteralUtil::CreateR0<int32_t>(0);
-    TF_ASSERT_OK_AND_ASSIGN(std::unique_ptr<PjRtBuffer> buffer,
-                            client->BufferFromHostLiteral(literal, device));
+    TF_ASSERT_OK_AND_ASSIGN(auto* memory_space, device->default_memory_space())
+    TF_ASSERT_OK_AND_ASSIGN(
+        std::unique_ptr<PjRtBuffer> buffer,
+        client->BufferFromHostLiteral(literal, memory_space));
 
     auto stats = device->GetAllocatorStats();
     TF_ASSERT_OK(stats.status());

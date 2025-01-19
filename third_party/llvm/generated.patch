@@ -1,207 +1,473 @@
 Auto generated patch. Do not edit or delete it, even if empty.
-diff -ruN --strip-trailing-cr a/mlir/include/mlir/IR/TypeRange.h b/mlir/include/mlir/IR/TypeRange.h
---- a/mlir/include/mlir/IR/TypeRange.h
-+++ b/mlir/include/mlir/IR/TypeRange.h
-@@ -29,12 +29,11 @@
- /// a SmallVector/std::vector. This class should be used in places that are not
- /// suitable for a more derived type (e.g. ArrayRef) or a template range
- /// parameter.
--class TypeRange
--    : public llvm::detail::indexed_accessor_range_base<
--          TypeRange,
--          llvm::PointerUnion<const Value *, const Type *, OpOperand *,
--                             detail::OpResultImpl *, Type>,
--          Type, Type, Type> {
-+class TypeRange : public llvm::detail::indexed_accessor_range_base<
-+                      TypeRange,
-+                      llvm::PointerUnion<const Value *, const Type *,
-+                                         OpOperand *, detail::OpResultImpl *>,
-+                      Type, Type, Type> {
- public:
-   using RangeBaseT::RangeBaseT;
-   TypeRange(ArrayRef<Type> types = std::nullopt);
-@@ -45,11 +44,8 @@
-   TypeRange(ValueTypeRange<ValueRangeT> values)
-       : TypeRange(ValueRange(ValueRangeT(values.begin().getCurrent(),
-                                          values.end().getCurrent()))) {}
+diff -ruN --strip-trailing-cr a/libcxx/include/__config b/libcxx/include/__config
+--- a/libcxx/include/__config
++++ b/libcxx/include/__config
+@@ -1166,9 +1166,7 @@
+ #    define _LIBCPP_NOESCAPE
+ #  endif
+ 
+-// FIXME: Expand this to [[__gnu__::__nodebug__]] again once the testcase reported in
+-// https://github.com/llvm/llvm-project/pull/118710 has been analyzed
+-#  define _LIBCPP_NODEBUG
++#  define _LIBCPP_NODEBUG [[__gnu__::__nodebug__]]
+ 
+ #  if __has_attribute(__standalone_debug__)
+ #    define _LIBCPP_STANDALONE_DEBUG __attribute__((__standalone_debug__))
+diff -ruN --strip-trailing-cr a/libcxx/test/tools/clang_tidy_checks/libcpp_module.cpp b/libcxx/test/tools/clang_tidy_checks/libcpp_module.cpp
+--- a/libcxx/test/tools/clang_tidy_checks/libcpp_module.cpp
++++ b/libcxx/test/tools/clang_tidy_checks/libcpp_module.cpp
+@@ -27,7 +27,7 @@
+     check_factories.registerCheck<libcpp::header_exportable_declarations>("libcpp-header-exportable-declarations");
+     check_factories.registerCheck<libcpp::hide_from_abi>("libcpp-hide-from-abi");
+     check_factories.registerCheck<libcpp::internal_ftm_use>("libcpp-internal-ftms");
+-    // check_factories.registerCheck<libcpp::nodebug_on_aliases>("libcpp-nodebug-on-aliases");
++    check_factories.registerCheck<libcpp::nodebug_on_aliases>("libcpp-nodebug-on-aliases");
+     check_factories.registerCheck<libcpp::proper_version_checks>("libcpp-cpp-version-check");
+     check_factories.registerCheck<libcpp::robust_against_adl_check>("libcpp-robust-against-adl");
+     check_factories.registerCheck<libcpp::uglify_attributes>("libcpp-uglify-attributes");
+diff -ruN --strip-trailing-cr a/llvm/lib/Target/AArch64/AArch64ISelLowering.cpp b/llvm/lib/Target/AArch64/AArch64ISelLowering.cpp
+--- a/llvm/lib/Target/AArch64/AArch64ISelLowering.cpp
++++ b/llvm/lib/Target/AArch64/AArch64ISelLowering.cpp
+@@ -1140,8 +1140,6 @@
+ 
+   setTargetDAGCombine(ISD::SCALAR_TO_VECTOR);
+ 
+-  setTargetDAGCombine(ISD::SHL);
 -
--  TypeRange(Type type) : TypeRange(type, /*count=*/1) {}
--  template <typename Arg, typename = std::enable_if_t<
--                              std::is_constructible_v<ArrayRef<Type>, Arg> &&
--                              !std::is_constructible_v<Type, Arg>>>
-+  template <typename Arg, typename = std::enable_if_t<std::is_constructible<
-+                              ArrayRef<Type>, Arg>::value>>
-   TypeRange(Arg &&arg) : TypeRange(ArrayRef<Type>(std::forward<Arg>(arg))) {}
-   TypeRange(std::initializer_list<Type> types)
-       : TypeRange(ArrayRef<Type>(types)) {}
-@@ -60,9 +56,8 @@
-   /// * A pointer to the first element of an array of types.
-   /// * A pointer to the first element of an array of operands.
-   /// * A pointer to the first element of an array of results.
--  /// * A single 'Type' instance.
-   using OwnerT = llvm::PointerUnion<const Value *, const Type *, OpOperand *,
--                                    detail::OpResultImpl *, Type>;
-+                                    detail::OpResultImpl *>;
- 
-   /// See `llvm::detail::indexed_accessor_range_base` for details.
-   static OwnerT offset_base(OwnerT object, ptrdiff_t index);
-diff -ruN --strip-trailing-cr a/mlir/include/mlir/IR/ValueRange.h b/mlir/include/mlir/IR/ValueRange.h
---- a/mlir/include/mlir/IR/ValueRange.h
-+++ b/mlir/include/mlir/IR/ValueRange.h
-@@ -374,16 +374,16 @@
- /// SmallVector/std::vector. This class should be used in places that are not
- /// suitable for a more derived type (e.g. ArrayRef) or a template range
- /// parameter.
--class ValueRange final : public llvm::detail::indexed_accessor_range_base<
--                             ValueRange,
--                             PointerUnion<const Value *, OpOperand *,
--                                          detail::OpResultImpl *, Value>,
--                             Value, Value, Value> {
-+class ValueRange final
-+    : public llvm::detail::indexed_accessor_range_base<
-+          ValueRange,
-+          PointerUnion<const Value *, OpOperand *, detail::OpResultImpl *>,
-+          Value, Value, Value> {
- public:
-   /// The type representing the owner of a ValueRange. This is either a list of
--  /// values, operands, or results or a single value.
-+  /// values, operands, or results.
-   using OwnerT =
--      PointerUnion<const Value *, OpOperand *, detail::OpResultImpl *, Value>;
-+      PointerUnion<const Value *, OpOperand *, detail::OpResultImpl *>;
- 
-   using RangeBaseT::RangeBaseT;
- 
-@@ -392,7 +392,7 @@
-                 std::is_constructible<ArrayRef<Value>, Arg>::value &&
-                 !std::is_convertible<Arg, Value>::value>>
-   ValueRange(Arg &&arg) : ValueRange(ArrayRef<Value>(std::forward<Arg>(arg))) {}
--  ValueRange(Value value) : ValueRange(value, /*count=*/1) {}
-+  ValueRange(const Value &value) : ValueRange(&value, /*count=*/1) {}
-   ValueRange(const std::initializer_list<Value> &values)
-       : ValueRange(ArrayRef<Value>(values)) {}
-   ValueRange(iterator_range<OperandRange::iterator> values)
-diff -ruN --strip-trailing-cr a/mlir/lib/IR/OperationSupport.cpp b/mlir/lib/IR/OperationSupport.cpp
---- a/mlir/lib/IR/OperationSupport.cpp
-+++ b/mlir/lib/IR/OperationSupport.cpp
-@@ -653,15 +653,6 @@
- /// See `llvm::detail::indexed_accessor_range_base` for details.
- ValueRange::OwnerT ValueRange::offset_base(const OwnerT &owner,
-                                            ptrdiff_t index) {
--  if (llvm::isa_and_nonnull<Value>(owner)) {
--    // Prevent out-of-bounds indexing for single values.
--    // Note that we do allow an index of 1 as is required by 'slice'ing that
--    // returns an empty range. This also matches the usual rules of C++ of being
--    // allowed to index past the last element of an array.
--    assert(index <= 1 && "out-of-bound offset into single-value 'ValueRange'");
--    // Return nullptr to quickly cause segmentation faults on misuse.
--    return index == 0 ? owner : nullptr;
--  }
-   if (const auto *value = llvm::dyn_cast_if_present<const Value *>(owner))
-     return {value + index};
-   if (auto *operand = llvm::dyn_cast_if_present<OpOperand *>(owner))
-@@ -670,10 +661,6 @@
- }
- /// See `llvm::detail::indexed_accessor_range_base` for details.
- Value ValueRange::dereference_iterator(const OwnerT &owner, ptrdiff_t index) {
--  if (auto value = llvm::dyn_cast_if_present<Value>(owner)) {
--    assert(index == 0 && "cannot offset into single-value 'ValueRange'");
--    return value;
--  }
-   if (const auto *value = llvm::dyn_cast_if_present<const Value *>(owner))
-     return value[index];
-   if (auto *operand = llvm::dyn_cast_if_present<OpOperand *>(owner))
-diff -ruN --strip-trailing-cr a/mlir/lib/IR/TypeRange.cpp b/mlir/lib/IR/TypeRange.cpp
---- a/mlir/lib/IR/TypeRange.cpp
-+++ b/mlir/lib/IR/TypeRange.cpp
-@@ -31,23 +31,12 @@
-     this->base = result;
-   else if (auto *operand = llvm::dyn_cast_if_present<OpOperand *>(owner))
-     this->base = operand;
--  else if (auto value = llvm::dyn_cast_if_present<Value>(owner))
--    this->base = value.getType();
-   else
-     this->base = cast<const Value *>(owner);
+   // In case of strict alignment, avoid an excessive number of byte wide stores.
+   MaxStoresPerMemsetOptSize = 8;
+   MaxStoresPerMemset =
+@@ -26473,43 +26471,6 @@
+   return NVCAST;
  }
  
- /// See `llvm::detail::indexed_accessor_range_base` for details.
- TypeRange::OwnerT TypeRange::offset_base(OwnerT object, ptrdiff_t index) {
--  if (llvm::isa_and_nonnull<Type>(object)) {
--    // Prevent out-of-bounds indexing for single values.
--    // Note that we do allow an index of 1 as is required by 'slice'ing that
--    // returns an empty range. This also matches the usual rules of C++ of being
--    // allowed to index past the last element of an array.
--    assert(index <= 1 && "out-of-bound offset into single-value 'ValueRange'");
--    // Return nullptr to quickly cause segmentation faults on misuse.
--    return index == 0 ? object : nullptr;
+-/// If the operand is a bitwise AND with a constant RHS, and the shift has a
+-/// constant RHS and is the only use, we can pull it out of the shift, i.e.
+-///
+-///   (shl (and X, C1), C2) -> (and (shl X, C2), (shl C1, C2))
+-///
+-/// We prefer this canonical form to match existing isel patterns.
+-static SDValue performSHLCombine(SDNode *N,
+-                                 TargetLowering::DAGCombinerInfo &DCI,
+-                                 SelectionDAG &DAG) {
+-  if (DCI.isBeforeLegalizeOps())
+-    return SDValue();
+-
+-  SDValue Op0 = N->getOperand(0);
+-  if (Op0.getOpcode() != ISD::AND || !Op0.hasOneUse())
+-    return SDValue();
+-
+-  SDValue C1 = Op0->getOperand(1);
+-  SDValue C2 = N->getOperand(1);
+-  if (!isa<ConstantSDNode>(C1) || !isa<ConstantSDNode>(C2))
+-    return SDValue();
+-
+-  // Might be folded into shifted op, do not lower.
+-  if (N->hasOneUse()) {
+-    unsigned UseOpc = N->user_begin()->getOpcode();
+-    if (UseOpc == ISD::ADD || UseOpc == ISD::SUB || UseOpc == ISD::SETCC ||
+-        UseOpc == AArch64ISD::ADDS || UseOpc == AArch64ISD::SUBS)
+-      return SDValue();
 -  }
-   if (const auto *value = llvm::dyn_cast_if_present<const Value *>(object))
-     return {value + index};
-   if (auto *operand = llvm::dyn_cast_if_present<OpOperand *>(object))
-@@ -59,10 +48,6 @@
- 
- /// See `llvm::detail::indexed_accessor_range_base` for details.
- Type TypeRange::dereference_iterator(OwnerT object, ptrdiff_t index) {
--  if (auto type = llvm::dyn_cast_if_present<Type>(object)) {
--    assert(index == 0 && "cannot offset into single-value 'TypeRange'");
--    return type;
--  }
-   if (const auto *value = llvm::dyn_cast_if_present<const Value *>(object))
-     return (value + index)->getType();
-   if (auto *operand = llvm::dyn_cast_if_present<OpOperand *>(object))
-diff -ruN --strip-trailing-cr a/mlir/unittests/IR/OperationSupportTest.cpp b/mlir/unittests/IR/OperationSupportTest.cpp
---- a/mlir/unittests/IR/OperationSupportTest.cpp
-+++ b/mlir/unittests/IR/OperationSupportTest.cpp
-@@ -313,21 +313,4 @@
-   op2->destroy();
- }
- 
--TEST(ValueRangeTest, ValueConstructable) {
--  MLIRContext context;
--  Builder builder(&context);
 -
--  Operation *useOp =
--      createOp(&context, /*operands=*/std::nullopt, builder.getIntegerType(16));
--  // Valid construction despite a temporary 'OpResult'.
--  ValueRange operands = useOp->getResult(0);
--
--  useOp->setOperands(operands);
--  EXPECT_EQ(useOp->getNumOperands(), 1u);
--  EXPECT_EQ(useOp->getOperand(0), useOp->getResult(0));
--
--  useOp->dropAllUses();
--  useOp->destroy();
+-  SDLoc DL(N);
+-  EVT VT = N->getValueType(0);
+-  SDValue X = Op0->getOperand(0);
+-  SDValue NewRHS = DAG.getNode(ISD::SHL, DL, VT, C1, C2);
+-  SDValue NewShift = DAG.getNode(ISD::SHL, DL, VT, X, C2);
+-  return DAG.getNode(ISD::AND, DL, VT, NewShift, NewRHS);
 -}
 -
- } // namespace
-diff -ruN --strip-trailing-cr a/utils/bazel/llvm-project-overlay/clang/BUILD.bazel b/utils/bazel/llvm-project-overlay/clang/BUILD.bazel
---- a/utils/bazel/llvm-project-overlay/clang/BUILD.bazel
-+++ b/utils/bazel/llvm-project-overlay/clang/BUILD.bazel
-@@ -43,10 +43,7 @@
- 
- gentbl(
-     name = "diagnostic_defs_gen",
--    tbl_outs = [(
--        "-gen-clang-diags-defs -clang-component=%s" % c,
--        "include/clang/Basic/Diagnostic%sKinds.inc" % c,
--    ) for c in [
-+    tbl_outs = [out for c in [
-         "AST",
-         "Analysis",
-         "Comment",
-@@ -60,6 +57,15 @@
-         "Refactoring",
-         "Sema",
-         "Serialization",
-+    ] for out in [
-+        (
-+            "-gen-clang-diags-defs -clang-component=%s" % c,
-+            "include/clang/Basic/Diagnostic%sKinds.inc" % c,
-+        ),
-+        (
-+            "-gen-clang-diags-enums -clang-component=%s" % c,
-+            "include/clang/Basic/Diagnostic%sEnums.inc" % c,
-+        ),
-     ]] + [
-         (
-             "-gen-clang-diag-groups",
+ SDValue AArch64TargetLowering::PerformDAGCombine(SDNode *N,
+                                                  DAGCombinerInfo &DCI) const {
+   SelectionDAG &DAG = DCI.DAG;
+@@ -26855,8 +26816,6 @@
+     return performCTLZCombine(N, DAG, Subtarget);
+   case ISD::SCALAR_TO_VECTOR:
+     return performScalarToVectorCombine(N, DCI, DAG);
+-  case ISD::SHL:
+-    return performSHLCombine(N, DCI, DAG);
+   }
+   return SDValue();
+ }
+diff -ruN --strip-trailing-cr a/llvm/test/CodeGen/AArch64/const-shift-of-constmasked.ll b/llvm/test/CodeGen/AArch64/const-shift-of-constmasked.ll
+--- a/llvm/test/CodeGen/AArch64/const-shift-of-constmasked.ll
++++ b/llvm/test/CodeGen/AArch64/const-shift-of-constmasked.ll
+@@ -190,7 +190,8 @@
+ define i8 @test_i8_7_mask_shl_1(i8 %a0) {
+ ; CHECK-LABEL: test_i8_7_mask_shl_1:
+ ; CHECK:       // %bb.0:
+-; CHECK-NEXT:    ubfiz w0, w0, #1, #3
++; CHECK-NEXT:    and w8, w0, #0x7
++; CHECK-NEXT:    lsl w0, w8, #1
+ ; CHECK-NEXT:    ret
+   %t0 = and i8 %a0, 7
+   %t1 = shl i8 %t0, 1
+@@ -199,7 +200,8 @@
+ define i8 @test_i8_7_mask_shl_4(i8 %a0) {
+ ; CHECK-LABEL: test_i8_7_mask_shl_4:
+ ; CHECK:       // %bb.0:
+-; CHECK-NEXT:    ubfiz w0, w0, #4, #3
++; CHECK-NEXT:    and w8, w0, #0x7
++; CHECK-NEXT:    lsl w0, w8, #4
+ ; CHECK-NEXT:    ret
+   %t0 = and i8 %a0, 7
+   %t1 = shl i8 %t0, 4
+@@ -227,8 +229,8 @@
+ define i8 @test_i8_28_mask_shl_1(i8 %a0) {
+ ; CHECK-LABEL: test_i8_28_mask_shl_1:
+ ; CHECK:       // %bb.0:
+-; CHECK-NEXT:    lsl w8, w0, #1
+-; CHECK-NEXT:    and w0, w8, #0x38
++; CHECK-NEXT:    and w8, w0, #0x1c
++; CHECK-NEXT:    lsl w0, w8, #1
+ ; CHECK-NEXT:    ret
+   %t0 = and i8 %a0, 28
+   %t1 = shl i8 %t0, 1
+@@ -237,8 +239,8 @@
+ define i8 @test_i8_28_mask_shl_2(i8 %a0) {
+ ; CHECK-LABEL: test_i8_28_mask_shl_2:
+ ; CHECK:       // %bb.0:
+-; CHECK-NEXT:    lsl w8, w0, #2
+-; CHECK-NEXT:    and w0, w8, #0x70
++; CHECK-NEXT:    and w8, w0, #0x1c
++; CHECK-NEXT:    lsl w0, w8, #2
+ ; CHECK-NEXT:    ret
+   %t0 = and i8 %a0, 28
+   %t1 = shl i8 %t0, 2
+@@ -247,8 +249,8 @@
+ define i8 @test_i8_28_mask_shl_3(i8 %a0) {
+ ; CHECK-LABEL: test_i8_28_mask_shl_3:
+ ; CHECK:       // %bb.0:
+-; CHECK-NEXT:    lsl w8, w0, #3
+-; CHECK-NEXT:    and w0, w8, #0xe0
++; CHECK-NEXT:    and w8, w0, #0x1c
++; CHECK-NEXT:    lsl w0, w8, #3
+ ; CHECK-NEXT:    ret
+   %t0 = and i8 %a0, 28
+   %t1 = shl i8 %t0, 3
+@@ -257,8 +259,8 @@
+ define i8 @test_i8_28_mask_shl_4(i8 %a0) {
+ ; CHECK-LABEL: test_i8_28_mask_shl_4:
+ ; CHECK:       // %bb.0:
+-; CHECK-NEXT:    lsl w8, w0, #4
+-; CHECK-NEXT:    and w0, w8, #0xc0
++; CHECK-NEXT:    and w8, w0, #0xc
++; CHECK-NEXT:    lsl w0, w8, #4
+ ; CHECK-NEXT:    ret
+   %t0 = and i8 %a0, 28
+   %t1 = shl i8 %t0, 4
+@@ -268,8 +270,8 @@
+ define i8 @test_i8_224_mask_shl_1(i8 %a0) {
+ ; CHECK-LABEL: test_i8_224_mask_shl_1:
+ ; CHECK:       // %bb.0:
+-; CHECK-NEXT:    lsl w8, w0, #1
+-; CHECK-NEXT:    and w0, w8, #0xc0
++; CHECK-NEXT:    and w8, w0, #0x60
++; CHECK-NEXT:    lsl w0, w8, #1
+ ; CHECK-NEXT:    ret
+   %t0 = and i8 %a0, 224
+   %t1 = shl i8 %t0, 1
+@@ -463,7 +465,8 @@
+ define i16 @test_i16_127_mask_shl_1(i16 %a0) {
+ ; CHECK-LABEL: test_i16_127_mask_shl_1:
+ ; CHECK:       // %bb.0:
+-; CHECK-NEXT:    ubfiz w0, w0, #1, #7
++; CHECK-NEXT:    and w8, w0, #0x7f
++; CHECK-NEXT:    lsl w0, w8, #1
+ ; CHECK-NEXT:    ret
+   %t0 = and i16 %a0, 127
+   %t1 = shl i16 %t0, 1
+@@ -472,7 +475,8 @@
+ define i16 @test_i16_127_mask_shl_8(i16 %a0) {
+ ; CHECK-LABEL: test_i16_127_mask_shl_8:
+ ; CHECK:       // %bb.0:
+-; CHECK-NEXT:    ubfiz w0, w0, #8, #7
++; CHECK-NEXT:    and w8, w0, #0x7f
++; CHECK-NEXT:    lsl w0, w8, #8
+ ; CHECK-NEXT:    ret
+   %t0 = and i16 %a0, 127
+   %t1 = shl i16 %t0, 8
+@@ -500,8 +504,8 @@
+ define i16 @test_i16_2032_mask_shl_3(i16 %a0) {
+ ; CHECK-LABEL: test_i16_2032_mask_shl_3:
+ ; CHECK:       // %bb.0:
+-; CHECK-NEXT:    lsl w8, w0, #3
+-; CHECK-NEXT:    and w0, w8, #0x3f80
++; CHECK-NEXT:    and w8, w0, #0x7f0
++; CHECK-NEXT:    lsl w0, w8, #3
+ ; CHECK-NEXT:    ret
+   %t0 = and i16 %a0, 2032
+   %t1 = shl i16 %t0, 3
+@@ -510,8 +514,8 @@
+ define i16 @test_i16_2032_mask_shl_4(i16 %a0) {
+ ; CHECK-LABEL: test_i16_2032_mask_shl_4:
+ ; CHECK:       // %bb.0:
+-; CHECK-NEXT:    lsl w8, w0, #4
+-; CHECK-NEXT:    and w0, w8, #0x7f00
++; CHECK-NEXT:    and w8, w0, #0x7f0
++; CHECK-NEXT:    lsl w0, w8, #4
+ ; CHECK-NEXT:    ret
+   %t0 = and i16 %a0, 2032
+   %t1 = shl i16 %t0, 4
+@@ -520,8 +524,8 @@
+ define i16 @test_i16_2032_mask_shl_5(i16 %a0) {
+ ; CHECK-LABEL: test_i16_2032_mask_shl_5:
+ ; CHECK:       // %bb.0:
+-; CHECK-NEXT:    lsl w8, w0, #5
+-; CHECK-NEXT:    and w0, w8, #0xfe00
++; CHECK-NEXT:    and w8, w0, #0x7f0
++; CHECK-NEXT:    lsl w0, w8, #5
+ ; CHECK-NEXT:    ret
+   %t0 = and i16 %a0, 2032
+   %t1 = shl i16 %t0, 5
+@@ -530,8 +534,8 @@
+ define i16 @test_i16_2032_mask_shl_6(i16 %a0) {
+ ; CHECK-LABEL: test_i16_2032_mask_shl_6:
+ ; CHECK:       // %bb.0:
+-; CHECK-NEXT:    lsl w8, w0, #6
+-; CHECK-NEXT:    and w0, w8, #0xfc00
++; CHECK-NEXT:    and w8, w0, #0x3f0
++; CHECK-NEXT:    lsl w0, w8, #6
+ ; CHECK-NEXT:    ret
+   %t0 = and i16 %a0, 2032
+   %t1 = shl i16 %t0, 6
+@@ -541,8 +545,8 @@
+ define i16 @test_i16_65024_mask_shl_1(i16 %a0) {
+ ; CHECK-LABEL: test_i16_65024_mask_shl_1:
+ ; CHECK:       // %bb.0:
+-; CHECK-NEXT:    lsl w8, w0, #1
+-; CHECK-NEXT:    and w0, w8, #0xfc00
++; CHECK-NEXT:    and w8, w0, #0x7e00
++; CHECK-NEXT:    lsl w0, w8, #1
+ ; CHECK-NEXT:    ret
+   %t0 = and i16 %a0, 65024
+   %t1 = shl i16 %t0, 1
+@@ -736,7 +740,8 @@
+ define i32 @test_i32_32767_mask_shl_1(i32 %a0) {
+ ; CHECK-LABEL: test_i32_32767_mask_shl_1:
+ ; CHECK:       // %bb.0:
+-; CHECK-NEXT:    ubfiz w0, w0, #1, #15
++; CHECK-NEXT:    and w8, w0, #0x7fff
++; CHECK-NEXT:    lsl w0, w8, #1
+ ; CHECK-NEXT:    ret
+   %t0 = and i32 %a0, 32767
+   %t1 = shl i32 %t0, 1
+@@ -745,7 +750,8 @@
+ define i32 @test_i32_32767_mask_shl_16(i32 %a0) {
+ ; CHECK-LABEL: test_i32_32767_mask_shl_16:
+ ; CHECK:       // %bb.0:
+-; CHECK-NEXT:    ubfiz w0, w0, #16, #15
++; CHECK-NEXT:    and w8, w0, #0x7fff
++; CHECK-NEXT:    lsl w0, w8, #16
+ ; CHECK-NEXT:    ret
+   %t0 = and i32 %a0, 32767
+   %t1 = shl i32 %t0, 16
+@@ -773,8 +779,8 @@
+ define i32 @test_i32_8388352_mask_shl_7(i32 %a0) {
+ ; CHECK-LABEL: test_i32_8388352_mask_shl_7:
+ ; CHECK:       // %bb.0:
+-; CHECK-NEXT:    lsl w8, w0, #7
+-; CHECK-NEXT:    and w0, w8, #0x3fff8000
++; CHECK-NEXT:    and w8, w0, #0x7fff00
++; CHECK-NEXT:    lsl w0, w8, #7
+ ; CHECK-NEXT:    ret
+   %t0 = and i32 %a0, 8388352
+   %t1 = shl i32 %t0, 7
+@@ -783,8 +789,8 @@
+ define i32 @test_i32_8388352_mask_shl_8(i32 %a0) {
+ ; CHECK-LABEL: test_i32_8388352_mask_shl_8:
+ ; CHECK:       // %bb.0:
+-; CHECK-NEXT:    lsl w8, w0, #8
+-; CHECK-NEXT:    and w0, w8, #0x7fff0000
++; CHECK-NEXT:    and w8, w0, #0x7fff00
++; CHECK-NEXT:    lsl w0, w8, #8
+ ; CHECK-NEXT:    ret
+   %t0 = and i32 %a0, 8388352
+   %t1 = shl i32 %t0, 8
+@@ -793,8 +799,8 @@
+ define i32 @test_i32_8388352_mask_shl_9(i32 %a0) {
+ ; CHECK-LABEL: test_i32_8388352_mask_shl_9:
+ ; CHECK:       // %bb.0:
+-; CHECK-NEXT:    lsl w8, w0, #9
+-; CHECK-NEXT:    and w0, w8, #0xfffe0000
++; CHECK-NEXT:    and w8, w0, #0x7fff00
++; CHECK-NEXT:    lsl w0, w8, #9
+ ; CHECK-NEXT:    ret
+   %t0 = and i32 %a0, 8388352
+   %t1 = shl i32 %t0, 9
+@@ -803,8 +809,8 @@
+ define i32 @test_i32_8388352_mask_shl_10(i32 %a0) {
+ ; CHECK-LABEL: test_i32_8388352_mask_shl_10:
+ ; CHECK:       // %bb.0:
+-; CHECK-NEXT:    lsl w8, w0, #10
+-; CHECK-NEXT:    and w0, w8, #0xfffc0000
++; CHECK-NEXT:    and w8, w0, #0x3fff00
++; CHECK-NEXT:    lsl w0, w8, #10
+ ; CHECK-NEXT:    ret
+   %t0 = and i32 %a0, 8388352
+   %t1 = shl i32 %t0, 10
+@@ -814,8 +820,8 @@
+ define i32 @test_i32_4294836224_mask_shl_1(i32 %a0) {
+ ; CHECK-LABEL: test_i32_4294836224_mask_shl_1:
+ ; CHECK:       // %bb.0:
+-; CHECK-NEXT:    lsl w8, w0, #1
+-; CHECK-NEXT:    and w0, w8, #0xfffc0000
++; CHECK-NEXT:    and w8, w0, #0x7ffe0000
++; CHECK-NEXT:    lsl w0, w8, #1
+ ; CHECK-NEXT:    ret
+   %t0 = and i32 %a0, 4294836224
+   %t1 = shl i32 %t0, 1
+@@ -1009,7 +1015,8 @@
+ define i64 @test_i64_2147483647_mask_shl_1(i64 %a0) {
+ ; CHECK-LABEL: test_i64_2147483647_mask_shl_1:
+ ; CHECK:       // %bb.0:
+-; CHECK-NEXT:    lsl w0, w0, #1
++; CHECK-NEXT:    and x8, x0, #0x7fffffff
++; CHECK-NEXT:    lsl x0, x8, #1
+ ; CHECK-NEXT:    ret
+   %t0 = and i64 %a0, 2147483647
+   %t1 = shl i64 %t0, 1
+@@ -1047,8 +1054,8 @@
+ define i64 @test_i64_140737488289792_mask_shl_15(i64 %a0) {
+ ; CHECK-LABEL: test_i64_140737488289792_mask_shl_15:
+ ; CHECK:       // %bb.0:
+-; CHECK-NEXT:    lsl x8, x0, #15
+-; CHECK-NEXT:    and x0, x8, #0x3fffffff80000000
++; CHECK-NEXT:    and x8, x0, #0x7fffffff0000
++; CHECK-NEXT:    lsl x0, x8, #15
+ ; CHECK-NEXT:    ret
+   %t0 = and i64 %a0, 140737488289792
+   %t1 = shl i64 %t0, 15
+@@ -1057,8 +1064,8 @@
+ define i64 @test_i64_140737488289792_mask_shl_16(i64 %a0) {
+ ; CHECK-LABEL: test_i64_140737488289792_mask_shl_16:
+ ; CHECK:       // %bb.0:
+-; CHECK-NEXT:    lsl x8, x0, #16
+-; CHECK-NEXT:    and x0, x8, #0x7fffffff00000000
++; CHECK-NEXT:    and x8, x0, #0x7fffffff0000
++; CHECK-NEXT:    lsl x0, x8, #16
+ ; CHECK-NEXT:    ret
+   %t0 = and i64 %a0, 140737488289792
+   %t1 = shl i64 %t0, 16
+@@ -1067,8 +1074,8 @@
+ define i64 @test_i64_140737488289792_mask_shl_17(i64 %a0) {
+ ; CHECK-LABEL: test_i64_140737488289792_mask_shl_17:
+ ; CHECK:       // %bb.0:
+-; CHECK-NEXT:    lsl x8, x0, #17
+-; CHECK-NEXT:    and x0, x8, #0xfffffffe00000000
++; CHECK-NEXT:    and x8, x0, #0x7fffffff0000
++; CHECK-NEXT:    lsl x0, x8, #17
+ ; CHECK-NEXT:    ret
+   %t0 = and i64 %a0, 140737488289792
+   %t1 = shl i64 %t0, 17
+@@ -1077,8 +1084,8 @@
+ define i64 @test_i64_140737488289792_mask_shl_18(i64 %a0) {
+ ; CHECK-LABEL: test_i64_140737488289792_mask_shl_18:
+ ; CHECK:       // %bb.0:
+-; CHECK-NEXT:    lsl x8, x0, #18
+-; CHECK-NEXT:    and x0, x8, #0xfffffffc00000000
++; CHECK-NEXT:    and x8, x0, #0x3fffffff0000
++; CHECK-NEXT:    lsl x0, x8, #18
+ ; CHECK-NEXT:    ret
+   %t0 = and i64 %a0, 140737488289792
+   %t1 = shl i64 %t0, 18
+@@ -1088,8 +1095,8 @@
+ define i64 @test_i64_18446744065119617024_mask_shl_1(i64 %a0) {
+ ; CHECK-LABEL: test_i64_18446744065119617024_mask_shl_1:
+ ; CHECK:       // %bb.0:
+-; CHECK-NEXT:    lsl x8, x0, #1
+-; CHECK-NEXT:    and x0, x8, #0xfffffffc00000000
++; CHECK-NEXT:    and x8, x0, #0x7ffffffe00000000
++; CHECK-NEXT:    lsl x0, x8, #1
+ ; CHECK-NEXT:    ret
+   %t0 = and i64 %a0, 18446744065119617024
+   %t1 = shl i64 %t0, 1
+diff -ruN --strip-trailing-cr a/llvm/test/CodeGen/AArch64/extract-bits.ll b/llvm/test/CodeGen/AArch64/extract-bits.ll
+--- a/llvm/test/CodeGen/AArch64/extract-bits.ll
++++ b/llvm/test/CodeGen/AArch64/extract-bits.ll
+@@ -1013,8 +1013,8 @@
+ define i32 @c2_i32(i32 %arg) nounwind {
+ ; CHECK-LABEL: c2_i32:
+ ; CHECK:       // %bb.0:
+-; CHECK-NEXT:    lsr w8, w0, #17
+-; CHECK-NEXT:    and w0, w8, #0xffc
++; CHECK-NEXT:    ubfx w8, w0, #19, #10
++; CHECK-NEXT:    lsl w0, w8, #2
+ ; CHECK-NEXT:    ret
+   %tmp0 = lshr i32 %arg, 19
+   %tmp1 = and i32 %tmp0, 1023
+@@ -1063,8 +1063,8 @@
+ define i64 @c2_i64(i64 %arg) nounwind {
+ ; CHECK-LABEL: c2_i64:
+ ; CHECK:       // %bb.0:
+-; CHECK-NEXT:    lsr x8, x0, #49
+-; CHECK-NEXT:    and x0, x8, #0xffc
++; CHECK-NEXT:    ubfx x8, x0, #51, #10
++; CHECK-NEXT:    lsl x0, x8, #2
+ ; CHECK-NEXT:    ret
+   %tmp0 = lshr i64 %arg, 51
+   %tmp1 = and i64 %tmp0, 1023
+@@ -1120,8 +1120,8 @@
+ define void @c7_i32(i32 %arg, ptr %ptr) nounwind {
+ ; CHECK-LABEL: c7_i32:
+ ; CHECK:       // %bb.0:
+-; CHECK-NEXT:    lsr w8, w0, #17
+-; CHECK-NEXT:    and w8, w8, #0xffc
++; CHECK-NEXT:    ubfx w8, w0, #19, #10
++; CHECK-NEXT:    lsl w8, w8, #2
+ ; CHECK-NEXT:    str w8, [x1]
+ ; CHECK-NEXT:    ret
+   %tmp0 = lshr i32 %arg, 19
+@@ -1163,8 +1163,8 @@
+ define void @c7_i64(i64 %arg, ptr %ptr) nounwind {
+ ; CHECK-LABEL: c7_i64:
+ ; CHECK:       // %bb.0:
+-; CHECK-NEXT:    lsr x8, x0, #49
+-; CHECK-NEXT:    and x8, x8, #0xffc
++; CHECK-NEXT:    ubfx x8, x0, #51, #10
++; CHECK-NEXT:    lsl x8, x8, #2
+ ; CHECK-NEXT:    str x8, [x1]
+ ; CHECK-NEXT:    ret
+   %tmp0 = lshr i64 %arg, 51
+diff -ruN --strip-trailing-cr a/llvm/test/CodeGen/AArch64/fpenv.ll b/llvm/test/CodeGen/AArch64/fpenv.ll
+--- a/llvm/test/CodeGen/AArch64/fpenv.ll
++++ b/llvm/test/CodeGen/AArch64/fpenv.ll
+@@ -4,11 +4,11 @@
+ define void @func_set_rounding_dyn(i32 %rm) {
+ ; CHECK-LABEL: func_set_rounding_dyn:
+ ; CHECK:       // %bb.0:
+-; CHECK-NEXT:    lsl w9, w0, #22
++; CHECK-NEXT:    sub w9, w0, #1
+ ; CHECK-NEXT:    mrs x8, FPCR
++; CHECK-NEXT:    and w9, w9, #0x3
+ ; CHECK-NEXT:    and x8, x8, #0xffffffffff3fffff
+-; CHECK-NEXT:    sub w9, w9, #1024, lsl #12 // =4194304
+-; CHECK-NEXT:    and w9, w9, #0xc00000
++; CHECK-NEXT:    lsl w9, w9, #22
+ ; CHECK-NEXT:    orr x8, x8, x9
+ ; CHECK-NEXT:    msr FPCR, x8
+ ; CHECK-NEXT:    ret
+diff -ruN --strip-trailing-cr a/llvm/test/CodeGen/AArch64/xbfiz.ll b/llvm/test/CodeGen/AArch64/xbfiz.ll
+--- a/llvm/test/CodeGen/AArch64/xbfiz.ll
++++ b/llvm/test/CodeGen/AArch64/xbfiz.ll
+@@ -69,19 +69,3 @@
+   %and = and i64 %shl, 4294967295
+   ret i64 %and
+ }
+-
+-define i64 @lsl_zext_i8_i64(i8 %b) {
+-; CHECK-LABEL: lsl_zext_i8_i64:
+-; CHECK:    ubfiz x0, x0, #1, #8
+-  %1 = zext i8 %b to i64
+-  %2 = shl i64 %1, 1
+-  ret i64 %2
+-}
+-
+-define i64 @lsl_zext_i16_i64(i16 %b) {
+-; CHECK-LABEL: lsl_zext_i16_i64:
+-; CHECK:    ubfiz x0, x0, #1, #16
+-  %1 = zext i16 %b to i64
+-  %2 = shl i64 %1, 1
+-  ret i64 %2
+-}

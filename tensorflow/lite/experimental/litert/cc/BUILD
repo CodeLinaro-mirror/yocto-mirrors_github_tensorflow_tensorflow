@@ -212,6 +212,7 @@ cc_library(
     name = "litert_macros",
     hdrs = ["litert_macros.h"],
     deps = [
+        ":litert_expected",
         "//tensorflow/lite/experimental/litert/c:litert_common",
         "//tensorflow/lite/experimental/litert/c:litert_logging",
         "@com_google_absl//absl/log:absl_check",

@@ -18,6 +18,7 @@
 #include "absl/log/absl_check.h"
 #include "tensorflow/lite/experimental/litert/c/litert_common.h"  // IWYU pragma: keep
 #include "tensorflow/lite/experimental/litert/c/litert_logging.h"  // IWYU pragma: keep
+#include "tensorflow/lite/experimental/litert/cc/litert_expected.h"  // IWYU pragma: keep
 
 #define _CONCAT_NAME_IMPL(x, y) x##y
 
@@ -42,16 +43,10 @@
     return fail_stat;                       \
   }
 
-#define LITERT_RETURN_STATUS_IF_NOT_OK(expr) \
-  if (LiteRtStatus status = expr; status != kLiteRtStatusOk) return status;
-
-#define LITERT_RETURN_STATUS_IF_NOT_OK_OR_NOT_MATCHED(expr)                  \
+#define LITERT_RETURN_IF_ERROR_OR_NOT_MATCHED(expr)                          \
   if (LiteRtStatus status = expr;                                            \
       (status != kLiteRtStatusOk && status != kLiteRtStatusLegalizeNoMatch)) \
     return status;
-
-#define LITERT_RETURN_VAL_IF_NOT_OK(expr, ret_val) \
-  if (LiteRtStatus status = expr; status != kLiteRtStatusOk) return ret_val;
 
 #define LITERT_STACK_ARRAY(ty, var, size, init) \
   ty* var = (ty*)alloca(sizeof(ty) * size);     \
@@ -59,9 +54,59 @@
     *e = init;                                  \
   }
 
-#define LITERT_EXPECT_OK(status)                       \
-  if (auto stat = (status); stat != kLiteRtStatusOk) { \
-    return ::litert::Unexpected(stat);                 \
+// Returns the result `expr` if it represents an LiteRT error status (either
+// `litert::Expected` holding an error or a `LiteRtStatus`).
+// ```
+// LITERT_RETURN_IF_ERROR(expr);
+// ```
+//
+// Returns `return_expr` if the result of `expr` represents an error.
+// ```
+// LITERT_RETURN_IF_ERROR(expr, return_expr);
+// ```
+//
+// The result of `expr` may be referenced as `status` in `return_expr`.
+#define LITERT_RETURN_IF_ERROR(...)                                       \
+  LITERT_RETURN_IF_ERROR_SELECT_OVERLOAD(                                 \
+      (__VA_ARGS__, LITERT_RETURN_IF_ERROR_2, LITERT_RETURN_IF_ERROR_1))( \
+      __VA_ARGS__)
+
+// Implementation details start here.
+
+// Converts implicitly to either LiteRtStatus or litert::Expected holding an
+// error.
+class ErrorStatusReturnHelper {
+ public:
+  // NOLINTBEGIN(*-explicit-constructor): This is meant to be transparent.
+  template <class T>
+  ErrorStatusReturnHelper(const litert::Expected<T> error) : error_(error) {}
+  ErrorStatusReturnHelper(LiteRtStatus status) : error_(status) {}
+  ErrorStatusReturnHelper(litert::Unexpected error) : error_(error.Error()) {}
+
+  operator LiteRtStatus() const noexcept { return error_.Status(); }
+  template <class T>
+  operator litert::Expected<T>() const noexcept {
+    return litert::Unexpected(error_);
   }
+  // NOLINTEND(*-explicit-constructor)
+ private:
+  litert::Error error_;
+};
+
+#define LITERT_RETURN_IF_ERROR_SELECT_OVERLOAD_HELPER(_1, _2, OVERLOAD, ...) \
+  OVERLOAD
+
+#define LITERT_RETURN_IF_ERROR_SELECT_OVERLOAD(args) \
+  LITERT_RETURN_IF_ERROR_SELECT_OVERLOAD_HELPER args
+
+#define LITERT_RETURN_IF_ERROR_1(EXPR) \
+  LITERT_RETURN_IF_ERROR_2(EXPR, ErrorStatusReturnHelper{status})
+
+#define LITERT_RETURN_IF_ERROR_2(EXPR, RETURN_VALUE)       \
+  do {                                                     \
+    if (auto status = (EXPR); status != kLiteRtStatusOk) { \
+      return RETURN_VALUE;                                 \
+    }                                                      \
+  } while (false)
 
 #endif  // TENSORFLOW_LITE_EXPERIMENTAL_LITERT_CC_LITERT_MACROS_H_

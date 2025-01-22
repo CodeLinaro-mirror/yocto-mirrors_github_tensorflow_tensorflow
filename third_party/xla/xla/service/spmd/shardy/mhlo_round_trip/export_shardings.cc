@@ -350,8 +350,10 @@ StringAttr convertToHloShardingAttr(
     std::function<MeshAttr(TensorShardingAttr)> getMeshAttr,
     std::function<StringAttr(const HloSharding&)> getStringAttr,
     ArrayRef<StringAttr> manualAxes) {
-  assert(shardings.size() == op->getNumResults());
-  if (op->getNumResults() == 1) {
+  bool isNoResultMaximal = op->getNumResults() == 0 && !shardings.empty() &&
+                           shardings.front().getMesh(op).isMaximal();
+  assert(shardings.size() == op->getNumResults() || isNoResultMaximal);
+  if (op->getNumResults() == 1 || isNoResultMaximal) {
     return getStringAttr(
         convertToHloSharding(shardings.front(), getMeshAttr, manualAxes));
   }

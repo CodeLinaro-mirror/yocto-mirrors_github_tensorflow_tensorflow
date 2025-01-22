@@ -292,8 +292,6 @@ cc_library(
     local_defines = if_cuda_is_configured(["GOOGLE_CUDA=1"]),
     deps = [
         "//xla:shape_util",
-        "//xla:status_macros",
-        "//xla:types",
         "//xla:util",
         "//xla/hlo/analysis:hlo_alias_analysis",
         "//xla/hlo/analysis:tuple_points_to_analysis",
@@ -306,6 +304,7 @@ cc_library(
         "//xla/tsl/platform:errors",
         "//xla/tsl/platform:logging",
         "//xla/tsl/platform:statusor",
+        "@com_google_absl//absl/algorithm:container",
         "@com_google_absl//absl/container:flat_hash_map",
         "@com_google_absl//absl/container:flat_hash_set",
         "@com_google_absl//absl/log",

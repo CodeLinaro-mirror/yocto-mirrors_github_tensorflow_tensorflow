@@ -1511,7 +1511,13 @@ pywrap_library(
     # buildifier: disable=unsorted-dict-items
     # @unsorted-dict-items
     common_lib_filters = {
-        "tensorflow/libtensorflow_framework.so.2": "//tensorflow:tensorflow_framework_pywrap_filter",
+        "tensorflow/libtensorflow_framework.so.2": [
+            "//tensorflow:tensorflow_framework_pywrap_filter",
+            "@com_google_absl//absl/debugging:leak_check",
+            "@com_google_absl//absl/flags:flag",
+            "@com_google_absl//absl/log:die_if_null",
+            "@com_google_absl//absl/random",
+        ],
         "tensorflow/libtensorflow_cc.so.2": "//tensorflow:tensorflow_cc_pywrap_filter",
     },
     # buildifier: disable=unsorted-dict-items

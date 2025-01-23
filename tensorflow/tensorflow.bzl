@@ -2326,7 +2326,7 @@ def tf_custom_op_library(
         deps = list(deps)
 
     deps += if_cuda_or_rocm([
-        clean_dep("//tensorflow/core:stream_executor_headers_lib"),
+        # clean_dep("//tensorflow/core:stream_executor_headers_lib"),
     ]) + if_cuda([
         "@local_config_cuda//cuda:cuda_headers",
         "@local_config_cuda//cuda:cuda_runtime",

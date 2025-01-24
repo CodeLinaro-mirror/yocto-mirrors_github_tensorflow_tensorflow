@@ -53,7 +53,12 @@ class Error {
   const std::string& Message() const { return message_; }
 
   friend std::ostream& operator<<(std::ostream& stream, const Error& error) {
-    return stream << error.Message();
+    stream << '(' << LiteRtGetStatusString(error.Status()) << ')';
+
+    if (!error.Message().empty()) {
+      stream << ' ' << error.Message();
+    }
+    return stream;
   }
 
  private:
@@ -68,7 +73,7 @@ class Unexpected {
       : error_(std::forward<Args>(args)...) {}
 
   // Allow for implicit conversion from convertible Error value inplace.
-  // NOLINTNEXTLINE
+  // NOLINTNEXTLINE(*-explicit-constructor)
   Unexpected(class Error&& e) : error_(std::move(e)) {}
 
   Unexpected(Unexpected&& other) = default;
@@ -119,21 +124,20 @@ class Expected {
   explicit Expected(Args&&... args)
       : has_value_(true), value_(std::forward<Args>(args)...) {}
 
+  // NOLINTBEGIN(*-explicit-constructor)
+
   // Allow for implicit conversion from convertible T value inplace.
-  // NOLINTNEXTLINE
   Expected(const T& t) : has_value_(true), value_(t) {}
-  // NOLINTNEXTLINE
   Expected(T&& t) : has_value_(true), value_(std::move(t)) {}
 
   // Construct from Unexpected inplace.
 
   // Allow for implicit conversion from Error.
-  // NOLINTNEXTLINE
   Expected(const Unexpected& err) : has_value_(false), unexpected_(err) {}
-  // NOLINTNEXTLINE
   Expected(Unexpected&& err) : has_value_(false), unexpected_(std::move(err)) {}
-  // NOLINTNEXTLINE
   Expected(const class Error& e) : has_value_(false), unexpected_(e) {}
+
+  // NOLINTEND(*-explicit-constructor)
 
   // Copy/move
 
@@ -271,13 +275,14 @@ class Expected<void> {
 
   // Construct from Unexpected inplace.
 
+  // NOLINTBEGIN(*-explicit-constructor)
+
   // Allow for implicit conversion from Error.
-  // NOLINTNEXTLINE
   Expected(const Unexpected& err) : has_value_(false), unexpected_(err) {}
-  // NOLINTNEXTLINE
   Expected(Unexpected&& err) : has_value_(false), unexpected_(std::move(err)) {}
-  // NOLINTNEXTLINE
   Expected(const Error& e) : has_value_(false), unexpected_(e) {}
+
+  // NOLINTEND(*-explicit-constructor)
 
   ~Expected() {
     if (!has_value_) {

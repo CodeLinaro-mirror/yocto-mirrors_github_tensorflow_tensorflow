@@ -593,12 +593,17 @@ cc_library(
     hdrs = ["collective_permute_valid_iteration_annotator.h"],
     deps = [
         "//xla:literal_util",
+        "//xla:xla_data_proto_cc",
         "//xla/hlo/analysis:while_loop_analysis",
         "//xla/hlo/ir:hlo",
         "//xla/hlo/pass:hlo_pass",
         "//xla/service:collective_ops_utils",
         "//xla/service:pattern_matcher",
         "//xla/service:source_target_pairs",
+        "//xla/tsl/platform:statusor",
+        "@com_google_absl//absl/container:flat_hash_set",
+        "@com_google_absl//absl/status:statusor",
+        "@com_google_absl//absl/strings:string_view",
     ],
 )
 

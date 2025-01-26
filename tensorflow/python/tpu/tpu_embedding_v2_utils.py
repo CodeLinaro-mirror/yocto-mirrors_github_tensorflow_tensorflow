@@ -149,9 +149,12 @@ class _Optimizer(metaclass=abc.ABCMeta):
     raise NotImplementedError
 
   def _create_slots(
-      self, table: "TableConfig",
-      variable_creator: Callable[[Text, init_ops_v2.Initializer],
-                                 tf_variables.Variable]
+      self,
+      table: "TableConfig",
+      variable_creator: Callable[
+          [Text, init_ops_v2.Initializer], tf_variables.Variable
+      ],
+      initializers: Optional[dict[str, init_ops_v2.Initializer]] = None,
   ) -> Dict[Text, tf_variables.Variable]:
     """Creates slot variables for table.
 
@@ -159,17 +162,24 @@ class _Optimizer(metaclass=abc.ABCMeta):
       table: The table variable to create slots for.
       variable_creator: A function which creates variables. Takes parameters
         'name', 'initializer'.
+      initializers: A dict of initializers. If provided, they will be used
+        instead of the internal initializers.
 
     Returns:
       A dict of variables, keyed by self._slot_names().
     """
+    if initializers is None:
+      names = self._slot_names()
+      initializers = self._slot_initializers()
+    else:
+      names = list(initializers.keys())
+      initializers = [initializers[key] for key in names]
+
     if self.slot_variable_creation_fn is not None:
-      return self.slot_variable_creation_fn(table, self._slot_names(),
-                                            self._slot_initializers())
+      return self.slot_variable_creation_fn(table, names, initializers)
     else:
       slots = {}
-      for slot, initializer in zip(self._slot_names(),
-                                   self._slot_initializers()):
+      for slot, initializer in zip(names, initializers):
         slots[slot] = variable_creator(slot, initializer)
       return slots
 

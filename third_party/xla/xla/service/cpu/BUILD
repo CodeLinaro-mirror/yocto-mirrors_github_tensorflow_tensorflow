@@ -847,6 +847,7 @@ cc_library(
         "//xla:xla_data_proto_cc",
         "//xla/backends/cpu:xnn_emitter",
         "//xla/backends/cpu:xnn_fusion",
+        "//xla/backends/cpu/codegen:concatinate_kernel_emitter",
         "//xla/backends/cpu/codegen:dot_kernel_emitter",
         "//xla/backends/cpu/codegen:elemental_kernel_emitter",
         "//xla/backends/cpu/codegen:target_machine_features",

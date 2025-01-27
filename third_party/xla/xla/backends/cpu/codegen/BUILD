@@ -394,6 +394,54 @@ cc_library(
     ],
 )
 
+cc_library(
+    name = "concatinate_kernel_emitter",
+    srcs = ["concatinate_kernel_emitter.cc"],
+    hdrs = ["concatinate_kernel_emitter.h"],
+    deps = [
+        ":elemental_kernel_emitter",
+        ":kernel_api_ir_builder",
+        ":target_machine_features",
+        "//xla:shape_util",
+        "//xla:util",
+        "//xla/codegen:kernel_definition",
+        "//xla/codegen:kernel_emitter",
+        "//xla/codegen:kernel_spec",
+        "//xla/codegen:llvm_ir_kernel_source",
+        "//xla/hlo/ir:hlo",
+        "//xla/service:buffer_assignment",
+        "//xla/service/cpu:backend_config_proto_cc",
+        "//xla/service/cpu:ir_emitter",
+        "//xla/service/llvm_ir:ir_array",
+        "//xla/stream_executor:launch_dim",
+        "//xla/tsl/platform:errors",
+        "//xla/tsl/platform:statusor",
+        "@com_google_absl//absl/log",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:statusor",
+        "@com_google_absl//absl/strings",
+        "@llvm-project//llvm:ir_headers",
+    ],
+)
+
+py_strict_test(
+    name = "concatinate_kernel_emitter_test",
+    srcs = ["concatinate_kernel_emitter_test.py"],
+    python_version = "PY3",
+    srcs_version = "PY3",
+    tags = [
+        "no_oss",
+    ],
+    deps = [
+        "//third_party/py/numpy",
+        "//xla/backends/cpu/testlib",
+        "//xla/codegen/testlib",
+        "//xla/python:xla_extension",
+        "@absl_py//absl/testing:absltest",
+        "@absl_py//absl/testing:parameterized",
+    ],
+)
+
 xla_cc_test(
     name = "object_loader_test",
     srcs = ["object_loader_test.cc"],

@@ -24,14 +24,17 @@ on:
 
 jobs:
   benchmark:
-    runs-on: "linux-x86-n2-16"
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [linux-x86-n2-16, linux-arm64-c4a-16]
+
     container: "us-central1-docker.pkg.dev/tensorflow-sigs/tensorflow/ml-build:latest"
     steps:
       - name: Checkout OpenXLA
         uses: actions/checkout@v3
         with:
-          repository: 'openxla/xla'
-          path: openxla
+          repository: openxla/xla
 
       - name: Create results directory
         working-directory: openxla
@@ -50,26 +53,26 @@ jobs:
           python-version: '3.10'
 
       - name: Run setup.sh for E2E benchmarks flax_2b
-        working-directory: xla/xla/backends/cpu/benchmarks/e2e/gemma2/flax_2b
+        working-directory: xla/backends/cpu/benchmarks/e2e/gemma2/flax_2b
         timeout-minutes: 60
         run: |
           bash setup.sh
 
       - name: Run run.sh for E2E benchmarks flax_2b
-        working-directory: xla/xla/backends/cpu/benchmarks/e2e/gemma2/flax_2b
+        working-directory: xla/backends/cpu/benchmarks/e2e/gemma2/flax_2b
         timeout-minutes: 30
         run: |
-          bash run.sh > ../../../../../../../results/flax_2b.log
+          bash run.sh > ../../../../../../results/flax_2b.log
 
       - name: Build run_hlo_module
-        working-directory: openxla
-        run: bazelisk build -c opt --dynamic_mode=off xla/tools:run_hlo_module
+        working-directory: xla
+        run: bazel build -c opt --dynamic_mode=off //xla/tools:run_hlo_module
 
       - name: Run HLO Module Benchmarks
-        working-directory: openxla
+        working-directory: xla
         continue-on-error: true
         run: |
-          for file in xla/tests/fuzz/*.hlo; do
+          for file in tests/fuzz/*.hlo; do
             filename=$(basename "$file")
             # Skip expected failed hlo files.
             if [[ "$filename" == "rand_000060.hlo" || "$filename" == "rand_000067.hlo" || "$filename" == "rand_000072.hlo" ]]; then
@@ -81,11 +84,11 @@ jobs:
           done
 
       - name: Build CPU Benchmarks
-        working-directory: openxla
-        run: bazelisk build -c opt --dynamic_mode=off //xla/backends/cpu/benchmarks:*
+        working-directory: xla
+        run: bazel build -c opt --dynamic_mode=off //xla/backends/cpu/benchmarks:*
 
       - name: Run CPU benchmarks
-        working-directory: openxla
+        working-directory: xla
         continue-on-error: true
         run: |
           find ./bazel-bin/xla/backends/cpu/benchmarks/ -maxdepth 1 -type f -executable -name "*_test" -print0 | while IFS= read -r -d $'\0' benchmark; do
@@ -107,5 +110,5 @@ jobs:
       - name: Upload Results
         uses: actions/upload-artifact@v4
         with:
-          name: cpu-xla-benchmarks
+          name: cpu-xla-benchmarks-${{ matrix.os }}
           path: openxla/results

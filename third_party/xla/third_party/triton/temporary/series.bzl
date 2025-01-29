@@ -18,5 +18,6 @@ temporary_patch_list = [
     # but not merged into llvm_head branch nor Google's fork yet.
     # Without this XLA fails to build on macos crosscompile and other targets.
     "//third_party/triton:temporary/header.patch",
+    "//third_party/triton:temporary/fix_smem_vec_length.patch",
     # Add new patches just above this line
 ]

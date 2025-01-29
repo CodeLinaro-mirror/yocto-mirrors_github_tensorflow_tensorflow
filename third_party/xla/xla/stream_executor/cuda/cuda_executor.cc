@@ -918,8 +918,9 @@ DeviceMemoryBase CudaExecutor::Allocate(uint64_t size, int64_t memory_space) {
     auto result = CudaCollectives::CollectiveMemoryAllocate(this, size);
     if (!result.ok()) {
       LOG(ERROR) << result.status();
+      return DeviceMemoryBase(nullptr, 0);
     }
-    return DeviceMemoryBase(nullptr, 0);
+    return DeviceMemoryBase(result.value(), size);
   } else if (memory_space ==
              static_cast<int64_t>(stream_executor::MemoryType::kHost)) {
     return DeviceMemoryBase(HostAllocate(cuda_context_, size), size);

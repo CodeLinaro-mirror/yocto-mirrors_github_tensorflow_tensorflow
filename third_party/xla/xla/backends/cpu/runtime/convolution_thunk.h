@@ -80,8 +80,6 @@ class ConvolutionThunk final : public Thunk {
       const ExecuteParams& params, se::DeviceMemoryBase input,
       se::DeviceMemoryBase kernel, se::DeviceMemoryBase output);
 
-  using Dims = ConvolutionCanonicalDims::Dims;
-
   Options options_;
   ConvolutionSlices convolution_slices_;
   ConvolutionCanonicalDims convolution_canonical_dims_;

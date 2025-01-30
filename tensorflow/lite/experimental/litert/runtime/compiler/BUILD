@@ -62,6 +62,10 @@ cc_test(
         "//tensorflow:android": ["-landroid"],
         "//conditions:default": [],
     }),
+    tags = [
+        "no_oss",
+        "nobuilder",
+    ],
     deps = [
         "//tensorflow/lite:framework",
         "//tensorflow/lite/c:c_api_opaque",

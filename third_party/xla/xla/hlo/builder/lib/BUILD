@@ -731,9 +731,9 @@ cc_library(
 xla_test(
     name = "logdet_test",
     srcs = ["logdet_test.cc"],
-    # placeholder for extra tags
     tags = [
         "optonly",
+        "test_migrated_to_hlo_runner_pjrt",
     ],
     deps = [
         ":logdet",
@@ -767,7 +767,7 @@ cc_library(
 xla_test(
     name = "tuple_test",
     srcs = ["tuple_test.cc"],
-    # placeholder for extra tags
+    tags = ["test_migrated_to_hlo_runner_pjrt"],
     deps = [
         ":tuple",
         "//xla:error_spec",

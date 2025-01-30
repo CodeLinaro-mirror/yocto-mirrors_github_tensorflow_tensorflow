@@ -764,9 +764,11 @@ xla_test(
 xla_test(
     name = "conditional_test",
     srcs = ["conditional_test.cc"],
-    # placeholder for extra tags
     shard_count = 2,
-    tags = ["test_xla_cpu_no_thunks"],
+    tags = [
+        "test_migrated_to_hlo_runner_pjrt",
+        "test_xla_cpu_no_thunks",
+    ],
     deps = [
         ":client_library_test_base",
         ":literal_test_util",
@@ -1686,14 +1688,16 @@ xla_test(
 xla_test(
     name = "batch_normalization_test",
     srcs = ["batch_normalization_test.cc"],
-    # placeholder for extra tags
     disabled_backends = [
         # BatchNorm HLOs are not handled by the interpreter backend, and the
         # BatchNorm expander is not run on the interpreter.
         "interpreter",
     ],
     shard_count = 40,
-    tags = ["test_xla_cpu_no_thunks"],
+    tags = [
+        "test_migrated_to_hlo_runner_pjrt",
+        "test_xla_cpu_no_thunks",
+    ],
     deps = [
         ":client_library_test_base",
         ":hlo_test_base",
@@ -1884,8 +1888,10 @@ xla_test(
 xla_test(
     name = "tuple_test",
     srcs = ["tuple_test.cc"],
-    # placeholder for extra tags
-    tags = ["test_xla_cpu_no_thunks"],
+    tags = [
+        "test_migrated_to_hlo_runner_pjrt",
+        "test_xla_cpu_no_thunks",
+    ],
     deps = [
         ":client_library_test_base",
         ":hlo_test_base",
@@ -1929,12 +1935,12 @@ xla_test(
 xla_test(
     name = "reduce_test",
     srcs = ["reduce_test.cc"],
-    # placeholder for extra tags
     shard_count = 31,
     tags = [
         "optonly",
         "test_xla_cpu_no_thunks",
     ],
+    use_tfrt = True,
     deps = [
         ":client_library_test_base",
         ":hlo_test_base",
@@ -2021,12 +2027,12 @@ xla_test(
     timeout = "long",
     srcs = [],
     # placeholder for extra args for reduce_window_test
-    # placeholder for extra tags
     shard_count = 40,
     tags = [
         "optonly",
         "test_xla_cpu_no_thunks",
     ],
+    use_tfrt = True,
     xla_test_library_deps = [":reduce_window_test_library"],
     deps = [
         ":test_macros_header",
@@ -2754,8 +2760,10 @@ xla_test(
 xla_test(
     name = "collective_pipeliner_execution_test",
     srcs = ["collective_pipeliner_execution_test.cc"],
-    # placeholder for extra tags
-    tags = ["test_xla_cpu_no_thunks"],
+    tags = [
+        "test_migrated_to_hlo_runner_pjrt",
+        "test_xla_cpu_no_thunks",
+    ],
     deps = [
         ":hlo_test_base",
         ":xla_internal_test_main",
@@ -3189,12 +3197,14 @@ xla_test(
 xla_test(
     name = "outfeed_in_nested_computation_test",
     srcs = ["outfeed_in_nested_computation_test.cc"],
-    # placeholder for extra tags
     disabled_backends = [
         # Outfeed ops are not supported on the interpreter backend.
         "interpreter",
     ],
-    tags = ["test_xla_cpu_no_thunks"],
+    tags = [
+        "test_migrated_to_hlo_runner_pjrt",
+        "test_xla_cpu_no_thunks",
+    ],
     deps = [
         ":local_client_test_base",
         ":test_macros_header",
@@ -3613,8 +3623,10 @@ xla_test(
 xla_test(
     name = "batch_norm_training_test",
     srcs = ["batch_norm_training_test.cc"],
-    # placeholder for extra tags
-    tags = ["test_xla_cpu_no_thunks"],
+    tags = [
+        "test_migrated_to_hlo_runner_pjrt",
+        "test_xla_cpu_no_thunks",
+    ],
     deps = [
         ":hlo_test_base",
         ":xla_internal_test_main",  # fixdeps: keep

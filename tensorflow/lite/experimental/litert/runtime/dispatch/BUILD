@@ -163,6 +163,10 @@ cc_test(
         "//tensorflow:android": ["-landroid"],
         "//conditions:default": [],
     }),
+    tags = [
+        "no_oss",
+        "nobuilder",
+    ],
     deps = [
         ":dispatch_delegate",
         "//tensorflow/lite:framework",

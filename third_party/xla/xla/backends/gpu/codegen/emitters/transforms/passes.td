@@ -18,21 +18,6 @@ limitations under the License.
 
 include "mlir/Pass/PassBase.td"
 
-def ConvertPureCallOpsPass
-    : Pass<"xla-gpu-convert-pure-call-ops", "mlir::func::FuncOp"> {
-  let summary = "Converts xla_gpu.pure_call to func.call";
-  let description = [{
-      We use xla_gpu.pure_call ops for calls to enable CSE and other
-      transformations (e.g. LICM). This pass rewrites our custom ops to standard
-      ops.
-  }];
-  let dependentDialects = [
-    "mlir::func::FuncDialect",
-    "xla::XlaDialect"
-  ];
-  let constructor = "CreateConvertPureCallOpsPass()";
-}
-
 def MergePointersToSameSlicePass :
    Pass<"xla-gpu-merge-pointers", "mlir::ModuleOp"> {
   let summary = "Merges pointers that share slices.";
@@ -47,25 +32,6 @@ def MergePointersToSameSlicePass :
   ];
 
   let constructor = "CreateMergePointersToSameSlicePass()";
-}
-
-def SimplifyAffinePass : Pass<"xla-gpu-simplify-affine", "mlir::ModuleOp"> {
-  let summary = "Simplifies affine.apply using XLA's range-aware simplifier.";
-
-  let description = [{
-      The standard affine canonicalizer cannot simplify all expressions, since
-      it is unaware of range information. This pass uses `xla.range` attributes
-      on arguments and ops for simplification. It also lowers floordiv and mod
-      to simpler expressions than lower-affine. This pass only works for
-      expressions for which we can prove the LHS of mod and div is nonnegative.
-  }];
-
-  let dependentDialects = [
-    "mlir::affine::AffineDialect", "mlir::func::FuncDialect",
-    "mlir::scf::SCFDialect",
-  ];
-
-  let constructor = "CreateSimplifyAffinePass()";
 }
 
 def ConvertIndexTypePass : Pass<"xla-gpu-convert-index-type", "mlir::ModuleOp"> {
@@ -214,54 +180,6 @@ def OptimizeLoopsPass :
   ];
 
   let constructor = "CreateOptimizeLoopsPass()";
-}
-
-def UnswitchLoopsPass :
-   Pass<"xla-gpu-unswitch-loops", "mlir::func::FuncOp"> {
-  let summary = "Swaps scf.if and scf.for.";
-
-  let description = [{
-      Extracts `scf.if` ops with conditions that are independent of the loop
-      variable from `scf.for` by doing the following rewrite:
-
-      Before:
-
-      %cond = some_cond() : i1
-      %results = scf.for {
-        %some_val = scf.if %cond  {
-        } else {
-        }
-        scf.yield %some_val
-      }
-
-      After:
-
-      %cond = some_cond() : i1
-      %results = scf.if %cond {
-         %results = scf.for {
-            %some_val = scf.if %true  {
-            } else {
-            }
-         }
-         yield %results
-      } else {
-         %results = scf.for {
-            %some_val = scf.if %false  {
-            } else {
-            }
-         }
-         yield %results
-      }
-
-      This only triggers if there is a single `scf.if` op in the loop body (and
-      nothing else).
-  }];
-
-  let dependentDialects = [
-    "mlir::func::FuncDialect", "mlir::scf::SCFDialect"
-  ];
-
-  let constructor = "CreateUnswitchLoopsPass()";
 }
 
 #endif  // XLA_SERVICE_GPU_FUSIONS_TRANSFORMS_PASSES_TD_

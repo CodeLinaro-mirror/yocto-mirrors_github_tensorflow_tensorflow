@@ -917,43 +917,33 @@ absl::StatusOr<tsl::RCReference<Array>> PjRtClient::MakeArrayFromHostBuffer(
     // `PjRtClient::BufferFromHostBuffer` that accepts `PjRtMemorySpace`.
     // Otherwise, use a non-`PjRtMemorySpace` version that is compatible with
     // PjRt implementations without memories support.
-    if (sharding->memory_kind().memory_kind().has_value()) {
-      // Find `PjRtMemorySpace` that is associated with the sharding's device
-      // and matches the sharding's memory_kind.
-      Memory* memory = nullptr;
-      for (Memory* ms : device->Memories()) {
-        if (ms->Kind() == sharding->memory_kind()) {
-          memory = ms;
-          break;
-        }
-      }
-      if (memory == nullptr) {
-        return InvalidArgument(
-            "Invalid memory kind: %s; available memory kinds: %s",
-            *sharding->memory_kind().memory_kind(),
-            absl::StrJoin(sharding->devices()->devices().front()->Memories(),
-                          ", ", [](std::string* out, Memory* ms) {
-                            absl::StrAppend(out, *ms->Kind().memory_kind());
-                          }));
-      }
-      TF_ASSIGN_OR_RETURN(
-          buffer, pjrt_client_->BufferFromHostBuffer(
-                      data, primitive_type, shape.dims(), byte_strides,
-                      semantics, on_done_with_host_buffer_per_device,
-                      tensorflow::down_cast<PjRtMemory*>(memory)->pjrt_memory(),
-                      /*device_layout=*/nullptr));
-    } else {
-      if (!device->IsAddressable()) {
-        return InvalidArgument("Cannot copy array to non-addressable device %s",
-                               device->DebugString());
-      }
-      TF_ASSIGN_OR_RETURN(
-          buffer,
-          pjrt_client_->BufferFromHostBuffer(
-              data, primitive_type, shape.dims(), byte_strides, semantics,
-              on_done_with_host_buffer_per_device,
-              tensorflow::down_cast<PjRtDevice*>(device)->pjrt_device()));
+    if (!sharding->memory_kind().memory_kind().has_value()) {
+      return absl::InternalError("Sharding must have memory kind specified");
     }
+    // Find `PjRtMemorySpace` that is associated with the sharding's device
+    // and matches the sharding's memory_kind.
+    Memory* memory = nullptr;
+    for (Memory* ms : device->Memories()) {
+      if (ms->Kind() == sharding->memory_kind()) {
+        memory = ms;
+        break;
+      }
+    }
+    if (memory == nullptr) {
+      return InvalidArgument(
+          "Invalid memory kind: %s; available memory kinds: %s",
+          *sharding->memory_kind().memory_kind(),
+          absl::StrJoin(sharding->devices()->devices().front()->Memories(),
+                        ", ", [](std::string* out, Memory* ms) {
+                          absl::StrAppend(out, *ms->Kind().memory_kind());
+                        }));
+    }
+    TF_ASSIGN_OR_RETURN(
+        buffer, pjrt_client_->BufferFromHostBuffer(
+                    data, primitive_type, shape.dims(), byte_strides, semantics,
+                    on_done_with_host_buffer_per_device,
+                    tensorflow::down_cast<PjRtMemory*>(memory)->pjrt_memory(),
+                    /*device_layout=*/nullptr));
     buffers.push_back(std::move(buffer));
   }
   return PjRtArray::Create(this, dtype, std::move(shape), std::move(sharding),

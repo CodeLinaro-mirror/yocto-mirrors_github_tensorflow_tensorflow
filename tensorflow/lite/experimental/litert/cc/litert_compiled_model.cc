@@ -214,7 +214,7 @@ Expected<std::vector<TensorBuffer>> CompiledModel::CreateInputOutputBuffers(
 
 Expected<void> CompiledModel::Run(
     size_t signature_index, const std::vector<TensorBuffer>& input_buffers,
-    const std::vector<TensorBuffer>& output_buffers) const {
+    const std::vector<TensorBuffer>& output_buffers, bool& async) const {
   auto input_buffers_ptr =
       std::make_unique<LiteRtTensorBuffer[]>(input_buffers.size());
   for (int i = 0; i < input_buffers.size(); ++i) {
@@ -227,7 +227,7 @@ Expected<void> CompiledModel::Run(
   }
   if (auto status = LiteRtRunCompiledModel(
           Get(), signature_index, input_buffers.size(), input_buffers_ptr.get(),
-          output_buffers.size(), output_buffers_ptr.get());
+          output_buffers.size(), output_buffers_ptr.get(), &async);
       status != kLiteRtStatusOk) {
     return Unexpected(status, "Failed to invoke the compiled model");
   }
@@ -237,8 +237,8 @@ Expected<void> CompiledModel::Run(
 Expected<void> CompiledModel::Run(
     absl::string_view signature_key,
     const absl::flat_hash_map<absl::string_view, TensorBuffer>& input_map,
-    const absl::flat_hash_map<absl::string_view, TensorBuffer>& output_map)
-    const {
+    const absl::flat_hash_map<absl::string_view, TensorBuffer>& output_map,
+    bool& async) const {
   auto signature_index = model_.GetSignatureIndex(signature_key);
   if (!signature_index) {
     return Unexpected(kLiteRtStatusErrorNotFound,
@@ -274,7 +274,7 @@ Expected<void> CompiledModel::Run(
   }
   if (auto status = LiteRtRunCompiledModel(Get(), *signature_index, num_inputs,
                                            input_buffers_ptr.get(), num_outputs,
-                                           output_buffers_ptr.get());
+                                           output_buffers_ptr.get(), &async);
       status != kLiteRtStatusOk) {
     return Unexpected(status, "Failed to invoke the compiled model");
   }

@@ -141,7 +141,8 @@ TEST(CompiledModelTest, Basic) {
   ASSERT_EQ(LiteRtRunCompiledModel(
                 compiled_model, /*signature_index=*/0,
                 input_tensor_buffers.size(), input_tensor_buffers.data(),
-                output_tensor_buffers.size(), output_tensor_buffers.data()),
+                output_tensor_buffers.size(), output_tensor_buffers.data(),
+                /*async=*/nullptr),
             kLiteRtStatusOk);
 
   {

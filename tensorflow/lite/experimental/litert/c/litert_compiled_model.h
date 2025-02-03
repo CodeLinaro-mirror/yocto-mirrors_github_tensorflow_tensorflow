@@ -92,12 +92,19 @@ LiteRtStatus LiteRtGetCompiledModelOutputBufferRequirements(
 // - input_buffers: the array of input `LiteRtTensorBuffer`.
 // - num_output_buffers: the number of output `LiteRtTensorBuffer`.
 // - output_buffers: the array of output LiteRtTensorBuffer.
-LiteRtStatus LiteRtRunCompiledModel(LiteRtCompiledModel compiled_model,
-                                    LiteRtParamIndex signature_index,
-                                    size_t num_input_buffers,
-                                    LiteRtTensorBuffer* input_buffers,
-                                    size_t num_output_buffers,
-                                    LiteRtTensorBuffer* output_buffers);
+// - async: optional boolean to request asynchronous model execution. If
+//   asynchronous execution is indeed possible, then some or all output tensor
+//   buffers will have a synchronization event attached to them and the user
+//   will be responsible for passing such events to a downstream processing
+//   step. Note that even if async execution is requested, it may not be
+//   possible, based on the ops included in the model model, the selected HW
+//   accelerator, and the capability of the user device hardware. Consequently,
+//   if async execution is requested but not possible, parameter *async will be
+//   overwritten with false.
+LiteRtStatus LiteRtRunCompiledModel(
+    LiteRtCompiledModel compiled_model, LiteRtParamIndex signature_index,
+    size_t num_input_buffers, LiteRtTensorBuffer* input_buffers,
+    size_t num_output_buffers, LiteRtTensorBuffer* output_buffers, bool* async);
 
 void LiteRtDestroyCompiledModel(LiteRtCompiledModel compiled_model);
 

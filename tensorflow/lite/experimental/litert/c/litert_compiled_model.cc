@@ -92,7 +92,8 @@ LiteRtStatus LiteRtRunCompiledModel(LiteRtCompiledModel compiled_model,
                                     size_t num_input_buffers,
                                     LiteRtTensorBuffer* input_buffers,
                                     size_t num_output_buffers,
-                                    LiteRtTensorBuffer* output_buffers) {
+                                    LiteRtTensorBuffer* output_buffers,
+                                    bool* async) {
   if (!compiled_model || (num_input_buffers > 0 && !input_buffers) ||
       (num_output_buffers > 0 && !output_buffers)) {
     return kLiteRtStatusErrorInvalidArgument;
@@ -100,7 +101,7 @@ LiteRtStatus LiteRtRunCompiledModel(LiteRtCompiledModel compiled_model,
 
   auto res =
       compiled_model->RunCApi(signature_index, num_input_buffers, input_buffers,
-                              num_output_buffers, output_buffers);
+                              num_output_buffers, output_buffers, async);
   if (!res) {
     LITERT_LOG(LITERT_ERROR, "%s", res.Error().Message().c_str());
     return res.Error().Status();

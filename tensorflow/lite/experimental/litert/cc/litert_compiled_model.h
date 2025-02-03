@@ -232,7 +232,15 @@ class CompiledModel
   // TensorBuffers.
   Expected<void> Run(size_t signature_index,
                      const std::vector<TensorBuffer>& input_buffers,
-                     const std::vector<TensorBuffer>& output_buffers) const;
+                     const std::vector<TensorBuffer>& output_buffers) const {
+    bool async = false;
+    return Run(signature_index, input_buffers, output_buffers, async);
+  }
+
+  Expected<void> Run(size_t signature_index,
+                     const std::vector<TensorBuffer>& input_buffers,
+                     const std::vector<TensorBuffer>& output_buffers,
+                     bool& async) const;
 
   // Runs the model of the given signature key with the provided input/output
   // TensorBuffer map.
@@ -240,7 +248,16 @@ class CompiledModel
       absl::string_view signature_key,
       const absl::flat_hash_map<absl::string_view, TensorBuffer>& input_map,
       const absl::flat_hash_map<absl::string_view, TensorBuffer>& output_map)
-      const;
+      const {
+    bool async = false;
+    return Run(signature_key, input_map, output_map, async);
+  }
+
+  Expected<void> Run(
+      absl::string_view signature_key,
+      const absl::flat_hash_map<absl::string_view, TensorBuffer>& input_map,
+      const absl::flat_hash_map<absl::string_view, TensorBuffer>& output_map,
+      bool& async) const;
 
  private:
   Model model_;

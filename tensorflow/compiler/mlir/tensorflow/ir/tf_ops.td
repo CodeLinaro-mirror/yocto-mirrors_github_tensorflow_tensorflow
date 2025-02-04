@@ -457,6 +457,8 @@ def TF_LegacyCallOp : TF_Op<"LegacyCall",
 
   let arguments = (ins
     Variadic<TF_Tensor>:$args,
+    OptionalAttr<DictArrayAttr>:$arg_attrs,
+    OptionalAttr<DictArrayAttr>:$res_attrs,
 
     FlatSymbolRefAttr:$f,
     DefaultValuedOptionalAttr<BoolAttr, "false">:$_disable_call_shape_inference
@@ -615,6 +617,8 @@ underlying graph, and executes each of the partitioned subgraphs as a function.
 
   let arguments = (ins
     Variadic<TF_Tensor>:$args,
+    OptionalAttr<DictArrayAttr>:$arg_attrs,
+    OptionalAttr<DictArrayAttr>:$res_attrs,
 
     FlatSymbolRefAttr:$f,
     StrAttr:$config,
@@ -1103,6 +1107,12 @@ def TF_TPUPartitionedCallOp : TF_Op<"TPUPartitionedCall",
     }
     // TODO(b/204997177): Deprecate and remove.
     func::FuncOp func() {  return ResolveFunc(nullptr); }
+    Attribute removeArgAttrsAttr() { return nullptr; }
+    Attribute removeResAttrsAttr() { return nullptr; }
+    ArrayAttr getArgAttrsAttr() { return nullptr; }
+    ArrayAttr getResAttrsAttr() { return nullptr; }
+    void setArgAttrsAttr(ArrayAttr) { return; }
+    void setResAttrsAttr(ArrayAttr) { return; }
   }];
 }
 

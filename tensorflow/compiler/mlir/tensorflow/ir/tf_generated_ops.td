@@ -11348,6 +11348,8 @@ underlying graph, and executes each of the partitioned subgraphs as a function.
 
   let arguments = (ins
     Arg<Variadic<TF_Tensor>, [{A list of input tensors.}]>:$args,
+    OptionalAttr<DictArrayAttr>:$arg_attrs,
+    OptionalAttr<DictArrayAttr>:$res_attrs,
 
     SymbolRefAttr:$f,
     DefaultValuedOptionalAttr<StrAttr, "\"\"">:$config,
@@ -12899,6 +12901,12 @@ def TF_RemoteCallOp : TF_Op<"RemoteCall", [CallOpInterface]> {
     void setCalleeFromCallable(CallInterfaceCallable callee) {
       (*this)->setAttr("f", callee.get<SymbolRefAttr>());
     }
+    Attribute removeArgAttrsAttr() { return nullptr; }
+    Attribute removeResAttrsAttr() { return nullptr; }
+    ArrayAttr getArgAttrsAttr() { return nullptr; }
+    ArrayAttr getResAttrsAttr() { return nullptr; }
+    void setArgAttrsAttr(ArrayAttr) { return; }
+    void setResAttrsAttr(ArrayAttr) { return; }
   }];
 }
 

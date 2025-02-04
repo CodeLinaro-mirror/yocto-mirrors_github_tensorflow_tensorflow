@@ -18,7 +18,9 @@ limitations under the License.
 
 #include <cstdint>
 
+#include "absl/container/flat_hash_set.h"
 #include "absl/status/status.h"
+#include "absl/status/statusor.h"
 #include "xla/hlo/ir/hlo_instruction.h"
 #include "xla/hlo/ir/hlo_module.h"
 #include "xla/hlo/ir/hlo_opcode.h"
@@ -26,6 +28,11 @@ limitations under the License.
 #include "xla/stream_executor/device_description.h"
 
 namespace xla::gpu {
+
+// Return the set of collective instructions that are sync post scheduling.
+absl::StatusOr<absl::flat_hash_set<HloInstruction*>> GetSyncCollectives(
+    const HloModule& module, int64_t pointer_size,
+    const se::DeviceDescription& device_info);
 
 // Suggests a combiner threshold to the caller (combiner). At the moment it only
 // suggests a lower value than a default combiner threshold if it exceeds

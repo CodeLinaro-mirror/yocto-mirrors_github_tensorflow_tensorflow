@@ -1790,6 +1790,7 @@ class RaggedAllToAllTest : public AsyncCollectiveOps {
   template <typename IndexType>
   void CreateRandomTestData(HloModule* module,
                             const Array<IndexType>& input_sizes) {
+    CHECK(inputs_.empty());
     auto ragged_all_to_all =
         FindInstruction(module, HloOpcode::kRaggedAllToAll);
     EXPECT_THAT(ragged_all_to_all, NotNull());
@@ -1923,25 +1924,31 @@ XLA_TEST_P(RaggedAllToAllTest, RaggedAllToAll_2GPUs) {
                  << " available)";
   }
 
-  HloModuleConfig config =
-      GetModuleConfigForTest(/*replica_count=*/kNumReplicas * kNumPartitions);
+  for (bool use_memcpy : {true, false}) {
+    SCOPED_TRACE(use_memcpy ? "memcpy" : "no_memcpy");
+    HloModuleConfig config =
+        GetModuleConfigForTest(/*replica_count=*/kNumReplicas * kNumPartitions);
+    config.mutable_debug_options().set_xla_gpu_use_memcpy_local_p2p(use_memcpy);
 
-  TF_ASSERT_OK_AND_ASSIGN(
-      auto module, ParseAndReturnVerifiedModule(kModuleReplicatedStr, config));
+    TF_ASSERT_OK_AND_ASSIGN(auto module, ParseAndReturnVerifiedModule(
+                                             kModuleReplicatedStr, config));
 
-  CreateRandomTestData</*IndexType=*/int32_t>(
-      module.get(), /*input_sizes=*/{/*replica_0=*/{1, 1},
-                                     /*replica_1=*/{3, 1}});
+    if (inputs_.empty()) {
+      CreateRandomTestData</*IndexType=*/int32_t>(
+          module.get(), /*input_sizes=*/{/*replica_0=*/{1, 1},
+                                         /*replica_1=*/{3, 1}});
+    }
 
-  TF_ASSERT_OK_AND_ASSIGN(
-      std::vector<Literal> results,
-      HloTestBase::ExecuteReplicated(std::move(module), GetInputLiteralPtrs(),
-                                     /*num_replicas=*/kNumReplicas,
-                                     /*run_hlo_passes=*/true,
-                                     /*device_assignment=*/nullptr));
-  ASSERT_EQ(results.size(), kNumReplicas);
-  EXPECT_TRUE(LiteralTestUtil::Equal(expected_outputs_[0], results[0]));
-  EXPECT_TRUE(LiteralTestUtil::Equal(expected_outputs_[1], results[1]));
+    TF_ASSERT_OK_AND_ASSIGN(
+        std::vector<Literal> results,
+        HloTestBase::ExecuteReplicated(std::move(module), GetInputLiteralPtrs(),
+                                       /*num_replicas=*/kNumReplicas,
+                                       /*run_hlo_passes=*/true,
+                                       /*device_assignment=*/nullptr));
+    ASSERT_EQ(results.size(), kNumReplicas);
+    EXPECT_TRUE(LiteralTestUtil::Equal(expected_outputs_[0], results[0]));
+    EXPECT_TRUE(LiteralTestUtil::Equal(expected_outputs_[1], results[1]));
+  }
 }
 
 XLA_TEST_P(RaggedAllToAllTest, RaggedAllToAll_2GPUs_MultiDimData) {
@@ -1968,30 +1975,36 @@ XLA_TEST_P(RaggedAllToAllTest, RaggedAllToAll_2GPUs_MultiDimData) {
                  << " available)";
   }
 
-  HloModuleConfig config =
-      GetModuleConfigForTest(/*replica_count=*/kNumReplicas * kNumPartitions);
+  for (bool use_memcpy : {true, false}) {
+    SCOPED_TRACE(use_memcpy ? "memcpy" : "no_memcpy");
+    HloModuleConfig config =
+        GetModuleConfigForTest(/*replica_count=*/kNumReplicas * kNumPartitions);
+    config.mutable_debug_options().set_xla_gpu_use_memcpy_local_p2p(use_memcpy);
 
-  TF_ASSERT_OK_AND_ASSIGN(
-      auto module, ParseAndReturnVerifiedModule(kModuleReplicatedStr, config));
+    TF_ASSERT_OK_AND_ASSIGN(auto module, ParseAndReturnVerifiedModule(
+                                             kModuleReplicatedStr, config));
 
-  auto ragged_all_to_all =
-      FindInstruction(module.get(), HloOpcode::kRaggedAllToAll);
-  EXPECT_THAT(ragged_all_to_all, NotNull());
+    auto ragged_all_to_all =
+        FindInstruction(module.get(), HloOpcode::kRaggedAllToAll);
+    EXPECT_THAT(ragged_all_to_all, NotNull());
 
-  CreateRandomTestData</*IndexType=*/int64_t>(
-      module.get(), /*input_sizes=*/{/*replica_0=*/{4, 7},
-                                     /*replica_1=*/{2, 5}});
+    if (inputs_.empty()) {
+      CreateRandomTestData</*IndexType=*/int64_t>(
+          module.get(), /*input_sizes=*/{/*replica_0=*/{4, 7},
+                                         /*replica_1=*/{2, 5}});
+    }
 
-  TF_ASSERT_OK_AND_ASSIGN(
-      std::vector<Literal> results,
-      HloTestBase::ExecuteReplicated(std::move(module), GetInputLiteralPtrs(),
-                                     /*num_replicas=*/kNumReplicas,
-                                     /*run_hlo_passes=*/true,
-                                     /*device_assignment=*/nullptr));
-  ASSERT_EQ(results.size(), kNumReplicas);
+    TF_ASSERT_OK_AND_ASSIGN(
+        std::vector<Literal> results,
+        HloTestBase::ExecuteReplicated(std::move(module), GetInputLiteralPtrs(),
+                                       /*num_replicas=*/kNumReplicas,
+                                       /*run_hlo_passes=*/true,
+                                       /*device_assignment=*/nullptr));
+    ASSERT_EQ(results.size(), kNumReplicas);
 
-  EXPECT_TRUE(LiteralTestUtil::Equal(expected_outputs_[0], results[0]));
-  EXPECT_TRUE(LiteralTestUtil::Equal(expected_outputs_[1], results[1]));
+    EXPECT_TRUE(LiteralTestUtil::Equal(expected_outputs_[0], results[0]));
+    EXPECT_TRUE(LiteralTestUtil::Equal(expected_outputs_[1], results[1]));
+  }
 }
 
 XLA_TEST_P(RaggedAllToAllTest, RaggedAllToAll_Degenerate_2GPUs) {
@@ -2017,12 +2030,6 @@ XLA_TEST_P(RaggedAllToAllTest, RaggedAllToAll_Degenerate_2GPUs) {
                  << " available)";
   }
 
-  HloModuleConfig config =
-      GetModuleConfigForTest(/*replica_count=*/kNumReplicas * kNumPartitions);
-
-  TF_ASSERT_OK_AND_ASSIGN(
-      auto module, ParseAndReturnVerifiedModule(kModuleReplicatedStr, config));
-
   inputs_.push_back(LiteralUtil::CreateR1<float>({1, 0, 0, 0}));
   inputs_.push_back(LiteralUtil::CreateR1<float>({2, 3, 4, 0}));
 
@@ -2043,15 +2050,25 @@ XLA_TEST_P(RaggedAllToAllTest, RaggedAllToAll_Degenerate_2GPUs) {
   expected_outputs_.push_back(LiteralUtil::CreateR1<float>({-1, -1, 1, -1}));
   expected_outputs_.push_back(LiteralUtil::CreateR1<float>({-1, 2, 3, 4}));
 
-  TF_ASSERT_OK_AND_ASSIGN(
-      std::vector<Literal> results,
-      HloTestBase::ExecuteReplicated(std::move(module), GetInputLiteralPtrs(),
-                                     /*num_replicas=*/kNumReplicas,
-                                     /*run_hlo_passes=*/true,
-                                     /*device_assignment=*/nullptr));
-  ASSERT_EQ(results.size(), kNumReplicas);
-  EXPECT_TRUE(LiteralTestUtil::Equal(expected_outputs_[0], results[0]));
-  EXPECT_TRUE(LiteralTestUtil::Equal(expected_outputs_[1], results[1]));
+  for (bool use_memcpy : {true, false}) {
+    SCOPED_TRACE(use_memcpy ? "memcpy" : "no_memcpy");
+    HloModuleConfig config =
+        GetModuleConfigForTest(/*replica_count=*/kNumReplicas * kNumPartitions);
+    config.mutable_debug_options().set_xla_gpu_use_memcpy_local_p2p(use_memcpy);
+
+    TF_ASSERT_OK_AND_ASSIGN(auto module, ParseAndReturnVerifiedModule(
+                                             kModuleReplicatedStr, config));
+
+    TF_ASSERT_OK_AND_ASSIGN(
+        std::vector<Literal> results,
+        HloTestBase::ExecuteReplicated(std::move(module), GetInputLiteralPtrs(),
+                                       /*num_replicas=*/kNumReplicas,
+                                       /*run_hlo_passes=*/true,
+                                       /*device_assignment=*/nullptr));
+    ASSERT_EQ(results.size(), kNumReplicas);
+    EXPECT_TRUE(LiteralTestUtil::Equal(expected_outputs_[0], results[0]));
+    EXPECT_TRUE(LiteralTestUtil::Equal(expected_outputs_[1], results[1]));
+  }
 }
 
 XLA_TEST_P(RaggedAllToAllTest, RaggedAllToAll_8GPUs) {
@@ -2078,27 +2095,33 @@ XLA_TEST_P(RaggedAllToAllTest, RaggedAllToAll_8GPUs) {
                  << " available)";
   }
 
-  HloModuleConfig config =
-      GetModuleConfigForTest(/*replica_count=*/kNumReplicas * kNumPartitions);
+  for (bool use_memcpy : {true, false}) {
+    SCOPED_TRACE(use_memcpy ? "memcpy" : "no_memcpy");
+    HloModuleConfig config =
+        GetModuleConfigForTest(/*replica_count=*/kNumReplicas * kNumPartitions);
+    config.mutable_debug_options().set_xla_gpu_use_memcpy_local_p2p(use_memcpy);
 
-  TF_ASSERT_OK_AND_ASSIGN(
-      auto module, ParseAndReturnVerifiedModule(kModuleReplicatedStr, config));
+    TF_ASSERT_OK_AND_ASSIGN(auto module, ParseAndReturnVerifiedModule(
+                                             kModuleReplicatedStr, config));
 
-  Array<int32_t> input_sizes({kNumReplicas, kNumReplicas});
-  input_sizes.FillRandomUniform(0, 10);
+    Array<int32_t> input_sizes({kNumReplicas, kNumReplicas});
+    input_sizes.FillRandomUniform(0, 10);
 
-  CreateRandomTestData</*IndexType=*/int32_t>(module.get(), input_sizes);
+    if (inputs_.empty()) {
+      CreateRandomTestData</*IndexType=*/int32_t>(module.get(), input_sizes);
+    }
 
-  TF_ASSERT_OK_AND_ASSIGN(
-      std::vector<Literal> results,
-      HloTestBase::ExecuteReplicated(std::move(module), GetInputLiteralPtrs(),
-                                     /*num_replicas=*/kNumReplicas,
-                                     /*run_hlo_passes=*/true,
-                                     /*device_assignment=*/nullptr));
-  ASSERT_EQ(results.size(), kNumReplicas);
+    TF_ASSERT_OK_AND_ASSIGN(
+        std::vector<Literal> results,
+        HloTestBase::ExecuteReplicated(std::move(module), GetInputLiteralPtrs(),
+                                       /*num_replicas=*/kNumReplicas,
+                                       /*run_hlo_passes=*/true,
+                                       /*device_assignment=*/nullptr));
+    ASSERT_EQ(results.size(), kNumReplicas);
 
-  for (int i = 0; i < kNumReplicas; ++i) {
-    EXPECT_TRUE(LiteralTestUtil::Equal(expected_outputs_[i], results[i]));
+    for (int i = 0; i < kNumReplicas; ++i) {
+      EXPECT_TRUE(LiteralTestUtil::Equal(expected_outputs_[i], results[i]));
+    }
   }
 }
 

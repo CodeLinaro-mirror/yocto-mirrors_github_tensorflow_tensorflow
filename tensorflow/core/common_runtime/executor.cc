@@ -1514,6 +1514,19 @@ void ExecutorState<PropagatorStateType>::Finish() {
 }
 
 void ExecutorImpl::RunAsyncInternal(const Args& args, DoneCallback done) {
+  if (immutable_state_.params().function_runs_at_most_once) {
+    done = [this, original_done_cb =
+                      std::move(done)](const absl::Status& status) mutable {
+      // Call the user provided DoneCallback first in case it relies on the
+      // executor state - can happen if the callback was hijacked by another
+      // member function the way we are doing.
+      original_done_cb(status);
+
+      // Clean up executor state. This is ok as this function is signaled to run
+      // at most once so subsequent calls to this function are unexpected.
+      immutable_state_.~ImmutableExecutorState();
+    };
+  }
   if (OpOrderDeterminismRequired()) {
     (new ExecutorState<OrderedPropagatorState>(args, immutable_state_,
                                                &kernel_stats_))

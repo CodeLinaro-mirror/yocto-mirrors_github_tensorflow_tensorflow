@@ -32,6 +32,7 @@ limitations under the License.
 // Required for IS_MOBILE_PLATFORM
 #include "absl/container/btree_map.h"
 #include "absl/container/flat_hash_set.h"
+#include "absl/status/status.h"
 #include "absl/strings/str_replace.h"
 #include "tensorflow/core/common_runtime/arg_ret_placement.h"
 #include "tensorflow/core/common_runtime/eager/eager_operation.h"
@@ -111,6 +112,7 @@ namespace {
 
 constexpr char kEnabled[] = "enabled";
 constexpr char kDisabled[] = "disabled";
+constexpr char kFunctionRunsAtMostOnce[] = "function_runs_at_most_once";
 
 auto* function_compile_counter =
     monitoring::Counter<2>::New("/tensorflow/core/tf_function_compile",
@@ -416,6 +418,15 @@ absl::Status HasTPUReplication(const EagerOperation& op,
     }
   }
   return absl::OkStatus();
+}
+
+bool FunctionRunsAtMostOnce(const EagerOperation* op, const EagerContext& ctx) {
+  if (!op->is_function()) return false;
+  bool function_runs_at_most_once;
+  absl::Status status = GetFuncAttr(op, ctx, kFunctionRunsAtMostOnce,
+                                    &function_runs_at_most_once);
+  if (!status.ok()) return false;
+  return function_runs_at_most_once;
 }
 
 absl::Status MustCompileWithXLA(const EagerOperation* op,
@@ -1366,6 +1377,8 @@ absl::Status GetOrCreateKernelAndDevice(
     }
 
     bool run_function_with_flr = false;
+    bool function_runs_at_most_once = FunctionRunsAtMostOnce(op, ctx);
+
     std::optional<string> xla_compile_device_type;
     if (op->is_function()) {
       bool compile_with_xla;
@@ -1519,8 +1532,8 @@ absl::Status GetOrCreateKernelAndDevice(
           function_outputs_on_op_device, allow_small_function_optimizations,
           allow_control_flow_sync_execution,
           shape_inference_on_tfe_dialect_import, int_args_and_retvals_on_device,
-          xla_compile_device_type, ctx.AllowSoftPlacement(),
-          std::move(rendezvous_creator), get_op_id));
+          function_runs_at_most_once, xla_compile_device_type,
+          ctx.AllowSoftPlacement(), std::move(rendezvous_creator), get_op_id));
     } else {
       VLOG(2) << "Running " << ndef.op() << " using op kernel. "
               << ". Full node_def=" << ndef.DebugString();

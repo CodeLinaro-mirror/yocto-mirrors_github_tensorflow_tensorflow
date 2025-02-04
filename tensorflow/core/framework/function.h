@@ -870,6 +870,11 @@ class FunctionLibraryRuntime : public core::WeakRefCounted {
     // and GPU (non-XLA) graphs.
     bool int_args_and_retvals_on_device = false;
 
+    // Indicates that the specified function will run at most once. This allows
+    // use to add extra optimizations such as clearing the executor state to
+    // reduce memory consumption.
+    bool function_runs_at_most_once = false;
+
     // This interface is EXPERIMENTAL and subject to change.
     //
     // Instantiates the function for XLA compilation on device_type. If empty,

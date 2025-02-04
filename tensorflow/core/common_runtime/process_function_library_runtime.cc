@@ -719,6 +719,7 @@ absl::Status ProcessFunctionLibraryRuntime::InstantiateMultiDevice(
     opts.allow_small_function_optimizations = data->enable_sync_execution;
     opts.allow_control_flow_sync_execution =
         options.allow_control_flow_sync_execution;
+    opts.function_runs_at_most_once = options.function_runs_at_most_once;
     AttrValue ints_on_device_attr;
     ints_on_device_attr.set_b(options.int_args_and_retvals_on_device);
     attrs.insert(

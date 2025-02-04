@@ -427,6 +427,7 @@ class FunctionLibraryRuntimeImpl : public FunctionLibraryRuntime {
     string executor_type;
     bool allow_small_function_optimizations = false;
     bool allow_control_flow_sync_execution = false;
+    bool function_runs_at_most_once = false;
 
     ~Item() {
       delete this->func_graph;
@@ -845,6 +846,7 @@ absl::Status FunctionLibraryRuntimeImpl::Instantiate(
           options.allow_small_function_optimizations;
       item->allow_control_flow_sync_execution =
           options.allow_control_flow_sync_execution;
+      item->function_runs_at_most_once = options.function_runs_at_most_once;
       if (options.lib_def) {
         TF_ASSIGN_OR_RETURN(
             FunctionLibraryDefinition reachable_lib_def,
@@ -942,6 +944,8 @@ absl::Status FunctionLibraryRuntimeImpl::CreateItem(Item** item) {
     DeleteNonCachedKernel(kernel);
   };
   params.session_metadata = session_metadata_;
+  params.function_runs_at_most_once = (*item)->function_runs_at_most_once;
+
   std::unique_ptr<Executor> exec;
 
   // When the instantiation options request small function optimizations, all

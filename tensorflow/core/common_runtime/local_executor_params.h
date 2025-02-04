@@ -50,6 +50,10 @@ struct LocalExecutorParams {
 
   // Whether control flow nodes are allowed to be executed synchronously.
   bool allow_control_flow_sync_execution = false;
+
+  // Performs additional optimizations / cleanups if we know this function runs
+  // at most once.
+  bool function_runs_at_most_once = false;
 };
 
 }  // end namespace tensorflow

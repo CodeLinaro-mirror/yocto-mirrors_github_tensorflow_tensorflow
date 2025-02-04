@@ -17,6 +17,7 @@ limitations under the License.
 
 #include <stdbool.h>
 
+#include <algorithm>
 #include <cstdint>
 #include <optional>
 #include <vector>
@@ -56,16 +57,30 @@ bool IsSupportedRfftOp(mhlo::FftOp fft_op) {
 
   const std::vector<int64_t> fft_lengths =
       ConvertI64DenseIntAttr(fft_op.getFftLength());
+
+  if (fft_lengths.size() > 2) return false;  // Only support 2D FFT.
+
   const std::vector<int64_t> input_shape =
       mlir::cast<ShapedType>(fft_op.getOperand().getType()).getShape();
-  if (fft_lengths.back() != input_shape.back()) {
-    return false;
+
+  return std::equal(input_shape.end() - fft_lengths.size(), input_shape.end(),
+                    fft_lengths.begin(), fft_lengths.end());
+}
+
+// Utility function to check if the input has a trivial batch dim. 2DFFT
+// requires the input dimensions to match the fft_lengths or have a trivial
+// batch dim.
+bool FftInputHasTrivialBatchDim(mhlo::FftOp fft_op) {
+  auto fft_lengths =
+      llvm::to_vector(fft_op.getFftLength().getValues<int64_t>());
+  const std::vector<int64_t> input_shape =
+      mlir::cast<ShapedType>(fft_op.getOperand().getType()).getShape();
+
+  for (int i = 0; i < (input_shape.size() - fft_lengths.size()); ++i) {
+    if (input_shape[i] != 1) {
+      return false;
+    }
   }
-
-  auto input_type =
-      mlir::dyn_cast_or_null<RankedTensorType>(fft_op.getOperand().getType());
-  if (!input_type || input_type.getRank() != 3) return false;
-
   return true;
 }
 
@@ -86,22 +101,14 @@ bool IsSupportedRfftOp(mhlo::FftOp fft_op) {
 //     rfft_2d
 //       |
 //     squeeze
-class Convert1DFftTo2DFftOp : public OpRewritePattern<mhlo::FftOp> {
+class ConvertNDFftTo2DFftOp : public OpRewritePattern<mhlo::FftOp> {
  public:
   using OpRewritePattern::OpRewritePattern;
 
   LogicalResult matchAndRewrite(mhlo::FftOp fft_op,
                                 PatternRewriter& rewriter) const final {
-    const auto fft_type = llvm::StringSwitch<std::optional<mhlo::FftType>>(
-                              mlir::mhlo::stringifyFftType(fft_op.getFftType()))
-                              .Case("FFT", mhlo::FftType::FFT)
-                              .Case("RFFT", mhlo::FftType::RFFT)
-                              .Case("IFFT", mhlo::FftType::IFFT)
-                              .Case("IRFFT", mhlo::FftType::IRFFT)
-                              .Default(std::nullopt);
-    if (!fft_type || !(*fft_type == mhlo::FftType::RFFT ||
-                       *fft_type == mhlo::FftType::IRFFT)) {
-      return rewriter.notifyMatchFailure(fft_op, "Unsupported fft type.");
+    if (!IsSupportedRfftOp(fft_op)) {
+      return rewriter.notifyMatchFailure(fft_op, "Unsupported fft op.");
     }
 
     const auto fft_lengths =
@@ -111,44 +118,66 @@ class Convert1DFftTo2DFftOp : public OpRewritePattern<mhlo::FftOp> {
           fft_op, "Can only lower a single fft dimension");
     }
 
-    const int fft_len = fft_lengths.back();
-    const std::vector<int64_t> input_shape =
-        mlir::cast<ShapedType>(fft_op.getOperand().getType()).getShape();
-    if (fft_len != input_shape.back()) {
-      return rewriter.notifyMatchFailure(fft_op, "Unsupported fft length.");
-    }
-
     auto input_type =
         mlir::dyn_cast_or_null<RankedTensorType>(fft_op.getOperand().getType());
-    if (!input_type || input_type.getRank() != 2)
-      return rewriter.notifyMatchFailure(fft_op, "Unsupported input type.");
+    const std::vector<int64_t> input_shape =
+        mlir::cast<ShapedType>(fft_op.getOperand().getType()).getShape();
 
     auto output_type = mlir::cast<ShapedType>(fft_op.getResult().getType());
-    const std::vector<int64_t> output_shape = output_type.getShape();
 
-    // Replace the expand_dims op with a reshape op:
-    auto expanded_input_type = mlir::RankedTensorType::get(
-        {input_shape[0], 1, input_shape[1]}, input_type.getElementType());
-    auto reshape_op = rewriter.create<mhlo::ReshapeOp>(
-        fft_op.getLoc(), expanded_input_type, fft_op.getOperand());
+    // Input can have a single trivial batch dim next to the fft dimension. In
+    // the later case we don't need to expand the input.
+    if (input_type && (input_shape[input_shape.size() - 2] == 1)) {
+      // TFL RFFT2D requires the fft_len to be a 32-bit integer.
+      // Create a new fft_length attribute for the 2D FFT.
+      SmallVector<int64_t, 3> new_fft_lengths = {1, fft_lengths.back()};
+      auto new_fft_lengths_attr = rewriter.getI64TensorAttr(new_fft_lengths);
 
-    // Create a new fft_length attribute for the 3D FFT.
-    SmallVector<int64_t, 3> new_fft_lengths = {1, fft_len};
-    auto new_fft_lengths_attr = rewriter.getI64TensorAttr(new_fft_lengths);
+      auto new_fft = rewriter.create<mhlo::FftOp>(
+          fft_op.getLoc(), output_type, fft_op.getOperand(),
+          fft_op.getFftType(), new_fft_lengths_attr);
 
-    // Create a new mhlo.fft op with the expanded input and fft_length.
-    auto new_fft_type = mlir::RankedTensorType::get(
-        {output_shape[0], 1, output_shape[1]}, output_type.getElementType());
-    auto new_fft = rewriter.create<mhlo::FftOp>(
-        fft_op.getLoc(), new_fft_type, reshape_op.getResult(), *fft_type,
-        new_fft_lengths_attr);
+      rewriter.replaceOp(fft_op, new_fft.getResult());
 
-    // Squeeze the output dimensions back to 2D.
-    auto squeeze_op = rewriter.create<mhlo::ReshapeOp>(
-        fft_op.getLoc(), output_type, new_fft.getResult());
+      return success();
+    } else if (input_type && !FftInputHasTrivialBatchDim(fft_op)) {
+      const std::vector<int64_t> output_shape = output_type.getShape();
 
-    rewriter.replaceOp(fft_op, squeeze_op.getResult());
-    return success();
+      // [a, b, c, d, e] -> [a, b, c, d, 1, e]
+      SmallVector<int64_t, 6> expanded_input_shape{input_shape.begin(),
+                                                   input_shape.end() - 1};
+      expanded_input_shape.push_back(1);
+      expanded_input_shape.push_back(input_shape.back());
+      // Replace the expand_dims op with a reshape op:
+      auto expanded_input_type = mlir::RankedTensorType::get(
+          expanded_input_shape, input_type.getElementType());
+      auto reshape_op = rewriter.create<mhlo::ReshapeOp>(
+          fft_op.getLoc(), expanded_input_type, fft_op.getOperand());
+
+      // Create a new fft_length attribute for the 2D FFT.
+      SmallVector<int64_t, 3> new_fft_lengths = {1, fft_lengths.back()};
+      auto new_fft_lengths_attr = rewriter.getI64TensorAttr(new_fft_lengths);
+
+      SmallVector<int64_t, 6> new_output_shape = {output_shape.begin(),
+                                                  output_shape.end() - 1};
+      new_output_shape.push_back(1);
+      new_output_shape.push_back(output_shape.back());
+      // Create a new mhlo.fft op with the expanded input and fft_length.
+      auto new_fft_type = mlir::RankedTensorType::get(
+          new_output_shape, output_type.getElementType());
+      auto new_fft = rewriter.create<mhlo::FftOp>(
+          fft_op.getLoc(), new_fft_type, reshape_op.getResult(),
+          fft_op.getFftType(), new_fft_lengths_attr);
+
+      // Squeeze the output dimensions back to 2D.
+      auto squeeze_op = rewriter.create<mhlo::ReshapeOp>(
+          fft_op.getLoc(), output_type, new_fft.getResult());
+
+      rewriter.replaceOp(fft_op, squeeze_op.getResult());
+      return success();
+    }
+
+    return rewriter.notifyMatchFailure(fft_op, "Unsupported fft op.");
   }
 };
 
@@ -159,38 +188,24 @@ class LegalizeRfftOp : public OpConversionPattern<mhlo::FftOp> {
   LogicalResult matchAndRewrite(
       mhlo::FftOp fft_op, OpAdaptor adaptor,
       ConversionPatternRewriter& rewriter) const final {
-    const auto fft_type = llvm::StringSwitch<std::optional<mhlo::FftType>>(
-                              mlir::mhlo::stringifyFftType(fft_op.getFftType()))
-                              .Case("FFT", mhlo::FftType::FFT)
-                              .Case("RFFT", mhlo::FftType::RFFT)
-                              .Case("IFFT", mhlo::FftType::IFFT)
-                              .Case("IRFFT", mhlo::FftType::IRFFT)
-                              .Default(std::nullopt);
-    if (!fft_type || *fft_type != mhlo::FftType::RFFT) {
-      return rewriter.notifyMatchFailure(fft_op, "Unsupported fft type.");
-    }
-
-    auto fft_lengths =
-        llvm::to_vector(fft_op.getFftLength().getValues<int64_t>());
-    const std::vector<int64_t> input_shape =
-        mlir::cast<ShapedType>(fft_op.getOperand().getType()).getShape();
-    if (fft_lengths.back() != input_shape.back()) {
-      return rewriter.notifyMatchFailure(fft_op, "Unsupported fft length.");
+    if (!IsSupportedRfftOp(fft_op)) {
+      return rewriter.notifyMatchFailure(fft_op, "Unsupported fft op.");
     }
 
     auto input_type =
         mlir::dyn_cast_or_null<RankedTensorType>(fft_op.getOperand().getType());
-    if (!input_type || input_type.getRank() != 3)
+    if (!input_type)
       return rewriter.notifyMatchFailure(fft_op, "Unsupported input type.");
 
-    auto output_type = mlir::cast<ShapedType>(fft_op.getResult().getType());
-
+    const auto fft_lengths =
+        llvm::to_vector(fft_op.getFftLength().getValues<int64_t>());
     llvm::SmallVector<int32_t, 2> fft_lengths_i32{fft_lengths.begin(),
                                                   fft_lengths.end()};
     auto fft_len_f32_attr = mlir::DenseIntElementsAttr::get(
         mlir::RankedTensorType::get(2, rewriter.getIntegerType(32)),
         fft_lengths_i32);
 
+    auto output_type = mlir::cast<ShapedType>(fft_op.getResult().getType());
     auto fft_len_const =
         rewriter.create<arith::ConstantOp>(fft_op.getLoc(), fft_len_f32_attr);
     auto tfl_rfft2d = rewriter.create<TFL::RFFT2dOp>(
@@ -214,7 +229,7 @@ void PopulateLegalizeFftPatterns(MLIRContext* ctx, RewritePatternSet& patterns,
 }
 
 void PopulatePrepareFftPatterns(MLIRContext* ctx, RewritePatternSet& patterns) {
-  patterns.add<Convert1DFftTo2DFftOp>(ctx);
+  patterns.add<ConvertNDFftTo2DFftOp>(ctx);
 }
 
 }  // namespace mlir::odml

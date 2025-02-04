@@ -14,5 +14,8 @@ those to this list.
 """
 
 temporary_patch_list = [
+    "//third_party/triton:temporary/mlir_types_and_deleted_file.patch",
+    "//third_party/triton:temporary/addition_to_sparsity.patch",
+    "//third_party/triton:temporary/fix_assert.patch",
     # Add new patches just above this line
 ]

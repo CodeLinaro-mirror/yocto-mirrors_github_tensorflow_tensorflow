@@ -2013,7 +2013,8 @@ TfLiteStatus Subgraph::ResizeTensorImpl(TfLiteTensor* tensor,
       tensor->allocation_type == kTfLiteDynamic ||
       tensor->allocation_type == kTfLiteArenaRwPersistent ||
       tensor->allocation_type == kTfLitePersistentRo ||
-      tensor->allocation_type == kTfLiteCustom) {
+      tensor->allocation_type == kTfLiteCustom ||
+      tensor->allocation_type == kTfLiteNonCpu) {
     tensor_resized_since_op_invoke_ |=
         TfLiteIntArrayEqual(tensor->dims, new_size) == 0;
     if (tensor->type != kTfLiteString && tensor->type != kTfLiteResource &&

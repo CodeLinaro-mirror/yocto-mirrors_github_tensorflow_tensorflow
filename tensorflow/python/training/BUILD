@@ -1563,11 +1563,11 @@ tf_py_strict_test(
     srcs = ["checkpoint_utils_test.py"],
     python_version = "PY3",
     tags = [
-        "manual",
+        # "manual",
         "no_cuda_on_cpu_tap",
         "no_oss",
         "no_windows",
-        "notap",
+        # "notap",
     ],
     deps = [
         ":checkpoint_utils",

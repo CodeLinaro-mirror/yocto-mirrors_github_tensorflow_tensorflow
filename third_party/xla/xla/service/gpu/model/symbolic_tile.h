@@ -248,11 +248,11 @@ inline ConstraintExpression operator||(
 //
 //    rt_vars: Z^k (so called "runtime variables")
 //    offsets: Z^k -> N^n
-//    strides: N^n
+//    strides: Z^n
 //    sizes: (N+)^n
 //
 // Notation. We can represent n-dimensional tiles as:
-//   (offsets, strides, sizes): (Z^k -> N^n) x N^n x (N+)^n
+//   (offsets, strides, sizes): (Z^k -> N^n) x Z^n x (N+)^n
 // where A x B means a Cartesian product.
 //
 // Def. Let Tiles(n) denote the set of n-dimensional tiles.
@@ -266,15 +266,15 @@ inline ConstraintExpression operator||(
 //   -> (offsets', strides', sizes') : Tiles(n)
 // as a vector of functions:
 //   (offset_map, stride_map, size_map) where:
-//     offset_map: ((Z^j -> N^m) x N^m x (N+)^m) -> (Z^k -> N^n)
-//     stride_map: ((Z^j -> N^m) x N^m x (N+)^m) -> N^n
-//     size_map: ((Z^j -> N^m) x N^m x (N+)^m) -> (N+)^n
+//     offset_map: ((Z^j -> N^m) x Z^m x (N+)^m) -> (Z^k -> N^n)
+//     stride_map: ((Z^j -> N^m) x Z^m x (N+)^m) -> Z^n
+//     size_map: ((Z^j -> N^m) x Z^m x (N+)^m) -> (N+)^n
 // where each "map" returns one component of the result Tile.
 //
 // If we assume that offsets=({} -> {0, ..., 0}) and strides={1, ..., 1}, then
 // we can simplify the definition:
 //     offset_map: (N+)^m -> (Z^k -> N^n)
-//     stride_map: (N+)^m -> N^n
+//     stride_map: (N+)^m -> Z^n
 //     size_map: (N+)^m -> (N+)^n
 //
 // As a notation, we can further simplify the structure of offset_map:

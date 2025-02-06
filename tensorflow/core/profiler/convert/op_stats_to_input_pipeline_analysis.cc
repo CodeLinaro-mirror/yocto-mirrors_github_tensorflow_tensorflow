@@ -831,7 +831,7 @@ InputPipelineAnalysisResult ComputeTpuInputPipelineAnalysisResult(
         per_step_data.infeed_percent_maximum());
     // Since core_details_map only contains tensor core data, we can use it to
     // see if more cores have steps (aka sparse cores are present in the chip).
-    has_sparse_core |= (core_details_map.size() <
+    has_sparse_core |= (core_details_map.size() <=
                         coreid_stepinfo_map.step_info_per_core().size());
   }
 

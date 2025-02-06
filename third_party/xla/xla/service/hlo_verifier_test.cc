@@ -210,28 +210,6 @@ TEST_F(HloVerifierTest, CheckCallOperandParameterShapesMismatch) {
   EXPECT_THAT(status.message(), HasSubstr("shape does not match parameter"));
 }
 
-TEST_F(HloVerifierTest, CheckCallThreadMismatch) {
-  constexpr absl::string_view hlo = R"(
-    HloModule Module
-
-    callme {
-      ROOT param = (s32[], f32[4]) parameter(0)
-    }, execution_thread="parallel_thread"
-
-    ENTRY entry {
-      p0 = (s32[], f32[4]) parameter(0)
-      ROOT mycall = (s32[], f32[4]) call(p0), to_apply=callme
-    }
-  )";
-  TF_ASSERT_OK_AND_ASSIGN(auto module, ParseAndReturnUnverifiedModule(hlo));
-
-  auto status = verifier().Run(module.get()).status();
-  ASSERT_FALSE(status.ok());
-  EXPECT_THAT(status.message(),
-              HasSubstr("mycall top_apply computation execution thread does "
-                        "not match (parallel_thread vs main)"));
-}
-
 TEST_F(HloVerifierTest, CompositeCall) {
   constexpr absl::string_view hlo = R"(
   HloModule Module
@@ -2984,33 +2962,6 @@ ENTRY main {
       HloVerifierOpts{}.MakeLayoutSensitive().VerifyReshapeIsBitcast()}
                    .Run(module.get())
                    .status());
-}
-
-TEST_F(HloVerifierTest, VerifyCustomCallThread) {
-  const char* const hlo = R"(
-    HloModule module
-    %call_body (prev.2: s32[]) -> pred[] {
-      %constant.1 = s32[] constant(5)
-      %prev.2 = s32[] parameter(0)
-      ROOT %greater-than = pred[] compare(s32[] %constant.1, s32[] %prev.2), direction=GT
-    }, execution_thread="parallel_thread"
-
-    ENTRY %WhileWithScalarS32Result.v2 () -> s32[] {
-      %constant.2 = s32[] constant(0)
-      ROOT %custom = s32[] custom-call(s32[] %constant.2), custom_call_target="MyCustomCall", to_apply=%call_body
-    }
-)";
-
-  TF_ASSERT_OK_AND_ASSIGN(auto module, ParseAndReturnUnverifiedModule(hlo));
-  auto status =
-      HloVerifier{
-          HloVerifierOpts{}.VerifyCustomCallNestedComputationThreadName()}
-          .Run(module.get())
-          .status();
-  ASSERT_FALSE(status.ok());
-  EXPECT_THAT(status.message(),
-              HasSubstr("custom top_apply computation execution thread does "
-                        "not match (parallel_thread vs main)"));
 }
 
 TEST_F(HloVerifierTest, CheckWhileThread) {

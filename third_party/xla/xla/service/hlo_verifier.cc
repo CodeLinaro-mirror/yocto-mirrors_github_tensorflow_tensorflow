@@ -2868,9 +2868,8 @@ class InstructionVerifier : public DfsHloVisitorWithDefault {
   }
 
   absl::Status HandleCall(HloInstruction* call) override {
-    // Allow kCall to contain computations on separate thread.
-    return CheckCallableInstructionThreadName(
-        call, /*skip_nested_async_op_check=*/true);
+    // Allow kCall to invoke computations on separate thread.
+    return absl::OkStatus();
   }
 
   absl::Status HandleConditional(HloInstruction* conditional) override {
@@ -2951,11 +2950,6 @@ class InstructionVerifier : public DfsHloVisitorWithDefault {
   }
 
   absl::Status HandleCustomCall(HloInstruction* hlo) override {
-    if (opts_.verify_custom_call_nested_computation_thread_name) {
-      // Allow kCustomCall to contain computations on separate thread.
-      return CheckCallableInstructionThreadName(
-          hlo, /*skip_nested_async_op_check=*/true);
-    }
     return absl::OkStatus();
   }
 
@@ -2993,7 +2987,9 @@ class InstructionVerifier : public DfsHloVisitorWithDefault {
       }
     }
 
-    if (instruction->has_to_apply() &&
+    if (!(instruction->opcode() == HloOpcode::kCall ||
+          instruction->opcode() == HloOpcode::kCustomCall) &&
+        instruction->has_to_apply() &&
         instruction->to_apply()->execution_thread() !=
             instruction->parent()->execution_thread()) {
       return Internal(

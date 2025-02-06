@@ -142,6 +142,7 @@ cc_library(
         "//xla:xla_proto_cc",
         "//xla/backends/profiler:profiler_backends",  # To register the Host Tracers for GPU Plugin.
         "//xla/backends/profiler/plugin:plugin_tracer",  # To register the GPU Tracers with the GPU Plugin.
+        "//xla/base:fixed_options_flag",
         "//xla/client:executable_build_options",
         "//xla/hlo/builder:xla_computation",
         "//xla/hlo/ir:hlo",

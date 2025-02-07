@@ -19,6 +19,7 @@ limitations under the License.
 #include <memory>
 #include <random>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include <gmock/gmock.h>
@@ -157,7 +158,7 @@ TEST_F(FunctionalHloRunnerTest, GPUProfilerKeepXSpaceReturnsNonNullXSpace) {
   TF_ASSERT_OK_AND_ASSIGN(
       auto profiler,
       GPURunnerProfiler::Create(profile_dump_path, /*keep_xspace=*/true));
-  running_options.profiler = profiler.get();
+  running_options.profiler = std::move(profiler);
 
   profiler->CreateSession();
   profiler->UploadSession();
@@ -193,13 +194,15 @@ TEST_F(FunctionalHloRunnerTest,
   TF_ASSERT_OK_AND_ASSIGN(
       auto profiler,
       GPURunnerProfiler::Create(profile_dump_path, /*keep_xspace=*/false));
-  running_options.profiler = profiler.get();
+  running_options.profiler = std::move(profiler);
 
   TF_EXPECT_OK(FunctionalHloRunner::LoadAndRunAndDump(
       *pjrt_env.client,
       /* debug_options= */ {}, /* preproc_options= */ {}, raw_compile_options,
       running_options, {GetHloPath("single_device.hlo")}, InputFormat::kText));
-  EXPECT_EQ(profiler->GetXSpace(), nullptr);
+  EXPECT_EQ(dynamic_cast<GPURunnerProfiler*>(running_options.profiler.get())
+                ->GetXSpace(),
+            nullptr);
   TF_EXPECT_OK(env->FileExists(profile_dump_path));
 }
 

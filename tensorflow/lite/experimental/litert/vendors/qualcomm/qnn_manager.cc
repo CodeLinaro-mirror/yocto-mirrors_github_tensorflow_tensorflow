@@ -16,6 +16,7 @@
 
 #include <cstdint>
 #include <cstdlib>
+#include <filesystem>  // NOLINT
 #include <optional>
 #include <string>
 #include <vector>
@@ -139,7 +140,8 @@ LiteRtStatus QnnManager::ResolveApi() {
     const bool patch =
         prov->apiVersion.coreApiVersion.patch == QNN_API_VERSION_PATCH;
 
-    if (major && minor && patch) {
+    // any of the version components is non-zero
+    if (major || minor || patch) {
       interface_ = prov;
       break;
     }
@@ -171,7 +173,8 @@ LiteRtStatus QnnManager::ResolveSystemApi() {
     const bool patch =
         system_prov->systemApiVersion.patch == QNN_SYSTEM_API_VERSION_PATCH;
 
-    if (major && minor && patch) {
+    // any of the version components is non-zero
+    if (major || minor || patch) {
       system_interface_ = system_prov;
       break;
     }
@@ -264,6 +267,8 @@ LiteRtStatus QnnManager::ValidateOp(const Qnn_OpConfig_t& op_config) {
 LiteRtStatus QnnManager::Init(absl::Span<const QnnBackend_Config_t*> configs,
                               std::optional<std::string> shared_library_dir,
                               std::optional<QnnHtpDevice_Arch_t> soc_model) {
+  LITERT_LOG(LITERT_INFO, "qnn managershared_library_dir: %s",
+             shared_library_dir.value_or("nullopt").c_str());
   if (shared_library_dir.has_value()) {
     // We must change the variable environment used to load DSP libraries.
     std::string new_adsp_library_path;
@@ -278,11 +283,20 @@ LiteRtStatus QnnManager::Init(absl::Span<const QnnBackend_Config_t*> configs,
                new_adsp_library_path.data());
     setenv("ADSP_LIBRARY_PATH", new_adsp_library_path.data(), /*overwrite=*/1);
   }
+  auto lib_qnn_htp_so_path = kLibQnnHtpSo;
+  // If shared_library_dir is provided, we will try to find the libQnnHtp.so
+  // in the directory.
+  if (shared_library_dir.has_value()) {
+    std::vector<std::string> results;
+    litert::internal::FindLiteRtSharedLibsHelper(shared_library_dir->data(),
+                                                 kLibQnnHtpSo, true, results);
+    if (!results.empty()) {
+      lib_qnn_htp_so_path = results[0].c_str();
+      shared_library_dir =
+          std::filesystem::path(lib_qnn_htp_so_path).parent_path();
+    }
+  }
 
-  auto lib_qnn_htp_so_path =
-      shared_library_dir.has_value()
-          ? absl::StrFormat("%s/%s", shared_library_dir->data(), kLibQnnHtpSo)
-          : kLibQnnHtpSo;
   LITERT_RETURN_IF_ERROR(LoadLib(lib_qnn_htp_so_path));
   LITERT_RETURN_IF_ERROR(ResolveApi());
 

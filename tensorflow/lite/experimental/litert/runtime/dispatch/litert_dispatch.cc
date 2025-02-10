@@ -18,7 +18,9 @@
 
 #include <cstddef>
 #include <cstring>
+#include <filesystem>  // NOLINT
 #include <string>
+#include <vector>
 
 #include "absl/strings/str_format.h"
 #include "tensorflow/lite/experimental/litert/c/litert_common.h"
@@ -27,6 +29,7 @@
 #include "tensorflow/lite/experimental/litert/c/litert_model.h"
 #include "tensorflow/lite/experimental/litert/c/litert_tensor_buffer.h"
 #include "tensorflow/lite/experimental/litert/c/litert_tensor_buffer_requirements.h"
+#include "tensorflow/lite/experimental/litert/core/dynamic_loading.h"
 #include "tensorflow/lite/experimental/litert/vendors/c/litert_dispatch_api.h"
 
 #define INVOKE_FUNC(function, ...)                                \
@@ -64,8 +67,6 @@
 
 namespace {
 
-constexpr const char* kSharedLibName = "libLiteRtDispatch.so";
-
 bool IsTheApiInitialized = false;
 LiteRtDispatchApi TheApi = {
     /*.version=*/{/*.major=*/0, /*.minor=*/0, /*.patch=*/0},
@@ -78,15 +79,24 @@ LiteRtStatus Initialize(const LiteRtDispatchOption* options, int num_options) {
   INVOKE_FUNC(initialize, options, num_options);
 }
 
-std::string GetSharedLibraryPath(const LiteRtDispatchOption* options,
-                                 int num_options) {
+LiteRtStatus GetSharedLibraryPath(const LiteRtDispatchOption* options,
+                                  int num_options,
+                                  std::string& shared_lib_path) {
+  std::vector<std::string> dispatch_lib_paths;
   for (auto i = 0; i < num_options; ++i) {
     auto& option = options[i];
     if (!strcmp(option.name, kDispatchOptionSharedLibraryDir)) {
-      return absl::StrFormat("%s/%s", option.value.str_value, kSharedLibName);
+      LITERT_LOG(LITERT_INFO, "Shared library dir: %s", option.value.str_value);
+      litert::internal::FindLiteRtDispatchSharedLibs(option.value.str_value,
+                                                     dispatch_lib_paths);
     }
   }
-  return kSharedLibName;
+  if (dispatch_lib_paths.empty()) {
+    LITERT_LOG(LITERT_ERROR, "No dispatch library found");
+    return kLiteRtStatusErrorRuntimeFailure;
+  }
+  shared_lib_path = dispatch_lib_paths[0];
+  return kLiteRtStatusOk;
 }
 
 }  // namespace
@@ -101,11 +111,17 @@ LiteRtStatus LiteRtDispatchInitialize(const LiteRtDispatchOption* options,
     return kLiteRtStatusOk;
   }
 
-  auto shared_lib_path = GetSharedLibraryPath(options, num_options);
+  std::string shared_lib_path;
+  auto status = GetSharedLibraryPath(options, num_options, shared_lib_path);
+  if (status != kLiteRtStatusOk) {
+    return status;
+  }
+  LITERT_LOG(LITERT_INFO, "Loading shared library: %s",
+             shared_lib_path.c_str());
   void* lib_handle = ::dlopen(shared_lib_path.data(), RTLD_NOW | RTLD_LOCAL);
   if (!lib_handle) {
-    LITERT_LOG(LITERT_ERROR, "Failed to load dispatch library: %s",
-               ::dlerror());
+    LITERT_LOG(LITERT_ERROR, "Failed to load dispatch library: %s %s",
+               ::dlerror(), shared_lib_path.data());
     return kLiteRtStatusErrorRuntimeFailure;
   }
 
@@ -135,7 +151,7 @@ LiteRtStatus LiteRtDispatchInitialize(const LiteRtDispatchOption* options,
     return kLiteRtStatusErrorRuntimeFailure;
   }
 
-  auto status = Initialize(options, num_options);
+  status = Initialize(options, num_options);
   if (status == kLiteRtStatusOk) {
     IsTheApiInitialized = true;
   }

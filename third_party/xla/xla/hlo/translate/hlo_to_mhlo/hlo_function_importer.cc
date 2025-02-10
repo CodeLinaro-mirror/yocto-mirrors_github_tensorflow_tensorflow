@@ -74,6 +74,7 @@ limitations under the License.
 #include "xla/layout.h"
 #include "xla/literal.h"
 #include "xla/mlir_hlo/mhlo/IR/hlo_ops.h"
+#include "xla/primitive_util.h"
 #include "xla/protobuf_util.h"
 #include "xla/service/hlo.pb.h"
 #include "xla/shape_util.h"
@@ -1858,6 +1859,52 @@ absl::StatusOr<mlir::Operation*> HloFunctionImporter::ImportInstructionImpl(
       attributes.push_back(builder_->getNamedAttr(
           "precision_config",
           ConvertPrecisionConfig(&instruction->precision_config(), builder_)));
+
+      // If the element types of the operands for convolution are different,
+      // insert a convert op to convert the operands to the common element type
+      // while preserving the values.
+      auto conv_operand0 = instruction->operand(0);
+      auto conv_operand1 = instruction->operand(1);
+      if (conv_operand0->shape().element_type() !=
+          conv_operand1->shape().element_type()) {
+        mlir::Type target_element_type;
+        mlir::Value operand_to_convert;
+        if (primitive_util::CastPreservesValues(
+                conv_operand0->shape().element_type(),
+                conv_operand1->shape().element_type())) {
+          operand_to_convert = operands[0];
+          target_element_type =
+              mlir::cast<mlir::ShapedType>(operands[1].getType())
+                  .getElementType();
+        } else if (primitive_util::CastPreservesValues(
+                       conv_operand1->shape().element_type(),
+                       conv_operand0->shape().element_type())) {
+          operand_to_convert = operands[1];
+          target_element_type =
+              mlir::cast<mlir::ShapedType>(operands[0].getType())
+                  .getElementType();
+        } else {
+          return InvalidArgument(
+              "Unsupported conversion between element types of operands (%s "
+              "and %s) for convolution.",
+              conv_operand0->shape().ToString(),
+              conv_operand1->shape().ToString());
+        }
+
+        auto convert_op_return_type =
+            mlir::cast<mlir::ShapedType>(operand_to_convert.getType())
+                .clone(target_element_type);
+        auto convert_op = func_builder->create<mlir::mhlo::ConvertOp>(
+            loc, convert_op_return_type, operand_to_convert);
+        llvm::SmallVector<Value, 2> operands_with_convert = {
+            (operand_to_convert == operands[0] ? convert_op : operands[0]),
+            (operand_to_convert == operands[1] ? convert_op : operands[1])};
+
+        return func_builder
+            ->create<mlir::mhlo::ConvolutionOp>(
+                loc, result_type, operands_with_convert, attributes)
+            .getOperation();
+      }
 
       return func_builder
           ->create<mlir::mhlo::ConvolutionOp>(loc, result_type, operands,

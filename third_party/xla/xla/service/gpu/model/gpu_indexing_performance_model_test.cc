@@ -331,7 +331,9 @@ ENTRY main {
   constexpr int64_t kExpectedBytesRead =
       kParam0SizeBytes + 128 * kParam1SizeBytes;
 
-  EXPECT_THAT(tiled_runtime_data.block_level_parameters.output_tile_sizes,
+  EXPECT_EQ(tiled_runtime_data.block_level_parameters.output_tile_sizes.size(),
+            1);
+  EXPECT_THAT(tiled_runtime_data.block_level_parameters.output_tile_sizes[0],
               ElementsAre(4, 911));
   EXPECT_EQ(tiled_runtime_data.block_level_parameters.num_warps, 4);
 
@@ -375,7 +377,7 @@ ENTRY main {
   TF_ASSERT_OK_AND_ASSIGN(
       auto runtime_data,
       indexing_cost_model_.EstimateRunTimeForTiledFusion(
-          *fusion_adaptor, launch_dimensions, /*output_tile_sizes=*/{1, 1}));
+          *fusion_adaptor, launch_dimensions, /*output_tile_sizes=*/{{1, 1}}));
 
   EXPECT_NEAR(absl::ToDoubleSeconds(runtime_data.read_time), 2932, 2);
   EXPECT_NEAR(absl::ToDoubleSeconds(runtime_data.compute_time), 19, 1);
@@ -409,7 +411,7 @@ ENTRY main {
   LaunchDimensions launch_dimensions{8, WarpSize()};
 
   auto result = indexing_cost_model_.EstimateRunTimeForTiledFusion(
-      *fusion_adaptor, launch_dimensions, /*output_tile_sizes=*/{16, 16});
+      *fusion_adaptor, launch_dimensions, /*output_tile_sizes=*/{{16, 16}});
 
   TF_EXPECT_OK(result.status());
 }
@@ -437,7 +439,7 @@ ENTRY main {
   LaunchDimensions launch_dimensions{96, 128};
 
   auto result = indexing_cost_model_.EstimateRunTimeForTiledFusion(
-      *fusion_adaptor, launch_dimensions, /*output_tile_sizes=*/{1, 128});
+      *fusion_adaptor, launch_dimensions, /*output_tile_sizes=*/{{1, 128}});
 
   // Currently SymbolicTileAnalysis fails for concatenate. Once the analysis
   // gets support of concatenate, this test should fail with an error from
@@ -477,13 +479,13 @@ ENTRY main {
   TF_ASSERT_OK_AND_ASSIGN(auto res1,
                           indexing_cost_model_.EstimateRunTimeForTiledFusion(
                               *fusion_adaptor, /*launch_dimensions=*/{16, 32},
-                              /*output_tile_sizes=*/{1, 16000}));
+                              /*output_tile_sizes=*/{{1, 16000}}));
   EXPECT_NEAR(absl::ToDoubleMicroseconds(res1.exec_time), 3, 1);
 
   TF_ASSERT_OK_AND_ASSIGN(auto res2,
                           indexing_cost_model_.EstimateRunTimeForTiledFusion(
                               *fusion_adaptor, /*launch_dimensions=*/{8, 32},
-                              /*output_tile_sizes=*/{2, 16000}));
+                              /*output_tile_sizes=*/{{2, 16000}}));
   EXPECT_TRUE(res2.IsInfinite());
 }
 
@@ -510,7 +512,7 @@ ENTRY main {
   TF_ASSERT_OK_AND_ASSIGN(
       auto res, indexing_cost_model_.EstimateRunTimeForTiledFusion(
                     *fusion_adaptor, /*launch_dimensions=*/{1, 2 * WarpSize()},
-                    /*output_tile_sizes=*/{65, 65}));
+                    /*output_tile_sizes=*/{{65, 65}}));
 
   constexpr int64_t kParamSizeBytes = 65 * 65 * 4;
   constexpr int64_t kPaddedOutputTileSize = 128 * 128;
@@ -549,13 +551,13 @@ ENTRY main {
       auto res_coalesced,
       indexing_cost_model_.EstimateRunTimeForTiledFusion(
           *fusion_adaptor, /*launch_dimensions=*/{4096, 2 * WarpSize()},
-          /*output_tile_sizes=*/{2, 128}));
+          /*output_tile_sizes=*/{{2, 128}}));
 
   TF_ASSERT_OK_AND_ASSIGN(
       auto res_uncoalesced,
       indexing_cost_model_.EstimateRunTimeForTiledFusion(
           *fusion_adaptor, /*launch_dimensions=*/{4096, 2 * WarpSize()},
-          /*output_tile_sizes=*/{128, 2}));
+          /*output_tile_sizes=*/{{128, 2}}));
 
   // The number of bytes read is the same for coalesced and uncoalesced reads.
   constexpr int64_t kParamSizeBytes = 2048 * 512 * 4;
@@ -595,13 +597,13 @@ ENTRY main {
       auto res_coalesced,
       indexing_cost_model_.EstimateRunTimeForTiledFusion(
           *fusion_adaptor, /*launch_dimensions=*/{512, WarpSize()},
-          /*output_tile_sizes=*/{16, 128}));
+          /*output_tile_sizes=*/{{16, 128}}));
 
   TF_ASSERT_OK_AND_ASSIGN(
       auto res_uncoalesced,
       indexing_cost_model_.EstimateRunTimeForTiledFusion(
           *fusion_adaptor, /*launch_dimensions=*/{512, WarpSize()},
-          /*output_tile_sizes=*/{128, 16}));
+          /*output_tile_sizes=*/{{128, 16}}));
 
   // The number of bytes read is the same for coalesced and uncoalesced reads.
   constexpr int64_t kParamSizeBytes = 2048 * 512;

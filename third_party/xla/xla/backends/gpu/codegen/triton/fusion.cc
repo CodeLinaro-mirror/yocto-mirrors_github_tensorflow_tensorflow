@@ -240,10 +240,13 @@ std::optional<TritonFusion::LaunchConfig> TritonFusion::launch_config() const {
         BlockLevelParameters::FromBlockLevelFusionConfig(
             analysis_.fusion_backend_config().block_level_fusion_config());
 
+    // We expect all roots to have the same number of blocks. Therefore we only
+    // compute the number of blocks from the tile sizes of the first fusion
+    // root.
     int64_t num_blocks = 1;
     for (auto [dim_size, dim_tile_size] :
          llvm::zip(analysis_.fusion_root(0).shape().dimensions(),
-                   block_level_parameters.output_tile_sizes)) {
+                   block_level_parameters.output_tile_sizes[0])) {
       num_blocks *= (dim_size + dim_tile_size - 1) / dim_tile_size;
     }
 

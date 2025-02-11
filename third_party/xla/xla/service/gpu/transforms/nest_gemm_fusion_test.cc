@@ -57,8 +57,9 @@ MATCHER_P(OutputTileSizesIs, matcher, "") {
     *result_listener << "has no block level fusion config";
     return false;
   }
-  auto output_tile_sizes =
-      fusion_backend_config.block_level_fusion_config().output_tile_sizes();
+  auto output_tile_sizes = fusion_backend_config.block_level_fusion_config()
+                               .roots(0)
+                               .output_tile_sizes();
   return ExplainMatchResult(matcher, output_tile_sizes, result_listener);
 }
 

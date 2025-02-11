@@ -40,7 +40,7 @@ jobs:
             repo: "openxla/xla",
           },
           {
-            pool: "linux-x86-g2-16-l4-1gpu",
+            pool: "linux-x86-g2-48-l4-4gpu",
             container: "us-central1-docker.pkg.dev/tensorflow-sigs/tensorflow/ml-build:latest",
             kokoro_job_name: "xla-linux-x86-gpu-t4",
             pretty_name: "XLA Linux x86 GPU T4",
@@ -61,7 +61,7 @@ jobs:
             repo: "jax-ml/jax",
           },
           {
-            pool: "linux-x86-g2-16-l4-1gpu",
+            pool: "linux-x86-g2-48-l4-4gpu",
             container: "gcr.io/tensorflow-sigs/build:latest-python3.11",
             kokoro_job_name: "jax-linux-x86-gpu-t4",
             pretty_name: "JAX Linux x86 GPU T4",

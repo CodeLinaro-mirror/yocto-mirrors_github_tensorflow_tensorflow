@@ -17,7 +17,7 @@ limitations under the License.
 
 #include <cstdint>
 #include <functional>
-#include <optional>
+#include <map>
 #include <string>
 #include <utility>
 #include <vector>
@@ -36,6 +36,7 @@ limitations under the License.
 #include "xla/service/collective_conflict_analysis.h"
 #include "xla/service/collective_ops_utils.h"
 #include "xla/service/collective_pipeliner.h"
+#include "xla/service/pattern_matcher.h"
 #include "xla/tsl/platform/errors.h"
 #include "xla/tsl/platform/statusor.h"
 #include "xla/util.h"
@@ -44,11 +45,34 @@ namespace xla {
 namespace gpu {
 namespace {
 
+namespace m = match;
+
 // Rather than pipelining the send/recv and *-done instructions, we only
 // pipeline send/recv instructions. This allows spanning async send/recv across
 // the loop boundary.
-bool PipelineOnlySendRecvStart(const HloInstruction* instr) {
-  return HloPredicateIsOp<HloOpcode::kRecv, HloOpcode::kSend>(instr);
+bool PipelineOnlySendRecvStart(const HloInstruction* instr,
+                               std::map<const HloInstruction*, bool>& cache) {
+  if (cache.count(instr)) {
+    return cache[instr];
+  }
+
+  // Only pipeline send/recv instructions that operate on a loop parameter.
+  if (!Match(instr, m::Recv()) &&
+      !Match(instr, m::Send(m::GetTupleElement(m::Parameter()), m::Op()))) {
+    cache[instr] = false;
+    return false;
+  }
+
+  // Only pipeline them if all control predecessors are also pipelined.
+  for (HloInstruction* other_instr : instr->control_predecessors()) {
+    if (!PipelineOnlySendRecvStart(other_instr, cache)) {
+      cache[instr] = false;
+      return false;
+    }
+  }
+
+  cache[instr] = true;
+  return true;
 }
 
 bool ShouldPipeline(const HloInstruction* instr) {
@@ -374,7 +398,7 @@ static absl::Status PostProcessPeeledSendRecvOps(
 absl::StatusOr<bool> GpuP2PPipeliner::Run(
     HloModule* module,
     const absl::flat_hash_set<absl::string_view>& execution_threads) {
-  auto should_process = ShouldPipeline;
+  std::function<bool(const HloInstruction*)> should_process = ShouldPipeline;
   CollectivePipeliner::HloPostprocessor postprocess_backward_peeled_op =
       PostprocessPeeledP2P;
   CollectivePipeliner::HloPostprocessor postprocess_backward_rotated_op =
@@ -384,8 +408,11 @@ absl::StatusOr<bool> GpuP2PPipeliner::Run(
   // for post-processing.
   std::vector<HloInstruction*> peeled_send_recvs;
   std::vector<HloInstruction*> rotated_send_recvs;
+  std::map<const HloInstruction*, bool> should_process_cache;
   if (enable_partial_send_recv_pipelining_) {
-    should_process = PipelineOnlySendRecvStart;
+    should_process = [&](const HloInstruction* instr) -> bool {
+      return PipelineOnlySendRecvStart(instr, should_process_cache);
+    };
     postprocess_backward_peeled_op = [&](HloInstruction* it) {
       peeled_send_recvs.push_back(it);
       return absl::OkStatus();

@@ -34,6 +34,10 @@ namespace xla {
 std::optional<AllReduceKey> GetAllReduceKey(const HloInstruction* instruction,
                                             const HloDomainMap* domain_map,
                                             bool ignore_replica_groups) {
+  if (instruction->HasControlDependencies()) {
+    return std::nullopt;
+  }
+
   if (instruction->opcode() != HloOpcode::kAllReduce &&
       instruction->opcode() != HloOpcode::kReduceScatter) {
     return std::nullopt;

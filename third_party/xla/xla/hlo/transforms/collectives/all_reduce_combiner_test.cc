@@ -377,6 +377,45 @@ ENTRY entry {
   EXPECT_FALSE(changed);
 }
 
+TEST_F(AllReduceCombinerTest, DoNotCombineWithControlDependencies) {
+  const char* const hlo_string = R"(
+HloModule Module
+
+add {
+  lhs = f32[] parameter(0)
+  rhs = f32[] parameter(1)
+  ROOT add = f32[] add(lhs, rhs)
+}
+
+ENTRY entry {
+  param0 = f32[128] parameter(0)
+  param1 = f32[128] parameter(1)
+
+  // This all-reduce must happen first, which is enforced by the control
+  // dependency and must be respected.
+  lead_ar = f32[128] all-reduce(param0), replica_groups={{0}}, to_apply=add,
+      channel_id=1
+
+  // These all-reduce have control dependencies and must not be combined.
+  ar0 = f32[128] all-reduce(lead_ar),
+      replica_groups={{0}}, to_apply=add, channel_id=2,
+      control-predecessors={lead_ar}
+  ar1 = f32[128] all-reduce(param1),
+      replica_groups={{0}}, to_apply=add, channel_id=3,
+      control-predecessors={lead_ar}
+  ROOT tuple = (f32[128], f32[128]) tuple(ar0, ar1)
+}
+)";
+  TF_ASSERT_OK_AND_ASSIGN(auto module,
+                          ParseAndReturnVerifiedModule(hlo_string));
+
+  AllReduceCombiner combine(1024 * 1024, kMaxCombineCount);
+  ASSERT_EQ(AllReduceCount(*module), 3);
+  TF_ASSERT_OK_AND_ASSIGN(bool changed, combine.Run(module.get()));
+  EXPECT_EQ(AllReduceCount(*module), 3);
+  EXPECT_FALSE(changed);
+}
+
 TEST_F(AllReduceCombinerTest, CrossCoreAllReduce) {
   const char* const hlo_string = R"(
 HloModule Module

@@ -17,7 +17,7 @@ limitations under the License.
 
 #include <cstdint>
 #include <functional>
-#include <optional>
+#include <map>
 #include <string>
 #include <utility>
 #include <vector>
@@ -36,6 +36,7 @@ limitations under the License.
 #include "xla/service/collective_conflict_analysis.h"
 #include "xla/service/collective_ops_utils.h"
 #include "xla/service/collective_pipeliner.h"
+#include "xla/service/pattern_matcher.h"
 #include "xla/tsl/platform/errors.h"
 #include "xla/tsl/platform/statusor.h"
 #include "xla/util.h"
@@ -44,11 +45,34 @@ namespace xla {
 namespace gpu {
 namespace {
 
+namespace m = match;
+
 // Rather than pipelining the send/recv and *-done instructions, we only
 // pipeline send/recv instructions. This allows spanning async send/recv across
 // the loop boundary.
-bool PipelineOnlySendRecvStart(const HloInstruction* instr) {
-  return HloPredicateIsOp<HloOpcode::kRecv, HloOpcode::kSend>(instr);
+bool PipelineOnlySendRecvStart(const HloInstruction* instr,
+                               std::map<const HloInstruction*, bool>& cache) {
+  if (cache.count(instr)) {
+    return cache[instr];
+  }
+
+  // Only pipeline send/recv instructions that operate on a loop parameter.
+  if (!Match(instr, m::Recv()) &&
+      !Match(instr, m::Send(m::GetTupleElement(m::Parameter()), m::Op()))) {
+    cache[instr] = false;
+    return false;
+  }
+
+  // Only pipeline them if all control predecessors are also pipelined.
+  for (HloInstruction* other_instr : instr->control_predecessors()) {
+    if (!PipelineOnlySendRecvStart(other_instr, cache)) {
+      cache[instr] = false;
+      return false;
+    }
+  }
+
+  cache[instr] = true;
+  return true;
 }
 
 bool ShouldPipeline(const HloInstruction* instr) {
@@ -220,21 +244,36 @@ absl::Status PostprocessRotatedP2P(HloInstruction* instr) {
 // conflicting collectives.
 static absl::Status PostProcessRotatedSendRecvOps(
     std::vector<HloInstruction*>& rotated_send_recvs) {
+  VLOG(5) << "Post-processing rotated send/recv ops:";
+  if (VLOG_IS_ON(5)) {
+    for (HloInstruction* instr : rotated_send_recvs) {
+      VLOG(5) << " - " << instr->ToShortString();
+    }
+  }
+
   // Convert to set for faster lookup.
   absl::flat_hash_set<HloInstruction*> rotated_send_recvs_set(
       rotated_send_recvs.begin(), rotated_send_recvs.end());
 
   // Add control dependencies from conflicting collectives to rotated send/recv
   // ops.
-  for (HloInstruction* instr : rotated_send_recvs) {
-    CHECK(instr->opcode() == HloOpcode::kRecv ||
-          instr->opcode() == HloOpcode::kSend);
-    HloComputation* parent = instr->parent();
+  for (HloInstruction* rotated_instr : rotated_send_recvs) {
+    VLOG(5) << "Working on " << rotated_instr->ToShortString();
+    CHECK(rotated_instr->opcode() == HloOpcode::kRecv ||
+          rotated_instr->opcode() == HloOpcode::kSend);
+    HloComputation* parent = rotated_instr->parent();
+    int64_t num_conflicting_collectives = 0;
     for (HloInstruction* conflicting_collective :
-         FindAllConflictingCollectives(parent, {instr})) {
+         FindAllConflictingCollectives(parent, {rotated_instr})) {
       if (rotated_send_recvs_set.contains(conflicting_collective)) continue;
-      TF_RETURN_IF_ERROR(conflicting_collective->AddControlDependencyTo(instr));
+      num_conflicting_collectives++;
+      TF_RETURN_IF_ERROR(
+          conflicting_collective->AddControlDependencyTo(rotated_instr));
+      VLOG(5) << "Adding control dependency from "
+              << conflicting_collective->ToShortString() << " to "
+              << rotated_instr->ToShortString();
     }
+    VLOG(5) << "Conflicting collectives: " << num_conflicting_collectives;
   }
 
   return absl::OkStatus();
@@ -286,6 +325,13 @@ static absl::Status AddControlDependencies(
 
 static absl::Status PostProcessPeeledSendRecvOps(
     std::vector<HloInstruction*>& peeled_send_recvs) {
+  VLOG(5) << "Post-processing peeled send/recv ops:";
+  if (VLOG_IS_ON(5)) {
+    for (HloInstruction* instr : peeled_send_recvs) {
+      VLOG(5) << " - " << instr->ToShortString();
+    }
+  }
+
   // Convert to set for faster lookup.
   absl::flat_hash_set<HloInstruction*> peeled_send_recvs_set;
   peeled_send_recvs_set.insert(peeled_send_recvs.begin(),
@@ -294,6 +340,7 @@ static absl::Status PostProcessPeeledSendRecvOps(
   // Add control dependencies between conflicting collectives and peeled
   // send/recv ops.
   for (HloInstruction* peeled_instr : peeled_send_recvs) {
+    VLOG(5) << "Working on " << peeled_instr->ToShortString();
     CHECK(peeled_instr->opcode() == HloOpcode::kRecv ||
           peeled_instr->opcode() == HloOpcode::kSend);
 
@@ -303,6 +350,8 @@ static absl::Status PostProcessPeeledSendRecvOps(
       if (peeled_send_recvs_set.contains(instr)) continue;
       unpeeled_conflicting_collectives.insert(instr);
     }
+    VLOG(5) << "#Conflicting collectives: "
+            << unpeeled_conflicting_collectives.size();
 
     // Find the while loop.
     CHECK_EQ(peeled_instr->user_count(), 1);
@@ -311,25 +360,17 @@ static absl::Status PostProcessPeeledSendRecvOps(
     CHECK_EQ(tuple_op->user_count(), 1);
     HloInstruction* while_op = tuple_op->users().front();
     CHECK_EQ(while_op->opcode(), HloOpcode::kWhile);
+    VLOG(5) << "While loop: " << while_op->ToShortString();
 
-    // We separated unpeeled conflicting collectives into two categories:
-    // 1. Those that may dominate the while loop (the while loop may have a data
-    //    dependency on them, `may_dominate_while_loop`).
-    // 2. Those that are known to not dominate the while loop (remaining
-    //    instructions in `unpeeled_conflicting_collectives`).
-    std::vector<HloInstruction*> may_dominate_while_loop;
+    // We separate unpeeled conflicting collectives into two categories: those
+    // dominating the while loop (while loop has a data dependency on them), and
+    // those that don't.
+    std::vector<HloInstruction*> dominating_unpeeled_conflicting_collectives;
     for (HloInstruction* instr :
-         while_op->parent()->MakeInstructionPostOrder()) {
-      // All instructions in post order that come after the while loop are known
-      // to not dominate it.
-      if (instr == while_op) {
-        break;
-      }
-      // If we're looking at an instruction that is an unpeeled conflicting
-      // collective, it is possible that it dominates the while loop. Move it
-      // into the first category set.
+         while_op->parent()->MakeInstructionPostOrderFrom(*while_op)) {
+      VLOG(5) << "  post order instr: " << instr->ToShortString() << "\n";
       if (unpeeled_conflicting_collectives.contains(instr)) {
-        may_dominate_while_loop.push_back(instr);
+        dominating_unpeeled_conflicting_collectives.push_back(instr);
         unpeeled_conflicting_collectives.erase(instr);
       }
     }
@@ -338,8 +379,8 @@ static absl::Status PostProcessPeeledSendRecvOps(
     // peeled send/recv instruction. This guarantees that the conflicting
     // collectives cannot slip in between the peeled send/recv instructions
     // where it could cause a deadlock.
-    TF_RETURN_IF_ERROR(
-        AddControlDependencies(may_dominate_while_loop, peeled_instr));
+    TF_RETURN_IF_ERROR(AddControlDependencies(
+        dominating_unpeeled_conflicting_collectives, peeled_instr));
 
     // Add control dependencies from the final peeleled send/recv-done
     // instruction to the conflicting collectives that are dominated by the
@@ -357,7 +398,7 @@ static absl::Status PostProcessPeeledSendRecvOps(
 absl::StatusOr<bool> GpuP2PPipeliner::Run(
     HloModule* module,
     const absl::flat_hash_set<absl::string_view>& execution_threads) {
-  auto should_process = ShouldPipeline;
+  std::function<bool(const HloInstruction*)> should_process = ShouldPipeline;
   CollectivePipeliner::HloPostprocessor postprocess_backward_peeled_op =
       PostprocessPeeledP2P;
   CollectivePipeliner::HloPostprocessor postprocess_backward_rotated_op =
@@ -367,8 +408,11 @@ absl::StatusOr<bool> GpuP2PPipeliner::Run(
   // for post-processing.
   std::vector<HloInstruction*> peeled_send_recvs;
   std::vector<HloInstruction*> rotated_send_recvs;
+  std::map<const HloInstruction*, bool> should_process_cache;
   if (enable_partial_send_recv_pipelining_) {
-    should_process = PipelineOnlySendRecvStart;
+    should_process = [&](const HloInstruction* instr) -> bool {
+      return PipelineOnlySendRecvStart(instr, should_process_cache);
+    };
     postprocess_backward_peeled_op = [&](HloInstruction* it) {
       peeled_send_recvs.push_back(it);
       return absl::OkStatus();
@@ -400,10 +444,16 @@ absl::StatusOr<bool> GpuP2PPipeliner::Run(
   TF_ASSIGN_OR_RETURN(
       bool changed, CollectivePipeliner(config).Run(module, execution_threads));
 
+  VLOG(5) << "After pipelining, before post-processing:";
+  XLA_VLOG_LINES(5, module->ToString());
+
   // Post-process rotated and peeled send/recv ops to add control dependencies
   // with conflicting collectives.
   TF_RETURN_IF_ERROR(PostProcessRotatedSendRecvOps(rotated_send_recvs));
   TF_RETURN_IF_ERROR(PostProcessPeeledSendRecvOps(peeled_send_recvs));
+
+  VLOG(5) << "After post-processing:";
+  XLA_VLOG_LINES(5, module->ToString());
 
   return changed;
 }

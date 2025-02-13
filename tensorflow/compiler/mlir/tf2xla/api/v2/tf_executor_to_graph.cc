@@ -694,8 +694,8 @@ absl::Status Exporter::ConvertLibFunction(
                                          : std::nullopt;
   };
   FunctionDef func_def;
-  TF_RETURN_IF_ERROR(
-      GraphToFunctionDef(*sub_graph, function_name, control_ret, &func_def));
+  TF_RETURN_IF_ERROR(GraphToFunctionDef(std::move(sub_graph), function_name,
+                                        control_ret, &func_def));
 
   // Checks for gradient attribute. If present converts the gradient function
   // and populates the GradientDef.

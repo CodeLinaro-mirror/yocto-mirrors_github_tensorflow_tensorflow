@@ -200,6 +200,18 @@ Expected<LiteRtCompiledModelT::Ptr> LiteRtCompiledModelT::Create(
       litert::CreateDispatchDelegateOptionsPtr(*env);
   LiteRtDispatchDelegateAddAllocBaseOption(dispatch_delegate_options.get(),
                                            model_buffer);
+
+  if (compiled_model->alloc_ &&
+      compiled_model->alloc_->type() == tflite::Allocation::Type::kMMap) {
+    int alloc_fd =
+        static_cast<const tflite::MMAPAllocation&>(*compiled_model->alloc_)
+            .fd();
+    if (alloc_fd >= 0) {
+      LiteRtDispatchDelegateAddAllocFdOption(dispatch_delegate_options.get(),
+                                             alloc_fd);
+    }
+  }
+
   auto dispatch_delegate = litert::CreateDispatchDelegatePtr(
       *env, std::move(dispatch_delegate_options));
   if (auto status = compiled_model->interp_->ModifyGraphWithDelegate(

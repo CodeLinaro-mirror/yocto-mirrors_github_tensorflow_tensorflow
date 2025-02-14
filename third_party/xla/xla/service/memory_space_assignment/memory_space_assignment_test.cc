@@ -9141,6 +9141,38 @@ TEST_F(MemorySpaceAssignmentTest, HoistCopyStart) {
   }
 }
 
+// This test verifies that the uses of the cross-program prefetched instruction
+// are correctly marked in the alternate memory. Since the map being verified is
+// not exposed in the public API, we do the check by making sure that the
+// cross-program prefetch has happened. This way we ensure that the check is
+// excercised and operands_in_alternate_memory_map_ in algorithm.cc is correctly
+// populated.
+TEST_F(MemorySpaceAssignmentTest, VerifyOperandsInAlternateMemory) {
+  absl::string_view hlo_string = R"(
+  HloModule cross_program_prefetch, is_scheduled=true
+
+  ENTRY cross_program_prefetch {
+    p0 = (f32[8,8]{1,0}, f32[8,2]{1,0}) parameter(0)
+    get-tuple-element.0 = f32[8,8]{1,0} get-tuple-element(p0), index=0
+    add.0 = f32[8,8]{1,0} add(get-tuple-element.0, get-tuple-element.0)
+    get-tuple-element.1 = f32[8,2]{1,0} get-tuple-element(p0), index=1
+    dot.0 = f32[8,2]{1,0} dot(add.0, get-tuple-element.1), lhs_contracting_dims={1}, rhs_contracting_dims={0}
+    negate.1 = f32[8,2]{1,0} negate(dot.0)
+    negate.2 = f32[8,2]{1,0} negate(negate.1)
+    ROOT dot.1 = f32[2,2]{1,0} dot(negate.2, get-tuple-element.1), lhs_contracting_dims={0}, rhs_contracting_dims={0}
+  }
+  )";
+  TF_ASSERT_OK_AND_ASSIGN(auto module,
+                          ParseAndReturnVerifiedModule(hlo_string));
+  Options options = DefaultMemorySpaceOptions();
+  options.enable_cross_program_prefetch = true;
+  AssignMemorySpace(module.get(), options);
+
+  // Ensure that get-tuple-element.1 is chosen for cross-program prefetch.
+  auto cross_program_prefetches = module->CrossProgramPrefetches();
+  ASSERT_EQ(cross_program_prefetches.size(), 1);
+}
+
 TEST_F(MemorySpaceAssignmentTest, WindowPrefetch) {
   absl::string_view hlo_string = R"(
 HloModule module, is_scheduled=true

@@ -245,10 +245,14 @@ KernelThunk<num_arguments, num_results>::ExecuteInternal(
   return OkExecuteEvent();
 }
 
+// Check if memory overlaps with any of the elements in the container.
 static bool Contains(absl::Span<const XLA_CPU_KernelArg> container,
                      const XLA_CPU_KernelArg& memory) {
-  return absl::c_any_of(container, [&](const XLA_CPU_KernelArg& element) {
-    return element.data == memory.data && element.size == memory.size;
+  return absl::c_any_of(container, [&memory](const XLA_CPU_KernelArg& element) {
+    const std::byte* element_data = static_cast<std::byte*>(element.data);
+    const std::byte* memory_data = static_cast<std::byte*>(memory.data);
+    return (element.data < memory_data + memory.size) &&
+           (element_data + element.size > memory.data);
   });
 }
 

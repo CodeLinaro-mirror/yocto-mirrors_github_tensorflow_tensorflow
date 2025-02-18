@@ -15,6 +15,7 @@ limitations under the License.
 
 #include "xla/backends/cpu/runtime/kernel_thunk.h"
 
+#include <array>
 #include <cstdint>
 
 #include "absl/status/status.h"
@@ -28,6 +29,7 @@ limitations under the License.
 #include "xla/backends/cpu/runtime/thunk_testlib.h"
 #include "xla/literal_util.h"
 #include "xla/service/buffer_assignment.h"
+#include "xla/stream_executor/device_memory.h"
 #include "xla/stream_executor/launch_dim.h"
 #include "xla/tsl/concurrency/async_value_ref.h"
 #include "xla/tsl/platform/statusor.h"
@@ -182,24 +184,27 @@ TEST(KernelThunkInvariantBuffersTest,
   GTEST_SKIP() << "Invariant buffers check is disabled in optimized build.";
 #endif
 
-  // We've got only one literal, but two buffer slices that point to the same
-  // memory region.
-  auto data = LiteralUtil::CreateR2<float>({{1.0, 2.0}, {3.0, 4.0}});
-  BufferAllocations allocations = CreateBufferAllocations(data, data);
+  // Thunk is correctly configured to have two arguments and the second marked
+  // as invariant.
+  auto data0 = LiteralUtil::CreateR2<float>({{1.0, 2.0}, {3.0, 4.0}});
+  auto data1 = LiteralUtil::CreateR2<float>({{1.0, 2.0}, {3.0, 4.0}});
 
-  auto [alloc_0, alloc_1] = CreateBufferAllocation(data, data);
+  auto [alloc_0, alloc_1] = CreateBufferAllocation(data0, data1);
   auto [slice_0, slice_1] = CreateBufferAllocationSlice(alloc_0, alloc_1);
 
-  // Invariant buffer set is incorrect. slice_1 is not aliased to any output,
-  // but it points to the same memory region as slice_0 (which is not
-  // invariant, because it is aliased with the output).
   TF_ASSERT_OK_AND_ASSIGN(
       auto thunk, KernelThunk::Create({"add_f32"}, {slice_0, slice_1},
                                       {slice_0}, "add_f32", se::ThreadDim(4),
                                       /*invariant_arguments=*/{{1}}));
 
   AddF32HostKernel host_kernels;
-  Thunk::ExecuteParams params = {&host_kernels, &allocations};
+
+  // But runtime output buffer overlaps with invariant input buffer.
+  std::array<float, 5> runtime_buffer;
+  BufferAllocations runtime_allocations(BufferAllocations::Buffers{
+      se::DeviceMemoryBase(runtime_buffer.data(), 16),
+      se::DeviceMemoryBase(runtime_buffer.data() + 1, 16)});
+  Thunk::ExecuteParams params = {&host_kernels, &runtime_allocations};
 
   auto execute_event = thunk->Execute(params);
   tsl::BlockUntilReady(execute_event);

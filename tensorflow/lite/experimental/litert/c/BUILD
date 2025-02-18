@@ -351,6 +351,7 @@ cc_test(
         ":litert_accelerator_options",
         ":litert_common",
         "//tensorflow/lite/experimental/litert/core:accelerator",
+        "//tensorflow/lite/experimental/litert/test:matchers",
         "@com_google_googletest//:gtest_main",
     ],
 )

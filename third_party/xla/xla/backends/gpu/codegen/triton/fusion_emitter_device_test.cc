@@ -28,6 +28,7 @@ limitations under the License.
 #include "absl/strings/substitute.h"
 #include "Eigen/Core"
 #include "llvm/IR/LLVMContext.h"
+#include "llvm/Support/raw_ostream.h"
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/Pass/PassManager.h"
 #include "xla/autotuning.pb.h"
@@ -67,6 +68,14 @@ class TritonEmitterTest : public GpuCodegenTest {
         .default_stream_executor()
         ->GetDeviceDescription()
         .gpu_compute_capability();
+  }
+
+  DebugOptions GetDebugOptionsForTest() const override {
+    DebugOptions debug_options = GpuCodegenTest::GetDebugOptionsForTest();
+    // TODO(b/393299275): Remove when flag is enabled by default.
+    debug_options
+        .set_xla_gpu_unsupported_enable_generic_triton_emitter_for_gemms(true);
+    return debug_options;
   }
 };
 
@@ -1756,6 +1765,126 @@ ENTRY entry_computation {
                           ParseAndReturnVerifiedModule(hlo_text));
 
   EXPECT_TRUE(RunAndCompareNoHloPasses(std::move(module), kExactMatch));
+}
+
+TEST_F(TritonEmitterTest, SingleTileDot) {
+  // Simplest case when everything fits one tile.
+  const std::string kHloText = R"(
+flhs {
+  flhs.p0 = f32[16,16] parameter(0)
+  ROOT lhs.root = f32[16,16] negate(flhs.p0)
+}
+
+frhs {
+  frhs.p0 = f32[16,16] parameter(0)
+  ROOT frhs.root = f32[16,16] abs(frhs.p0)
+}
+
+fdot {
+  fdot.p0 = f32[16,16] parameter(0)
+  fdot.p1 = f32[16,16] parameter(1)
+  fdot.lhs = f32[16,16] fusion(fdot.p0), kind=kCustom, calls=flhs, backend_config={
+    "fusion_backend_config":{
+      "kind":"__triton", "block_level_fusion_config":{
+        "output_tiles":[{"sizes":["16", "16"]}]
+      }
+    }
+  }
+  fdot.rhs = f32[16,16]{1,0} fusion(fdot.p1), kind=kCustom, calls=frhs, backend_config={
+    "fusion_backend_config":{
+      "kind":"__triton", "block_level_fusion_config":{
+        "output_tiles":[{"sizes":["16", "16"]}]
+      }
+    }
+  }
+  ROOT fdot.root = f32[16,16]{1,0} dot(fdot.lhs, fdot.rhs),
+    lhs_contracting_dims={1}, rhs_contracting_dims={0}
+}
+
+ENTRY entry {
+  entry.p0 = f32[16,16] parameter(0)
+  entry.p1 = f32[16,16] parameter(1)
+  ROOT fusion = f32[16,16] fusion(entry.p0, entry.p1),
+    kind=kCustom, calls=fdot, backend_config={
+      "fusion_backend_config":{
+        "kind":"__triton", "block_level_fusion_config":{
+          "output_tiles":[{"sizes":["16", "16"]}], "num_warps":"1"
+        }
+      }
+    }
+})";
+  // We expect that for loop instruction will be optimized away.
+  TF_EXPECT_OK(CreateTritonIrAndFileCheck(this, kHloText, "fdot", R"(
+CHECK-NO: scf.yield
+CHECK: tt.dot {{.*}} -> tensor<16x16xf32>
+)"));
+  EXPECT_TRUE(RunAndCompareNoHloPasses(
+      kHloText, ErrorSpec{/*aabs=*/1e-4, /*arel=*/1e-6}));
+}
+
+TEST_F(TritonEmitterTest, TiledDot) {
+  const std::string kHloText = R"(
+flhs {
+  flhs.p0 = f32[32,256] parameter(0)
+  ROOT lhs.root = f32[32,256] negate(flhs.p0)
+}
+
+frhs {
+  frhs.p0 = f32[256,512] parameter(0)
+  ROOT frhs.root = f32[256,512] abs(frhs.p0)
+}
+
+fdot {
+  fdot.p0 = f32[32,256] parameter(0)
+  fdot.p1 = f32[256,512] parameter(1)
+  fdot.lhs = f32[32,256] fusion(fdot.p0), kind=kCustom, calls=flhs, backend_config={
+    "fusion_backend_config":{
+      "kind":"__triton", "block_level_fusion_config":{
+        "output_tiles":[{"sizes":["16", "32"]}]
+      }
+    }
+  }
+  fdot.rhs = f32[256,512]{1,0} fusion(fdot.p1), kind=kCustom, calls=frhs, backend_config={
+    "fusion_backend_config":{
+      "kind":"__triton", "block_level_fusion_config":{
+        "output_tiles":[{"sizes":["32", "64"]}]
+      }
+    }
+  }
+  ROOT fdot.root = f32[32,512]{1,0} dot(fdot.lhs, fdot.rhs),
+    lhs_contracting_dims={1}, rhs_contracting_dims={0}
+}
+
+ENTRY entry {
+  entry.p0 = f32[32,256] parameter(0)
+  entry.p1 = f32[256,512] parameter(1)
+  ROOT fusion = f32[32,512] fusion(entry.p0, entry.p1),
+    kind=kCustom, calls=fdot, backend_config={
+      "fusion_backend_config":{
+        "kind":"__triton", "block_level_fusion_config":{
+          "output_tiles":[{"sizes":["16", "64"]}], "num_warps":"1"
+        }
+      }
+    }
+})";
+  TF_EXPECT_OK(CreateTritonIrAndFileCheck(this, kHloText, "fdot", R"(
+CHECK:      tt.func @triton_fn(%[[ARG0:[A-Za-z0-9_]*]]: !tt.ptr<f32>
+CHECK-SAME:                    %[[ARG1:[A-Za-z0-9_]*]]: !tt.ptr<f32>
+CHECK-SAME:                    %[[ARG2:[A-Za-z0-9_]*]]: !tt.ptr<f32>
+CHECK-DAG:  %[[C0:.*]] = arith.constant 0 : i64
+CHECK-DAG:  %[[C8:.*]] = arith.constant 8 : i64
+CHECK-DAG:  %[[C1:.*]] = arith.constant 1 : i64
+CHECK:      {{.*}} = scf.for {{.*}} = %[[C0]] to %[[C8]] step %[[C1]]
+CHECK-SAME: iter_args({{.*}}) -> (tensor<16x64xf32>)  : i64 {
+CHECK-DAG:  tt.addptr %[[ARG0]]
+CHECK-DAG:  tt.addptr %[[ARG1]]
+CHECK-DAG:  arith.subf {{.*}} : tensor<16x32xf32>
+CHECK-DAG:  math.absf {{.*}} : tensor<32x64xf32>
+CHECK:      scf.yield {{.*}} : tensor<16x64xf32>
+CHECK-COUNT-1: tt.store
+)"));
+  EXPECT_TRUE(RunAndCompareNoHloPasses(
+      kHloText, ErrorSpec{/*aabs=*/1e-4, /*arel=*/1e-6}));
 }
 
 }  // namespace

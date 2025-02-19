@@ -1,7 +1,9 @@
+load("@local_xla//xla:package_groups.bzl", "xla_package_groups")
 load("@local_xla//xla/stream_executor:build_defs.bzl", "if_cuda_or_rocm")
 load(
     "@local_xla//xla/tsl:tsl.bzl",
     "check_deps",
+    "internal_visibility",
 )
 load("//tensorflow:tensorflow.bzl", "if_libtpu", "if_with_tpu_support", "tf_cc_test", "tf_copts", "tf_cuda_cc_test", "tf_cuda_only_cc_test")
 load("//tensorflow:tensorflow.default.bzl", "cc_header_only_library", "filegroup", "tf_custom_op_py_strict_library")
@@ -16,15 +18,17 @@ load("//tensorflow/core/platform:rules_cc.bzl", "cc_library")
 package(
     # copybara:uncomment default_applicable_licenses = ["//tensorflow:license"],
     default_visibility = [
-        ":internal",
+        ":jit_internal",
         "//third_party/cloud_tpu/inference_converter:__pkg__",
         "//waymo/ml/deploy/system/aot_compilation:__pkg__",
     ],
     licenses = ["notice"],
 )
 
+xla_package_groups()
+
 package_group(
-    name = "internal",
+    name = "jit_internal",
     includes = [
         "//tensorflow/compiler/tf2xla:internal",
     ],
@@ -37,7 +41,7 @@ package_group(
 )
 
 package_group(
-    name = "friends",
+    name = "jit_friends",
     includes = [
         "//tensorflow/compiler/tf2xla:friends",
     ],
@@ -51,16 +55,15 @@ filegroup(
         "defs.cc",
         "defs.h",
     ],
-    visibility = [":friends"],
+    visibility = [":jit_friends"],
 )
 
 # Target that bundles up the XLA CPU and GPU JIT devices.
+# This target is deprecated as it pulls in all the XLA devices and bloats the dependencies.
+# Please use the individual targets in the deps list as needed. See b/336889334.
 cc_library(
     name = "jit",
-    visibility = [
-        ":friends",
-        "//learning/tfx:__subpackages__",
-    ],
+    visibility = internal_visibility([":legacy_jit_users"]),
     deps = [
         ":xla_cpu_device",
         ":xla_cpu_jit",
@@ -121,7 +124,7 @@ cc_library(
 cc_library(
     name = "xla_cpu_device",
     srcs = ["xla_cpu_device.cc"],
-    visibility = [":friends"],
+    visibility = [":jit_friends"],
     deps = [
         ":common",
         ":flags",
@@ -149,7 +152,7 @@ cc_library(
 cc_library(
     name = "xla_gpu_device",
     srcs = ["xla_gpu_device.cc"],
-    visibility = [":friends"],
+    visibility = [":jit_friends"],
     deps = [
         ":common",
         ":flags",
@@ -182,7 +185,7 @@ cc_library(
     name = "xla_tpu_device",
     srcs = ["xla_tpu_device.cc"],
     hdrs = ["xla_tpu_device.h"],
-    visibility = [":friends"],
+    visibility = [":jit_friends"],
     deps = [
         ":xla_device",
         ":xla_device_context",
@@ -224,7 +227,7 @@ cc_library(
     name = "xla_tensor",
     srcs = ["xla_tensor.cc"],
     hdrs = ["xla_tensor.h"],
-    visibility = [":friends"],
+    visibility = [":jit_friends"],
     deps = [
         "//tensorflow/compiler/tf2xla:common",
         "//tensorflow/core:core_cpu_internal",
@@ -442,7 +445,7 @@ cc_library(
     name = "shape_inference_helpers",
     srcs = ["shape_inference_helpers.cc"],
     hdrs = ["shape_inference_helpers.h"],
-    visibility = [":friends"],
+    visibility = [":jit_friends"],
     deps = select({
         "//tensorflow:android": [
             "//tensorflow/core:portable_tensorflow_lib",
@@ -457,7 +460,7 @@ cc_library(
     name = "flags",
     srcs = ["flags.cc"],
     hdrs = ["flags.h"],
-    visibility = [":friends"],
+    visibility = [":jit_friends"],
     deps = [
         "//tensorflow/compiler/mlir/tensorflow:dump_graph",
         "//tensorflow/core:framework_internal",
@@ -478,7 +481,7 @@ cc_library(
 cc_library(
     name = "flags_headers",
     hdrs = ["flags.h"],
-    visibility = [":friends"],
+    visibility = [":jit_friends"],
     deps = [
         "//tensorflow/core:framework_internal",
         "//tensorflow/core:framework_types_hdr",
@@ -505,7 +508,7 @@ cc_library(
     hdrs = [
         "defs.h",
     ],
-    visibility = [":friends"],
+    visibility = [":jit_friends"],
 )
 
 # Internal targets below this point.
@@ -515,7 +518,7 @@ cc_library(
     srcs = ["variable_info.cc"],
     hdrs = ["variable_info.h"],
     visibility = [
-        ":internal",
+        ":jit_internal",
         # We reuse VariableInfo in TFRT's implementation of TpuExecuteOp.
         "//learning/brain/tfrt/tf_tpu:__pkg__",
         "//learning/brain/tfrt/tpu_common:__pkg__",
@@ -535,7 +538,7 @@ cc_library(
     srcs = ["variable_info_util.cc"],
     hdrs = ["variable_info_util.h"],
     visibility = [
-        ":internal",
+        ":jit_internal",
         # We reuse VariableInfo in TFRT's implementation of TpuExecuteOp.
         "//learning/brain/tfrt/tf_tpu:__pkg__",
     ],
@@ -555,7 +558,7 @@ cc_library(
     srcs = ["pjrt_compile_util.cc"],
     hdrs = ["pjrt_compile_util.h"],
     visibility = [
-        ":internal",
+        ":jit_internal",
         "//tensorflow/core/tfrt/gpu/kernel:__pkg__",
     ],
     deps = [
@@ -604,7 +607,7 @@ cc_library(
     srcs = ["xla_launch_util.cc"],
     hdrs = ["xla_launch_util.h"],
     visibility = [
-        ":internal",
+        ":jit_internal",
         # We reuse VariableInfo in TFRT's implementation of TpuExecuteOp.
         "//learning/brain/tfrt/tf_tpu:__pkg__",
         "//learning/brain/tfrt/tpu_plugin:__pkg__",
@@ -718,7 +721,7 @@ cc_library(
     srcs = ["xla_compile_util.cc"],
     hdrs = ["xla_compile_util.h"],
     visibility = [
-        ":internal",
+        ":jit_internal",
         "//tensorflow/core/tfrt/gpu/kernel:__pkg__",
     ],
     deps = [
@@ -761,7 +764,7 @@ cc_library(
     name = "device_compiler",
     hdrs = ["device_compiler.h"],
     copts = tf_copts(),
-    visibility = [":internal"],
+    visibility = [":jit_internal"],
     deps = [
         ":device_compilation_cache",
         ":device_compilation_cluster_signature",
@@ -820,7 +823,7 @@ cc_library(
     name = "get_compiler_ir",
     srcs = ["get_compiler_ir.cc"],
     hdrs = ["get_compiler_ir.h"],
-    visibility = [":internal"],
+    visibility = [":jit_internal"],
     deps = [
         ":compilability_check_util",
         ":device_compiler",
@@ -856,7 +859,7 @@ cc_library(
 cc_library(
     name = "get_compiler_ir_hdrs",
     textual_hdrs = ["get_compiler_ir.h"],
-    visibility = [":internal"],
+    visibility = [":jit_internal"],
     deps = [
         "//tensorflow/compiler/tf2xla:xla_compiler",
         "//tensorflow/core:framework",
@@ -897,7 +900,7 @@ cc_library(
         "xla_kernel_creator.h",
     ],
     visibility = [
-        ":internal",
+        ":jit_internal",
         "//tensorflow/core/common_runtime/eager:__pkg__",
     ],
     deps = [
@@ -993,7 +996,7 @@ cc_library(
     name = "shape_inference",
     srcs = ["shape_inference.cc"],
     hdrs = ["shape_inference.h"],
-    visibility = [":friends"],
+    visibility = [":jit_friends"],
     deps = [
         ":shape_inference_helpers",
         "//tensorflow/core:core_cpu_internal",
@@ -1109,7 +1112,7 @@ cc_library(
         "report_clustering_info_pass.h",
     ],
     visibility = [
-        ":internal",
+        ":jit_internal",
         "//third_party/cloud_tpu/inference_converter:__pkg__",
         "//waymo/onboard/ml/chauffeur_net:__pkg__",
     ],
@@ -1399,7 +1402,7 @@ cc_library(
     srcs = ["compilability_check_util.cc"],
     hdrs = ["compilability_check_util.h"],
     visibility = [
-        ":friends",
+        ":jit_friends",
     ],
     deps = [
         ":common",
@@ -1482,7 +1485,7 @@ tf_custom_op_py_strict_library(
     name = "xla_ops_py",
     kernels = ["//tensorflow/compiler/jit/ops:xla_ops"],
     visibility = [
-        ":friends",
+        ":jit_friends",
     ],
     deps = [
         "//tensorflow/compiler/jit/ops:xla_ops_grad",
@@ -1560,7 +1563,7 @@ cc_library(
     name = "device_compiler_client",
     srcs = ["device_compiler_client.cc"],
     hdrs = ["device_compiler_client.h"],
-    visibility = [":internal"],
+    visibility = [":jit_internal"],
     deps = [
         "//tensorflow/compiler/tf2xla:xla_compiler",
         "//tensorflow/core/util:determinism",

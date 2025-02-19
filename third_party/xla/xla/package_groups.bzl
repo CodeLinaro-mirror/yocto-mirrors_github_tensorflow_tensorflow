@@ -37,6 +37,11 @@ def xla_package_groups(name = "xla_package_groups"):
         packages = ["//..."],
     )
 
+    native.package_group(
+        name = "legacy_jit_users",
+        packages = ["//..."],
+    )
+
 def xla_tests_package_groups(name = "xla_tests_package_groups"):
     """Defines visibility groups for XLA tests.
 

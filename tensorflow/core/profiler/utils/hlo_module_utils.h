@@ -74,7 +74,8 @@ inline std::string UncachedExpression(const xla::HloInstruction* instr,
       new xla::HloPrintOptions(xla::HloPrintOptions()
                                    .set_print_metadata(false)
                                    .set_print_backend_config(false)
-                                   .set_print_infeed_outfeed_config(false));
+                                   .set_print_infeed_outfeed_config(false)
+                                   .set_print_operand_shape(true));
   std::string expression = instr->ToString(*hlo_print_options);
   if (expression.size() > max_size) {
     expression.resize(max_size);

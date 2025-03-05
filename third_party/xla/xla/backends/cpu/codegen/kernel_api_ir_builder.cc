@@ -105,8 +105,13 @@ class MemoryDependencyAnalyzer {
     return scopes.empty() ? nullptr : llvm::MDNode::get(context_, scopes);
   };
 
-  bool ResultContainsSlice(BufferAllocation::Slice slice) {
-    return result_slices_.contains(slice);
+  bool ResultsOverlapWithSlice(BufferAllocation::Slice slice) {
+    for (const BufferAllocation::Slice& result_slice : result_slices_) {
+      if (result_slice.OverlapsWith(slice)) {
+        return true;
+      }
+    }
+    return false;
   }
 
  private:
@@ -150,92 +155,6 @@ llvm::FunctionType* KernelFunctionTy(llvm::LLVMContext& ctx) {
   return llvm::FunctionType::get(llvm::PointerType::getUnqual(ctx),
                                  llvm::PointerType::getUnqual(ctx),
                                  /*isVarArg=*/false);
-}
-
-// Check that all kernel arguments are coming from non-overlapping slices. It
-// is fine to pass same slice as different arguments. This property is not
-// used anywhere during the codegen, it acts mostly as a sanity check for
-// the buffer assignment. In the future we might emit better aliasing metadata
-// based on this property.
-absl::Status VerifyKernelArgumentsNonOverlapping(
-    absl::Span<const KernelApiIrBuilder::KernelParameter> arguments) {
-  for (size_t i = 0; i < arguments.size(); ++i) {
-    for (size_t j = i + 1; j < arguments.size(); ++j) {
-      const KernelApiIrBuilder::KernelParameter& a = arguments[i];
-      const KernelApiIrBuilder::KernelParameter& b = arguments[j];
-
-      if (a.slice != b.slice && a.slice.OverlapsWith(b.slice)) {
-        return Internal(
-            "Kernel arguments must not overlap: result #%d (%s) overlaps "
-            "with result #%d (%s)",
-            i, a.slice.ToString(), j, b.slice.ToString());
-      }
-    }
-  }
-
-  return absl::OkStatus();
-}
-
-// Check that all kernel results are unique and coming from non-overlapping
-// slices. We rely on this property to create LLVM `!alias.scope` for each
-// kernel result buffer and to construct `!noalias` metadata for arguments.
-absl::Status VerifyKernelResultsNonOverlapping(
-    absl::Span<const KernelApiIrBuilder::KernelParameter> results) {
-  for (size_t i = 0; i < results.size(); ++i) {
-    for (size_t j = i + 1; j < results.size(); ++j) {
-      const KernelApiIrBuilder::KernelParameter& a = results[i];
-      const KernelApiIrBuilder::KernelParameter& b = results[j];
-
-      if (a.slice.OverlapsWith(b.slice)) {
-        return Internal(
-            "Kernel results must not overlap: result #%d (%s) overlaps "
-            "with result #%d (%s)",
-            i, a.slice.ToString(), j, b.slice.ToString());
-      }
-    }
-  }
-
-  return absl::OkStatus();
-}
-
-// Check that results do not overlap with arguments, or if they do, they must
-// be the same as one of the arguments, which can happen for inplace kernels.
-absl::Status VerifyKernelResultsNonOverlappingWithArguments(
-    absl::Span<const KernelApiIrBuilder::KernelParameter> arguments,
-    absl::Span<const KernelApiIrBuilder::KernelParameter> results) {
-  for (size_t i = 0; i < results.size(); ++i) {
-    for (size_t j = 0; j < arguments.size(); ++j) {
-      const KernelApiIrBuilder::KernelParameter& result = results[i];
-      const KernelApiIrBuilder::KernelParameter& argument = arguments[j];
-
-      if (result.slice.OverlapsWith(argument.slice) &&
-          result.slice != argument.slice) {
-        return Internal(
-            "Kernel results must not partially overlap with arguments: result "
-            "#%d (%s) overlaps with argument #%d (%s)",
-            i, result.slice.ToString(), j, argument.slice.ToString());
-      }
-    }
-  }
-
-  return absl::OkStatus();
-}
-
-absl::Status VerifyKernelParameters(
-    absl::Span<const KernelApiIrBuilder::KernelParameter> arguments,
-    absl::Span<const KernelApiIrBuilder::KernelParameter> results) {
-  // IMPORTANT: Buffer slice non-overlapping property checked below does not
-  // necessarily mean that the buffers do not alias. Parameter allocations
-  // might have different index but at run time might be backed by the same
-  // memory (or aliased memory). We conservatively do not emit noalias metadata
-  // for buffers coming from parameter allocations.
-
-  TF_RETURN_IF_ERROR(VerifyKernelArgumentsNonOverlapping(arguments));
-  TF_RETURN_IF_ERROR(VerifyKernelResultsNonOverlapping(results));
-  TF_RETURN_IF_ERROR(
-      VerifyKernelResultsNonOverlappingWithArguments(arguments, results));
-
-  return absl::OkStatus();
 }
 
 absl::StatusOr<BufferAllocation::Slice> GetUniqueSlice(
@@ -305,14 +224,7 @@ auto KernelApiIrBuilder::EmitKernelPrototype(
   TF_ASSIGN_OR_RETURN(std::vector<KernelParameter> results,
                       GetKernelResultsParameters(instr, buffer_assignment));
 
-  std::string name;
-  if (options_.generate_unique_c_style_kernel_entry_points) {
-    TF_ASSIGN_OR_RETURN(
-        name, ConvertToCName(absl::StrCat(instr->GetModule()->name(), "_",
-                                          instr->name(), suffix)));
-  } else {
-    name = absl::StrCat(instr->name(), suffix);
-  }
+  TF_ASSIGN_OR_RETURN(std::string name, GetKernelName(instr, suffix));
 
   return EmitKernelPrototype(module, name, arguments, results);
 }
@@ -335,8 +247,6 @@ auto KernelApiIrBuilder::EmitKernelPrototype(
     VLOG(3) << "  result: " << result.shape.ToString(true) << " in "
             << result.slice.ToString();
   }
-
-  TF_RETURN_IF_ERROR(VerifyKernelParameters(arguments, results));
 
   MemoryDependencyAnalyzer memory_dependency_analyzer(context_, name, results);
 
@@ -371,7 +281,7 @@ auto KernelApiIrBuilder::EmitKernelPrototype(
 
     // If a buffer slice is not a part of result set, then it must be invariant
     // (read-only).
-    if (!memory_dependency_analyzer.ResultContainsSlice(argument.slice)) {
+    if (!memory_dependency_analyzer.ResultsOverlapWithSlice(argument.slice)) {
       ir_argument.MarkInvariantOverWholeProgram(&context_);
       invariant_arguments.insert(i);
     }
@@ -423,6 +333,16 @@ auto KernelApiIrBuilder::EmitKernelPrototype(
                          std::move(invariant_arguments),
                          std::move(argument_buffers),
                          std::move(result_buffers)};
+}
+
+absl::StatusOr<std::string> KernelApiIrBuilder::GetKernelName(
+    const HloInstruction* instr, absl::string_view suffix) const {
+  if (options_.generate_unique_c_style_kernel_entry_points) {
+    return ConvertToCName(
+        absl::StrCat(instr->GetModule()->name(), "_", instr->name(), suffix));
+  } else {
+    return absl::StrCat(instr->name(), suffix);
+  }
 }
 
 std::unique_ptr<llvm::Module> KernelApiIrBuilder::CreateModule(
@@ -488,8 +408,11 @@ llvm_ir::IrArray KernelApiIrBuilder::EmitKernelArgument(
 
   // All buffers pointers passed to host kernels are expected to be
   // dereferenceable.
-  llvm_ir::SetDereferenceableMetadataForLoad(data,
-                                             ShapeUtil::ByteSizeOf(shape));
+  const llvm::Module* llvm_module = builder.GetInsertBlock()->getModule();
+  const llvm::DataLayout& data_layout = llvm_module->getDataLayout();
+  int64_t pointer_size = data_layout.getTypeStoreSize(builder.getPtrTy());
+  int64_t byte_size = ShapeUtil::ByteSizeOf(shape, pointer_size);
+  llvm_ir::SetDereferenceableMetadataForLoad(data, byte_size);
 
   // All buffers pointers passed to host kernels are expected to be invariant
   // over the whole program. Note the metadata is attached only to loading

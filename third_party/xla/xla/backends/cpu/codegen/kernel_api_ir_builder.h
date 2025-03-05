@@ -18,6 +18,7 @@ limitations under the License.
 
 #include <cstdint>
 #include <memory>
+#include <string>
 #include <vector>
 
 #include "absl/container/flat_hash_set.h"
@@ -30,7 +31,6 @@ limitations under the License.
 #include "llvm/IR/Module.h"
 #include "llvm/IR/Value.h"
 #include "xla/hlo/ir/hlo_instruction.h"
-#include "xla/runtime/buffer_use.h"
 #include "xla/service/buffer_assignment.h"
 #include "xla/service/hlo_module_config.h"
 #include "xla/service/llvm_ir/ir_array.h"
@@ -110,6 +110,12 @@ class KernelApiIrBuilder {
       absl::Span<const KernelParameter> arguments,
       absl::Span<const KernelParameter> results);
 
+  // Get the kernel name for the given HLO instruction.
+  // If generate_unique_c_style_kernel_entry_points is enabled, the name will
+  // be converted to a valid C name and prefixed with the HLO module name.
+  absl::StatusOr<std::string> GetKernelName(
+      const HloInstruction* instr, absl::string_view suffix = "") const;
+
   // Create a module with the given name, the name is given a prefix that is
   // specific to XLA and relied on further down the pipeline.
   static std::unique_ptr<llvm::Module> CreateModule(absl::string_view name,
@@ -137,6 +143,17 @@ class KernelApiIrBuilder {
   llvm::StructType* call_frame_ty_;
   llvm::FunctionType* kernel_function_ty_;
 };
+
+inline bool operator==(const KernelApiIrBuilder::KernelParameter& lhs,
+                       const KernelApiIrBuilder::KernelParameter& rhs) {
+  return lhs.shape == rhs.shape && lhs.slice == rhs.slice;
+}
+
+template <typename Hash>
+Hash AbslHashValue(Hash hash,
+                   const KernelApiIrBuilder::KernelParameter& param) {
+  return Hash::combine(std::move(hash), param.shape, param.slice);
+}
 
 }  // namespace xla::cpu
 

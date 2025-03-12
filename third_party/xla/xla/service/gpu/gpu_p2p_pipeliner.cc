@@ -309,13 +309,19 @@ static std::vector<HloInstruction*> GetSendRecvStartInstructions(
   return start_instructions;
 }
 
-static absl::Nullable<HloInstruction*> GetSendRecvDoneInstructions(
+static absl::Nullable<HloInstruction*> GetSendRecvStartInstructionOrSelf(
+    absl::Nonnull<HloInstruction*> instr) {
+  HloInstruction* send_recv_start = GetSendRecvStartInstruction(instr);
+  return send_recv_start != nullptr ? send_recv_start : instr;
+}
+
+static absl::Nonnull<HloInstruction*> GetSendRecvDoneInstructionOrSelf(
     absl::Nonnull<HloInstruction*> rotated_instr) {
   auto it = absl::c_find_if(rotated_instr->users(), [](HloInstruction* user) {
     return user->opcode() == HloOpcode::kRecvDone ||
            user->opcode() == HloOpcode::kSendDone;
   });
-  return it != rotated_instr->users().end() ? *it : nullptr;
+  return it != rotated_instr->users().end() ? *it : rotated_instr;
 }
 
 // Post-process rotated send/recv ops to add control dependencies with
@@ -349,11 +355,11 @@ static absl::Status PostProcessRotatedSendRecvOps(
          FindAllConflictingCollectives(parent, {rotated_instr})) {
       if (rotated_send_recvs_set.contains(conflicting_collective)) continue;
       num_conflicting_collectives++;
-      HloInstruction* new_control_dependency =
-          GetSendRecvDoneInstructions(rotated_instr);
-      CHECK_NE(new_control_dependency, nullptr);
-      TF_RETURN_IF_ERROR(conflicting_collective->AddControlDependencyTo(
-          new_control_dependency));
+      conflicting_collective =
+          GetSendRecvDoneInstructionOrSelf(conflicting_collective);
+      rotated_instr = GetSendRecvStartInstructionOrSelf(rotated_instr);
+      TF_RETURN_IF_ERROR(
+          conflicting_collective->AddControlDependencyTo(rotated_instr));
       VLOG(5) << "Adding control dependency from "
               << conflicting_collective->ToShortString() << " to "
               << rotated_instr->ToShortString() << "\n";

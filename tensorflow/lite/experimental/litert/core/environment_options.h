@@ -1,4 +1,4 @@
-// Copyright 2024 Google LLC.
+// Copyright 2025 Google LLC.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -12,22 +12,26 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include "tensorflow/lite/experimental/litert/core/environment.h"
+#ifndef TENSORFLOW_LITE_EXPERIMENTAL_LITERT_CORE_ENVIRONMENT_OPTIONS_H_
+#define TENSORFLOW_LITE_EXPERIMENTAL_LITERT_CORE_ENVIRONMENT_OPTIONS_H_
 
-#include <memory>
+#include <map>
+#include <string>
+#include <vector>
 
-#include "absl/types/span.h"
+#include "tensorflow/lite/experimental/litert/c/litert_any.h"
 #include "tensorflow/lite/experimental/litert/c/litert_environment_options.h"
-#include "tensorflow/lite/experimental/litert/c/litert_logging.h"
 #include "tensorflow/lite/experimental/litert/cc/litert_expected.h"
 
-litert::Expected<LiteRtEnvironmentT::Ptr> LiteRtEnvironmentT::CreateWithOptions(
-    absl::Span<const LiteRtEnvOption> options) {
-  LITERT_LOG(LITERT_INFO, "Creating LiteRT environment with options");
-  auto env = std::make_unique<LiteRtEnvironmentT>();
-  for (const auto& opt : options) {
-    env->options_.SetOption(opt);
-  }
+class LiteRtEnvironmentOptionsT {
+ public:
+  LiteRtEnvironmentOptionsT() = default;
+  litert::Expected<LiteRtAny> GetOption(LiteRtEnvOptionTag tag) const;
+  litert::Expected<void> SetOption(LiteRtEnvOption option);
 
-  return env;
-}
+ private:
+  std::map<LiteRtEnvOptionTag, LiteRtAny> options_;
+  std::vector<std::string> string_option_values_;
+};
+
+#endif  // TENSORFLOW_LITE_EXPERIMENTAL_LITERT_CORE_ENVIRONMENT_OPTIONS_H_

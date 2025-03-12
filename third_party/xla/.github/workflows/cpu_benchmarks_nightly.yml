@@ -73,13 +73,6 @@ jobs:
         run:
           mkdir results
 
-      - name: Print machine specs
-        run: |
-          lscpu
-          free -h  # Memory information
-          df -h    # Disk space information
-          uname -a # Kernel information
-
       - name: Run E2E benchmarks flax_2b
         timeout-minutes: 60
         run: |

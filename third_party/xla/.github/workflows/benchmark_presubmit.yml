@@ -71,13 +71,6 @@ jobs:
         shell: bash
     timeout-minutes: 10
     steps:
-      - name: Print machine specs
-        run: |
-          lscpu
-          free -h  # Memory information
-          df -h    # Disk space information
-          uname -a # Kernel information
-
       - name: Print GitHub Context
         run: |
           echo "GitHub SHA: ${{ github.sha }}"

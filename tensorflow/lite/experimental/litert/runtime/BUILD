@@ -29,8 +29,11 @@ cc_library(
         "event.h",
     ],
     deps = [
+        ":environment",
         "//tensorflow/lite/experimental/litert/c:litert_common",
+        "//tensorflow/lite/experimental/litert/c:litert_event_type",
         "//tensorflow/lite/experimental/litert/cc:litert_expected",
+        "@opencl_headers",
     ],
 )
 
@@ -65,6 +68,7 @@ cc_library(
     deps = [
         ":environment",
         "//tensorflow/lite/experimental/litert/c:litert_common",
+        "//tensorflow/lite/experimental/litert/c:litert_event_type",
         "//tensorflow/lite/experimental/litert/c:litert_layout",
         "//tensorflow/lite/experimental/litert/c:litert_model",
         "//tensorflow/lite/experimental/litert/c:litert_tensor_buffer_types",
@@ -103,6 +107,7 @@ cc_library(
         "environment.h",
     ],
     visibility = [
+        "//tensorflow/lite/experimental/litert/c:__subpackages__",
         "//third_party/odml/infra/ml_drift_delegate:__subpackages__",
     ],
     deps = [

@@ -155,11 +155,17 @@ cc_test(
 )
 
 cc_library(
+    name = "litert_event_type",
+    hdrs = ["litert_event_type.h"],
+)
+
+cc_library(
     name = "litert_event",
     srcs = ["litert_event.cc"],
     hdrs = ["litert_event.h"],
     deps = [
         ":litert_common",
+        ":litert_event_type",
         ":litert_logging",
         "//tensorflow/lite/experimental/litert/runtime:event",
     ],
@@ -476,6 +482,7 @@ cc_library(
         ":litert_compiled_model.h",
         ":litert_compilation_options.h",
         ":litert_event.h",
+        ":litert_event_type.h",
         ":litert_layout.h",
         ":litert_logging.h",
         ":litert_model.h",

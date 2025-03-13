@@ -19,6 +19,7 @@
 #include "tensorflow/lite/experimental/litert/cc/litert_macros.h"
 #include "tensorflow/lite/experimental/litert/core/environment.h"
 #include "tensorflow/lite/experimental/litert/runtime/accelerators/auto_registration.h"
+#include "tensorflow/lite/experimental/litert/runtime/gpu_environment.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -40,6 +41,14 @@ void LiteRtDestroyEnvironment(LiteRtEnvironment environment) {
   if (environment != nullptr) {
     delete environment;
   }
+}
+
+LiteRtStatus LiteRtGpuGlobalEnvironmentCreate(int num_options,
+                                              const LiteRtEnvOption* options) {
+  LITERT_ASSIGN_OR_RETURN(auto env, LiteRtEnvironmentT::CreateWithOptions(
+                                        absl::MakeSpan(options, num_options)));
+  litert::internal::GpuEnvironmentSingleton::Create(env.release());
+  return kLiteRtStatusOk;
 }
 
 #ifdef __cplusplus

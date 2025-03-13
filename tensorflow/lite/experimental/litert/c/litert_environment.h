@@ -43,6 +43,10 @@ LiteRtStatus LiteRtEnvironmentCreate(int num_options,
                                      const LiteRtEnvOption* options,
                                      LiteRtEnvironment* environment);
 
+// Create a LiteRT GPU global environment with options.
+LiteRtStatus LiteRtGpuGlobalEnvironmentCreate(int num_options,
+                                              const LiteRtEnvOption* options);
+
 void LiteRtDestroyEnvironment(LiteRtEnvironment environment);
 
 #ifdef __cplusplus

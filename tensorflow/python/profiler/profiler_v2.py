@@ -65,6 +65,8 @@ class ProfilerOptions(
       zero, each host will start profiling immediately upon receiving the
       request. Default value is `None`, allowing the profiler guess the best
       value.
+    ignore_start_error: If true, the profiler will ignore errors when starting
+      profiling.
   """
 
   def __new__(cls,

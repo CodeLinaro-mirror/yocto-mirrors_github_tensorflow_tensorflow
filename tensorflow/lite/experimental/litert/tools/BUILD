@@ -194,6 +194,50 @@ cc_library(
     ],
 )
 
+cc_library(
+    name = "benchmark_litert_model",
+    srcs = ["benchmark_litert_model.cc"],
+    hdrs = ["benchmark_litert_model.h"],
+    deps = [
+        "//tensorflow/lite/c:c_api_types",
+        "//tensorflow/lite/c:common",
+        "//tensorflow/lite/experimental/litert/c:litert_common",
+        "//tensorflow/lite/experimental/litert/c:litert_logging",
+        "//tensorflow/lite/experimental/litert/cc:litert_compilation_options",
+        "//tensorflow/lite/experimental/litert/cc:litert_compiled_model",
+        "//tensorflow/lite/experimental/litert/cc:litert_environment",
+        "//tensorflow/lite/experimental/litert/cc:litert_model",
+        "//tensorflow/lite/experimental/litert/cc:litert_tensor_buffer",
+        "//tensorflow/lite/kernels:builtin_ops_gms",
+        "//tensorflow/lite/tools:logging",
+        "//tensorflow/lite/tools:utils",
+        "//tensorflow/lite/tools/benchmark:benchmark_model_lib",
+        "//tensorflow/lite/tools/benchmark:benchmark_params",
+        "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/types:span",
+    ],
+)
+
+cc_test(
+    name = "benchmark_litert_model_test",
+    srcs = ["benchmark_litert_model_test.cc"],
+    data = [
+        "//tensorflow/lite/experimental/litert/test:testdata/mobilenet_v2_1.0_224.tflite",
+    ],
+    tags = [
+        "requires-gpu-nvidia",
+    ],
+    deps =
+        [
+            ":benchmark_litert_model",
+            "//tensorflow/lite/core/c:c_api_types",
+            "//tensorflow/lite/tools/benchmark:benchmark_model_lib",
+            "//tensorflow/lite/tools/benchmark:benchmark_params",
+            "//third_party/odml/infra/ml_drift_delegate/litert:ml_drift_cl_accelerator",
+            "@com_google_googletest//:gtest_main",
+        ],
+)
+
 cc_binary(
     name = "run_model",
     srcs = ["run_model.cc"],
@@ -213,5 +257,22 @@ cc_binary(
         "//tensorflow/lite/experimental/litert/cc:litert_expected",
         "//tensorflow/lite/experimental/litert/cc:litert_macros",
         "//tensorflow/lite/experimental/litert/cc:litert_model",
+        "//tensorflow/lite/profiling:time",
+    ],
+)
+
+# We create a library for benchmark_main.cc to faciliate the creation of a
+# customized benchmark model binary that only needs linking with extra
+# dependency, e.g., enabling creating of benchmark binaries with a custom
+# delegate provider.
+cc_library(
+    name = "benchmark_model_main",
+    srcs = [
+        "benchmark_litert_model_main.cc",
+    ],
+    deps = [
+        ":benchmark_litert_model",
+        "//tensorflow/lite/c:c_api_types",
+        "//tensorflow/lite/tools:logging",
     ],
 )

@@ -116,24 +116,24 @@ TEST_F(ShapeTest, EqualityTest) {
             ShapeUtil::MakeShapeWithDenseLayout(F32, {23, 44}, {1, 0}));
 }
 
-TEST_F(ShapeTest, IsInteger) {
-  EXPECT_FALSE(opaque_.IsInteger());
-  EXPECT_FALSE(token_.IsInteger());
-  EXPECT_TRUE(matrix_.IsInteger());
-  EXPECT_FALSE(tuple_.IsInteger());
-  EXPECT_FALSE(nested_tuple_.IsInteger());
+TEST_F(ShapeTest, ContainsOnlyIntegers) {
+  EXPECT_FALSE(opaque_.ContainsOnlyIntegers());
+  EXPECT_FALSE(token_.ContainsOnlyIntegers());
+  EXPECT_TRUE(matrix_.ContainsOnlyIntegers());
+  EXPECT_FALSE(tuple_.ContainsOnlyIntegers());
+  EXPECT_FALSE(nested_tuple_.ContainsOnlyIntegers());
 
   Shape u32_shape = ShapeUtil::MakeShape(U32, {1});
-  EXPECT_TRUE(u32_shape.IsInteger());
+  EXPECT_TRUE(u32_shape.ContainsOnlyIntegers());
 
   Shape f32_shape = ShapeUtil::MakeShape(F32, {1});
-  EXPECT_FALSE(f32_shape.IsInteger());
+  EXPECT_FALSE(f32_shape.ContainsOnlyIntegers());
 
   Shape integer_tuple = ShapeUtil::MakeTupleShape({u32_shape, u32_shape});
-  EXPECT_TRUE(integer_tuple.IsInteger());
+  EXPECT_TRUE(integer_tuple.ContainsOnlyIntegers());
 
   Shape mixed_type_tuple = ShapeUtil::MakeTupleShape({u32_shape, f32_shape});
-  EXPECT_FALSE(mixed_type_tuple.IsInteger());
+  EXPECT_FALSE(mixed_type_tuple.ContainsOnlyIntegers());
 }
 
 TEST_F(ShapeTest, IsStatic) {

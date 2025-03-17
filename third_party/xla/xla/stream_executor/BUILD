@@ -1,5 +1,5 @@
 load("@bazel_skylib//:bzl_library.bzl", "bzl_library")
-load("//xla:xla.bzl", "xla_cc_test")
+load("//xla:xla.default.bzl", "xla_cc_test")
 load("//xla/stream_executor:build_defs.bzl", "stream_executor_build_defs_bzl_deps", "stream_executor_friends", "stream_executor_internal")
 load("//xla/tsl:tsl.bzl", "if_google", "if_oss", "internal_visibility")
 load("//xla/tsl/platform:build_config.bzl", "tf_proto_library")
@@ -198,7 +198,7 @@ cc_library(
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/types:span",
-    ] + if_google(["@com_google_protobuf//:wrappers_cc_proto"]),
+    ] + if_google(["//google/protobuf:wrappers_cc_proto"]),
 )
 
 cc_library(
@@ -362,7 +362,7 @@ cc_library(
         "@local_tsl//tsl/platform:ml_dtypes",
         "@local_tsl//tsl/platform:status",
         "@local_tsl//tsl/platform:statusor",
-    ] + if_google(["@com_google_protobuf//:wrappers_cc_proto"]),
+    ] + if_google(["//google/protobuf:wrappers_cc_proto"]),
 )
 
 cc_library(

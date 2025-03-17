@@ -5,7 +5,7 @@ load("@local_config_cuda//cuda:build_defs.bzl", "if_cuda")
 load("@local_config_rocm//rocm:build_defs.bzl", "if_rocm_is_configured")
 load("//xla:lit.bzl", "lit_test_suite")
 load(
-    "//xla:xla.bzl",
+    "//xla:xla.default.bzl",
     "xla_cc_binary",
     "xla_cc_test",
     "xla_internal",
@@ -974,7 +974,7 @@ tsl_gpu_library(
         "//xla/service/gpu:nvptx_compiler",
     ]) + if_rocm_is_configured([
         "//xla/service/gpu:amdgpu_compiler",
-    ]) + if_google(["@com_google_protobuf//:duration_cc_proto"]),
+    ]) + if_google(["//google/protobuf:duration_cc_proto"]),
 )
 
 xla_test(
@@ -1009,7 +1009,7 @@ xla_test(
         "@local_tsl//tsl/platform:status_matchers",
         "@local_tsl//tsl/platform:statusor",
         "@local_tsl//tsl/platform:test",
-    ] + if_google(["@com_google_protobuf//:duration_cc_proto"]),
+    ] + if_google(["//google/protobuf:duration_cc_proto"]),
 )
 
 xla_test(

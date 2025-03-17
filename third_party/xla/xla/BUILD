@@ -3,7 +3,7 @@ load("//third_party/compute_library:build_defs.bzl", "if_enable_acl")
 
 # copybara:uncomment load("@rules_python//python:proto.bzl", "py_proto_library")
 load("//xla:package_groups.bzl", "xla_package_groups")
-load("//xla:xla.bzl", "xla_bzl_library", "xla_cc_test", "xla_py_proto_library")
+load("//xla:xla.default.bzl", "xla_bzl_library", "xla_cc_test", "xla_py_proto_library")
 load("//xla/tsl:tsl.bzl", "if_google", "internal_visibility")
 load("//xla/tsl:tsl.default.bzl", "filegroup", "get_compatible_with_portable")
 load(
@@ -75,7 +75,7 @@ tf_proto_library(
     protodeps = [
         ":xla_data_proto",
         "//xla/service:hlo_proto",
-    ] + if_google(["@com_google_protobuf//:any"]),
+    ] + if_google(["//google/protobuf:any"]),
     visibility = ["//visibility:public"],
 )
 
@@ -1303,8 +1303,8 @@ tf_proto_library(
     protodeps = [
         "//xla/tsl/protobuf:dnn_proto",
     ] + if_google([
-        "@com_google_protobuf//:any",
-        "@com_google_protobuf//:duration",
+        "//google/protobuf:any",
+        "//google/protobuf:duration",
     ]),
 )
 

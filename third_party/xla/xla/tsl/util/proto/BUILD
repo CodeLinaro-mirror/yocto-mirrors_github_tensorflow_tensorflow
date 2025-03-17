@@ -17,5 +17,5 @@ cc_library(
     hdrs = ["proto_utils.h"],
     deps = [
         "@com_google_absl//absl/time",
-    ] + if_google(["@com_google_protobuf//:duration_cc_proto"]),
+    ] + if_google(["//google/protobuf:duration_cc_proto"]),
 )

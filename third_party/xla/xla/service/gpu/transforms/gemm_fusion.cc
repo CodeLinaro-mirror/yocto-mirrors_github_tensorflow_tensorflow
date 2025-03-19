@@ -684,7 +684,8 @@ absl::StatusOr<Decision> CreateDotFusion(
       return InvalidArgument("Only 2:4 structured sparsity is supported");
     }
     // DotDimensionSorter pass makes sure the sparse dimension is minor.
-    CHECK_EQ(descriptor.dimension(), dot.operand(0)->shape().rank() - 1);
+    CHECK_EQ(descriptor.dimension(),
+             dot.operand(0)->shape().dimensions_size() - 1);
   }
 
   TF_ASSIGN_OR_RETURN(HlosAndRequirements lhs_hlos_and_reqs,

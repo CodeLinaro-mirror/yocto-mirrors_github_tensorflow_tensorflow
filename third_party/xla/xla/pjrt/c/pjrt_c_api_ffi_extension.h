@@ -38,7 +38,7 @@ struct PJRT_FFI_TypeID_Register_Args {
 
   const char* type_name;
   size_t type_name_size;
-  int64_t type_id;  // out
+  int64_t type_id;  // in-out
 };
 PJRT_DEFINE_STRUCT_TRAITS(PJRT_FFI_TypeID_Register_Args, type_id);
 

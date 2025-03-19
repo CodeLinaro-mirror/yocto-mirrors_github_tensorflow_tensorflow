@@ -223,6 +223,7 @@ limitations under the License.
 #include "xla/service/gpu/transforms/reduction_layout_normalizer.h"
 #include "xla/service/gpu/transforms/reduction_splitter.h"
 #include "xla/service/gpu/transforms/rename_fusions.h"
+#include "xla/service/gpu/transforms/rename_instructions.h"
 #include "xla/service/gpu/transforms/sanitize_constant_names.h"
 #include "xla/service/gpu/transforms/scatter_expander.h"
 #include "xla/service/gpu/transforms/scatter_slice_simplifier.h"
@@ -1075,6 +1076,10 @@ absl::Status RunFusionPasses(HloModule* hlo_module,
                              HloCostAnalysis::ShapeSizeFunction shape_size_fn) {
   const se::DeviceDescription& gpu_device_info =
       gpu_target_config.device_description;
+
+  HloPassPipeline pre_fusion("pre-fusion");
+  pre_fusion.AddPass<RenameInstructions>();
+  TF_RETURN_IF_ERROR(pre_fusion.Run(hlo_module).status());
 
   TF_RETURN_IF_ERROR(FusionPipeline(hlo_module->config().debug_options(),
                                     shape_size_fn, thread_pool, gpu_device_info)

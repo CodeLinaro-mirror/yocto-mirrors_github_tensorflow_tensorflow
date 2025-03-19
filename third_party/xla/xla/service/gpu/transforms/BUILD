@@ -2462,6 +2462,30 @@ xla_cc_test(
 )
 
 cc_library(
+    name = "rename_instructions",
+    srcs = ["rename_instructions.cc"],
+    hdrs = ["rename_instructions.h"],
+    deps = [
+        "//xla/hlo/ir:hlo",
+        "//xla/hlo/pass:hlo_pass",
+        "@com_google_absl//absl/container:flat_hash_set",
+        "@com_google_absl//absl/status:statusor",
+        "@com_google_absl//absl/strings",
+    ],
+)
+
+xla_cc_test(
+    name = "rename_instructions_test",
+    srcs = ["rename_instructions_test.cc"],
+    deps = [
+        ":rename_instructions",
+        "//xla/hlo/testlib:hlo_hardware_independent_test_base",
+        "@com_google_absl//absl/strings:string_view",
+        "@com_google_googletest//:gtest_main",
+    ],
+)
+
+cc_library(
     name = "reduce_scatter_creator",
     srcs = ["reduce_scatter_creator.cc"],
     hdrs = ["reduce_scatter_creator.h"],

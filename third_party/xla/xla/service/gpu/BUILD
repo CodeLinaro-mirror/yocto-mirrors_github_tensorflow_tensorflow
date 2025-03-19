@@ -1547,6 +1547,7 @@ cc_library(
         "//xla/service/gpu/transforms:reduction_layout_normalizer",
         "//xla/service/gpu/transforms:reduction_splitter",
         "//xla/service/gpu/transforms:rename_fusions",
+        "//xla/service/gpu/transforms:rename_instructions",
         "//xla/service/gpu/transforms:sanitize_constant_names",
         "//xla/service/gpu/transforms:scatter_expander",
         "//xla/service/gpu/transforms:scatter_slice_simplifier",

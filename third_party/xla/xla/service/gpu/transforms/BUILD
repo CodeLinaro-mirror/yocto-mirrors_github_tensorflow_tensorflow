@@ -2332,6 +2332,7 @@ xla_cc_test(
     deps = [
         ":nest_gemm_fusion",
         "//xla/hlo/ir:hlo",
+        "//xla/hlo/testlib:filecheck",
         "//xla/hlo/testlib:pattern_matcher_gmock",
         "//xla/service:pattern_matcher",
         "//xla/service/gpu:backend_configs_cc",

@@ -10,6 +10,7 @@ lit_test_suite(
     name = "all_tests",
     srcs = enforce_glob(
         [
+            "add.mlir",
             "emit_mhlo.hlo",
             "emit_proto.mlir",
             "print_large_constants.mlir",
@@ -30,6 +31,7 @@ lit_test_suite(
     ],
     tools = [
         "//xla/hlo/tools:hlo-translate",
+        "//xla/mlir_hlo:mlir-hlo-opt",
         "@llvm-project//llvm:FileCheck",
         "@llvm-project//llvm:not",
     ],

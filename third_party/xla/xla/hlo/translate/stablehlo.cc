@@ -68,8 +68,8 @@ absl::Status StablehloToMhlo(mlir::ModuleOp module, bool run_canonicalizer) {
   mlir::MLIRContext* context = module->getContext();
   mlir::PassManager pm(context);
   pm.addPass(mlir::mhlo::createStablehloLegalizeToHloPass());
-  pm.addNestedPass<mlir::func::FuncOp>(
-      mlir::mhlo::createChloLegalizeToHloPass());
+  // Removing for now.(DO NOT SUBMIT)
+  // cl/740440430 is taking care of this.
   if (run_canonicalizer) {
     pm.addNestedPass<mlir::func::FuncOp>(mlir::createCanonicalizerPass());
   }

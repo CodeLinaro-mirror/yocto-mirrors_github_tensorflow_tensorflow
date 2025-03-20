@@ -14,6 +14,15 @@ limitations under the License.
 ==============================================================================*/
 
 include "xla/mlir_hlo/mhlo/IR/hlo_ops.td"
+include "third_party/stablehlo/stablehlo/dialect/StablehloOps.td"
+
+// List of StableHLO ops that are allowed to be directly converted to HLO
+// without intermediate MHLO step.
+defvar HloConversionAllowedOps = [
+  // go/keep-sorted start
+  StableHLO_AddOp,
+  // go/keep-sorted end
+];
 
 // List of StableHLO and MHLO ops that need a custom HLO converter.
 defvar CustomHloConverterOps = [

@@ -41,7 +41,6 @@ limitations under the License.
 #include "xla/service/gpu/transforms/gemm_broadcast_folding_rewriter.h"
 #include "xla/service/gpu/transforms/gemm_fusion.h"
 #include "xla/service/gpu/transforms/gemv_rewriter.h"
-#include "xla/service/gpu/transforms/pipelined_p2p_rewriter.h"
 #include "xla/service/gpu/transforms/reduce_scatter_creator.h"
 #include "xla/service/gpu/transforms/reduction_degenerate_dim_remover.h"
 #include "xla/service/gpu/transforms/reduction_dimension_grouper.h"

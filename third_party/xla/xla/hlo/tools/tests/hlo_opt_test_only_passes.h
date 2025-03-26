@@ -23,8 +23,10 @@ limitations under the License.
 #include "xla/hlo/ir/hlo_computation.h"
 #include "xla/hlo/ir/hlo_instruction.h"
 #include "xla/hlo/ir/hlo_module.h"
+#include "xla/hlo/ir/hlo_opcode.h"
 #include "xla/hlo/pass/hlo_pass_interface.h"
 #include "xla/hlo/transforms/simplifiers/algebraic_simplifier.h"
+#include "xla/tsl/platform/statusor.h"
 
 namespace xla::test_only {
 
@@ -90,6 +92,42 @@ class AlgebraicSimplifierWithOnednnEnabled : public AlgebraicSimplifier {
     options.set_executing_on_cpu(true);
     return options;
   }
+};
+
+// Test XLA Builder methods using lit tests.
+// Transforms custom calls that start with `xla_builder.some_method` into
+// expanded HLO by calling the client methods:
+// Example:
+//  custom-call @xla_builder.add(operand1, operand2)
+//  ==>
+//  add(operand1, operand2)
+class XlaBuilderTestPass : public HloModulePass {
+ public:
+  absl::string_view name() const override { return "test-only-xla-builder"; }
+
+  using HloPassInterface::Run;
+  absl::StatusOr<bool> Run(HloModule* module,
+                           const absl::flat_hash_set<absl::string_view>&
+                               execution_threads) override {
+    bool changed = false;
+    for (HloComputation* computation : module->computations()) {
+      for (HloInstruction* instruction : computation->instructions()) {
+        if (instruction->opcode() == HloOpcode::kCustomCall &&
+            instruction->custom_call_target().starts_with("xla_builder.")) {
+          TF_ASSIGN_OR_RETURN(
+              bool call_changed,
+              ReplaceWithExpandedClientHlo(instruction,
+                                           instruction->custom_call_target()));
+          changed |= call_changed;
+        }
+      }
+    }
+    return changed;
+  }
+
+ private:
+  absl::StatusOr<bool> ReplaceWithExpandedClientHlo(
+      HloInstruction* instruction, absl::string_view custom_call_target);
 };
 
 }  // namespace xla::test_only

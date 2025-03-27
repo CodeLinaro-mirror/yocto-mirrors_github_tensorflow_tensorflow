@@ -28,6 +28,7 @@ limitations under the License.
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/Support/LogicalResult.h"
+#include "llvm/Support/raw_ostream.h"
 #include "mlir/Conversion/LLVMCommon/TypeConverter.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
@@ -987,6 +988,7 @@ class RewriteAtomicRMW : public OpRewritePattern<AtomicRMWOp> {
     // propagating -NaNs. To handle this, we check if the update value is -NaN
     // and convert it to a positive one by dropping the sign-bit.
     Value current = b.create<ml::LoadOp>(loc, element_type, addr);
+
     Value current_is_nan =
         b.create<ml::FCmpOp>(loc, ml::FCmpPredicate::uno, current, current);
     auto is_current_nan =
@@ -1093,7 +1095,16 @@ class RewriteAtomicRMW : public OpRewritePattern<AtomicRMWOp> {
 
     // Calculate load address for the input.
     mlir::ImplicitLocOpBuilder b(op.getLoc(), rewriter);
-    Value addr = CreateGep(input, op.getIndices(), b);
+    Value linear_index = GetLinearIndex(op.getIndices(), b);
+    Value is_low_nibble;
+
+    bool swap_nibbles =
+        result_ty.isIntOrFloat() && result_ty.getIntOrFloatBitWidth() == 4;
+    if (swap_nibbles) {
+      std::tie(linear_index, is_low_nibble) =
+          GetI4IndexAndNibble(linear_index, b);
+    }
+    Value addr = CreateGep(input, linear_index, b);
     Value shift, mask;
     if (small_type) {
       // Update input pointer by discarding the last two bits - i.e. align to
@@ -1115,6 +1126,14 @@ class RewriteAtomicRMW : public OpRewritePattern<AtomicRMWOp> {
       shift = rewriter.create<ml::MulOp>(
           loc, offset,
           rewriter.create<ml::ConstantOp>(loc, offset.getType(), 8));
+      // For int4 we need to also swap the two halfbytes.
+      if (swap_nibbles) {
+        auto c0 = rewriter.create<ml::ConstantOp>(loc, shift.getType(), 0);
+        auto c4 = rewriter.create<ml::ConstantOp>(loc, shift.getType(), 4);
+        auto subshift =
+            rewriter.create<ml::SelectOp>(loc, is_low_nibble, c0, c4);
+        shift = rewriter.create<ml::AddOp>(loc, shift, subshift);
+      }
 
       // Compose the update mask.
       Value bits_long = rewriter.create<ml::ConstantOp>(loc, atomic_ty, -1);

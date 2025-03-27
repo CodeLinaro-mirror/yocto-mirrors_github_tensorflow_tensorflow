@@ -153,6 +153,10 @@ TEST_F(ArrayTest, FullyReplicatedShard) {
 }
 #endif
 
+TEST(Dummy, EnsureAtLeastOneTestCase) {
+  // Makes sure the test program contains at least one test case.
+}
+
 }  // namespace
 }  // namespace proxy
 }  // namespace ifrt

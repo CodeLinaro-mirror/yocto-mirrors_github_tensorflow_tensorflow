@@ -42,8 +42,9 @@ namespace {
 void legalDirectStablehloToHloConversionOps(ConversionTarget& target) {
   target.addLegalOp<
       // go/keep-sorted start
-      stablehlo::AddOp, stablehlo::ConstantOp, stablehlo::DynamicSliceOp,
-      stablehlo::SliceOp
+      stablehlo::AddOp, stablehlo::BroadcastInDimOp, stablehlo::BroadcastOp,
+      stablehlo::ConstantOp, stablehlo::DynamicBroadcastInDimOp,
+      stablehlo::DynamicSliceOp, stablehlo::SliceOp
       // go/keep-sorted end
       >();
 }

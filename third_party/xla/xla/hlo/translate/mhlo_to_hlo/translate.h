@@ -35,7 +35,8 @@ mlir::LogicalResult MlirHloToHloTranslateFunction(mlir::ModuleOp module,
 mlir::LogicalResult MlirHloToHloTextTranslateFunction(
     mlir::ModuleOp module, llvm::raw_ostream& output, bool emit_return_tuple,
     bool emit_use_tuple_arg, bool print_layouts, bool print_large_constants,
-    bool print_sugar, bool via_builder, bool with_layouts);
+    bool print_sugar, bool via_builder, bool with_layouts,
+    bool direct_stablehlo_to_hlo = false);
 
 // Translate the MHLO program in in-memory file 'buffer' to a HLO program
 // written in a file represented with handle 'output_stream';

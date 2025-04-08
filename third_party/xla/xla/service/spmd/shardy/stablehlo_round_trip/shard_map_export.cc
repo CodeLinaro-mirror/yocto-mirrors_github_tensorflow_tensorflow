@@ -16,9 +16,7 @@ limitations under the License.
 #include "xla/service/spmd/shardy/stablehlo_round_trip/shard_map_export.h"
 
 #include <cassert>
-#include <cstdint>
 #include <memory>
-#include <numeric>
 #include <tuple>
 #include <utility>
 
@@ -27,20 +25,22 @@ limitations under the License.
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringRef.h"
+#include "llvm/Support/Casting.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "mlir/IR/AffineMap.h"
 #include "mlir/IR/Attributes.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinOps.h"
+#include "mlir/IR/BuiltinTypeInterfaces.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/Diagnostics.h"
 #include "mlir/IR/DialectRegistry.h"
 #include "mlir/IR/MLIRContext.h"
+#include "mlir/IR/OpDefinition.h"
 #include "mlir/IR/Operation.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/IR/SymbolTable.h"
-#include "mlir/IR/Types.h"
 #include "mlir/IR/Value.h"
 #include "mlir/IR/Visitors.h"
 #include "mlir/Pass/Pass.h"
@@ -145,8 +145,13 @@ void setFullyClosedShardingsIfMissing(Operation* op, StringRef meshName) {
   }
 
   if (!op->hasAttrOfType<TensorShardingPerValueAttr>(kShardingAttr)) {
-    sdy::setShardings(op, sdy::getFullyClosedShardings(
-                              context, op->getResultTypes(), meshName));
+    SmallVector<TensorShardingAttr> shardings =
+        sdy::getFullyClosedShardings(context, op->getResultTypes(), meshName);
+    if (shardings.empty() && !op->hasTrait<mlir::OpTrait::IsTerminator>()) {
+      shardings = {TensorShardingAttr::getFullyReplicated(
+          context, /*rank=*/0, meshName, /*isClosed=*/true)};
+    }
+    sdy::setShardings(op, shardings);
   }
 }
 
@@ -189,11 +194,12 @@ void setManualAxesForOpsInBody(
              mlir::sdy::getShardings(opInBody)) {
           if (opInBodySharding.getMeshName() != meshName) {
             hasOtherMesh = true;
-            CHECK(opInBodySharding.getMesh(opInBody).empty());
+            MeshAttr otherMesh = opInBodySharding.getMesh(opInBody);
+            CHECK(otherMesh.getAxes().empty() || otherMesh.isMaximal());
           }
         }
         if (hasOtherMesh) {
-          // must be fully manual
+          // must be fully manual if not maximal
           CHECK(manualAxes.region.size() ==
                 sharding.getMesh(symbolTable).getAxes().size());
           opInBody->removeAttr(kShardingAttr);
@@ -258,6 +264,10 @@ void convertManualComputationOp(
   for (auto [globalOperand, localArgumentType, inSharding] :
        llvm::zip_equal(op.getOperands(), op.getBody().getArgumentTypes(),
                        op.getInShardings().getShardings())) {
+    if (!isa<mlir::ShapedType>(localArgumentType)) {
+      fullToShardResults.push_back(globalOperand);
+      continue;
+    }
     auto copy = rewriter.create<CopyOp>(loc, globalOperand);
     sdy::setShardings(copy, inSharding);
     setNonEmptyManualAxes(copy, parentManualAxesAttr);
@@ -280,6 +290,10 @@ void convertManualComputationOp(
   for (auto [terminatorOperand, opResult, outSharding] :
        llvm::zip_equal(terminator->getOpOperands(), op.getResults(),
                        op.getOutShardings().getShardings())) {
+    if (!isa<mlir::ShapedType>(opResult.getType())) {
+      opResult.replaceAllUsesWith(terminatorOperand.get());
+      continue;
+    }
     auto copy = rewriter.create<CopyOp>(loc, terminatorOperand.get());
     sdy::setShardings(copy, eraseManualAxes(outSharding, manualAxes.region));
     setNonEmptyManualAxes(copy, regionManualAxesAttr);

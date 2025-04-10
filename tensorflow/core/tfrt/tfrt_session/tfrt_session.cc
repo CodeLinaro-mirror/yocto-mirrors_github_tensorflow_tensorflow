@@ -51,6 +51,7 @@ limitations under the License.
 #include "tensorflow/core/graph/graph.h"
 #include "tensorflow/core/platform/env.h"
 #include "tensorflow/core/platform/errors.h"
+#include "tensorflow/core/platform/stacktrace.h"
 #include "tensorflow/core/platform/status.h"
 #include "tensorflow/core/platform/threadpool.h"
 #include "tensorflow/core/platform/threadpool_interface.h"
@@ -503,7 +504,7 @@ class TfrtSession : public tensorflow::Session {
     compile_options.device_target = device_target_;
     compile_options.tpu_fuse_ops = tpu_use_tpu_runner_;
     compile_options.hoist_invariant_ops = true;
-    compile_options.sink_in_invariant_ops = false;
+    compile_options.sink_in_invariant_ops = true;
     compile_options.cost_threshold = 1024;
 
     if (use_gpu_) {
@@ -779,18 +780,22 @@ void TfrtSessionFactory::RegisterInitializer(RuntimeInitializer initializer) {
 absl::Status TfrtSessionFactory::InitializeLocked(
     const TfrtSessionOptions& options) {
   mutex_.AssertHeld();
-  if (options.use_tpu) {
-    DCHECK(!options.backend_compiler);
-    DCHECK(!options.use_gpu);
-    device_target_ = TfrtDeviceInfraTarget::kTpurt;
-    tpu_use_tpu_runner_ = true;
-  } else if (options.use_gpu) {
-    DCHECK(!options.backend_compiler);
-    device_target_ = TfrtDeviceInfraTarget::kGpu;
-    use_gpu_ = true;
-  } else if (options.backend_compiler) {
+  if (options.backend_compiler) {
     backend_compiler_ = options.backend_compiler;
   }
+  if (options.use_tpu) {
+    DCHECK(!options.use_gpu);
+    device_target_ = TfrtDeviceInfraTarget::kTpurt;
+    if (!options.backend_compiler) {
+      tpu_use_tpu_runner_ = true;
+    }
+  } else if (options.use_gpu) {
+    device_target_ = TfrtDeviceInfraTarget::kGpu;
+    if (!options.backend_compiler) {
+      use_gpu_ = true;
+    }
+  }
+
   LOG(INFO) << "Start initializing TfrtSession";
   if (options.runtime != nullptr) {
     runtime_ = options.runtime;

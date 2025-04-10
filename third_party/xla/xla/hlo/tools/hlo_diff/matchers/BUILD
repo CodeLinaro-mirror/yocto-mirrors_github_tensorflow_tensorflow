@@ -81,6 +81,7 @@ cc_library(
     srcs = ["hlo_gumgraph_matcher.cc"],
     hdrs = ["hlo_gumgraph_matcher.h"],
     deps = [
+        "//third_party/cppitertools",
         "//xla/hlo/ir:hlo",
         "//xla/hlo/tools/hlo_diff:hlo_gumgraph_mappings",
         "//xla/hlo/tools/hlo_diff/graph:hlo_gumgraph",

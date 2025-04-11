@@ -33,6 +33,7 @@ limitations under the License.
 #include "xla/service/gpu/transforms/collectives/collective_ops_utils.h"
 #include "xla/status_macros.h"
 #include "xla/stream_executor/stream.h"
+#include "xla/tsl/concurrency/async_value_ref.h"
 #include "xla/tsl/platform/errors.h"
 #include "xla/tsl/platform/logging.h"
 #include "xla/tsl/platform/statusor.h"
@@ -52,9 +53,14 @@ absl::Status RunAllReduce(GpuCollectives* collectives,
 
   TF_RETURN_IF_ERROR(collectives->GroupStart());
   for (DeviceBufferPair& buffer : buffers) {
-    TF_RETURN_IF_ERROR(comm->AllReduce(
+    auto event = comm->AllReduce(
         buffer.source_buffer, buffer.destination_buffer, buffer.element_type,
-        buffer.element_count, reduction_kind, GpuCollectives::On(stream)));
+        buffer.element_count, reduction_kind, GpuCollectives::On(stream));
+
+    tsl::BlockUntilReady(event);
+    if (event.IsError()) {
+      return event.GetError();
+    }
   }
 
   return collectives->GroupEnd();
@@ -192,10 +198,15 @@ absl::Status RunReduceScatter(GpuCollectives* collectives,
         << "Source buffer was not an exact multiple of the number of "
            "participants.";
 
-    TF_RETURN_IF_ERROR(comm->ReduceScatter(
+    auto event = comm->ReduceScatter(
         buffer.source_buffer, buffer.destination_buffer, buffer.element_type,
         buffer.element_count / num_ranks, reduction_kind,
-        GpuCollectives::On(stream)));
+        GpuCollectives::On(stream));
+
+    tsl::BlockUntilReady(event);
+    if (event.IsError()) {
+      return event.GetError();
+    }
   }
 
   return collectives->GroupEnd();

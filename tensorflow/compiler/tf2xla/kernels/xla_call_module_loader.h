@@ -90,10 +90,6 @@ class XlaCallModuleLoader {
   // much easier to detect here.
   absl::Status ValidateStaticShapes();
 
-  // Runs some passes on the StableHLO module to prepare it for lowering to
-  // HLO and TF call lowering.
-  absl::Status PrepareStablehloForLowering();
-
   // Lowers the StableHLO module to XlaComputation and returns it.
   absl::StatusOr<xla::XlaComputation> ToXlaComputation();
 

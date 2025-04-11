@@ -484,34 +484,6 @@ absl::Status XlaCallModuleLoader::ValidateStaticShapes() {
   return xla::ValidateStaticShapes(*module_);
 }
 
-absl::Status XlaCallModuleLoader::PrepareStablehloForLowering() {
-  mlir::StatusScopedDiagnosticHandler diag_handler(module_->getContext());
-
-  // TODO (b/393390051): Migrate required passes to StableHLO.
-  mlir::PassManager pm(module_->getContext());
-  applyTensorflowAndCLOptions(pm);
-  pm.addPass(mlir::mhlo::createStablehloLegalizeToHloPass());
-  pm.addNestedPass<mlir::func::FuncOp>(
-      mlir::mhlo::createChloLegalizeToHloPass());
-  pm.addNestedPass<mlir::func::FuncOp>(mlir::createCanonicalizerPass());
-  // In order to export to XLA, we must sink constants to control flow
-  // regions, since XLA uses functional control flow.
-  pm.addNestedPass<mlir::func::FuncOp>(
-      mlir::mhlo::createSinkConstantsToControlFlowPass());
-  pm.addPass(mlir::mhlo::createHloLegalizeToStablehloPass());
-  if (failed(pm.run(*module_))) {
-    return absl::InternalError(
-        absl::StrCat("MHLO->HLO lowering passes failed: ",
-                     diag_handler.ConsumeStatus().ToString()));
-  }
-
-  if (VLOG_IS_ON(5)) {
-    DumpMlirOpToFile("xla_call_module.after_mhlo_lowering", *module_);
-  }
-
-  return absl::OkStatus();
-}
-
 absl::StatusOr<xla::XlaComputation> XlaCallModuleLoader::ToXlaComputation() {
   xla::HloProto proto;
   TF_RETURN_IF_ERROR(xla::ConvertStablehloToHloProto(*module_, &proto));

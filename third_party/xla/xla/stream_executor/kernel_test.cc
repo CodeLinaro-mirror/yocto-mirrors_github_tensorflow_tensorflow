@@ -19,8 +19,12 @@ limitations under the License.
 #include <memory>
 #include <tuple>
 #include <type_traits>
+#include <variant>
 #include <vector>
 
+#include "absl/container/inlined_vector.h"
+#include "absl/types/span.h"
+#include "benchmark/benchmark.h"
 #include "xla/stream_executor/device_memory.h"
 #include "xla/stream_executor/kernel_spec.h"
 #include "xla/stream_executor/platform.h"
@@ -74,8 +78,14 @@ static StreamExecutor* NewStreamExecutor() {
 TEST(KernelTest, PackDeviceMemoryArguments) {
   DeviceMemoryBase a(reinterpret_cast<void*>(0x12345678));
   DeviceMemoryBase b(reinterpret_cast<void*>(0x87654321));
+  absl::InlinedVector<std::variant<DeviceMemoryBase, TensorMap>, 2>
+      kernel_args = {a, b};
 
-  auto args = PackKernelArgs({a, b}, 0).value();
+  auto args =
+      PackKernelArgs(absl::Span<std::variant<DeviceMemoryBase, TensorMap>>(
+                         kernel_args.data(), kernel_args.size()),
+                     0)
+          .value();
   ASSERT_EQ(args->number_of_arguments(), 2);
 
   auto packed = args->argument_addresses();
@@ -131,13 +141,16 @@ TEST(KernelTest, FailToCreateTypedKernelFromEmptySpec) {
 //===----------------------------------------------------------------------===//
 
 static void BM_PackDeviceMemoryArgs(benchmark::State& state) {
-  std::vector<DeviceMemoryBase> args(state.range(0));
+  std::vector<std::variant<DeviceMemoryBase, TensorMap>> args(state.range(0));
   for (int i = 0; i < state.range(0); ++i) {
     args[i] = DeviceMemoryBase(reinterpret_cast<void*>(0x12345678), 42);
   }
 
   for (auto s : state) {
-    auto packed = PackKernelArgs(args, 0);
+    auto packed =
+        PackKernelArgs(absl::Span<std::variant<DeviceMemoryBase, TensorMap>>(
+                           args.data(), args.size()),
+                       0);
     benchmark::DoNotOptimize(packed);
   }
 }

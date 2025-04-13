@@ -20,6 +20,7 @@ limitations under the License.
 #include <optional>
 #include <string>
 #include <utility>
+#include <variant>
 #include <vector>
 
 #include "absl/container/inlined_vector.h"
@@ -141,38 +142,39 @@ absl::Status KernelThunk::ExecuteOnStream(const ExecuteParams& params) {
   }
 
   VLOG(3) << "Launching " << kernel->name();
-  absl::InlinedVector<se::DeviceMemoryBase, 4> buffer_args;
+  absl::InlinedVector<std::variant<se::DeviceMemoryBase, se::TensorMap>, 4>
+      kernel_args;
   stream_executor::gpu::TmaMetadata tma_metadata =
       tma_metadata_.value_or(stream_executor::gpu::TmaMetadata{});
   for (const auto& [idx, arg] : llvm::enumerate(args_)) {
     se::DeviceMemoryBase buf = params.buffer_allocations->GetDeviceAddress(arg);
     VLOG(3) << "  Arg: alloc #" << arg.index() << ", offset: " << arg.offset()
             << ": " << buf.opaque() << " (" << buf.size() << "B)";
+
     auto it = tma_metadata.arg_index_to_tma_info.find(idx);
     if (it != tma_metadata.arg_index_to_tma_info.end()) {
+      // TMA descriptor argument.
       stream_executor::gpu::TmaDescriptor tma_desc = it->second;
-      TF_ASSIGN_OR_RETURN(se::DeviceMemoryBase tensor_map,
+      TF_ASSIGN_OR_RETURN(se::TensorMap tensor_map,
                           executor->CreateTensorMap(tma_desc, buf.opaque()));
       VLOG(3) << "  Using TensorMap for arg #" << arg.index() << ": "
-              << tma_desc.ToString() << "; buffer: " << tensor_map.opaque()
-              << " (" << tensor_map.size() << "B)";
-      buffer_args.push_back(tensor_map);
+              << tma_desc.ToString();
+      kernel_args.push_back(std::move(tensor_map));
     } else {
-      buffer_args.push_back(buf);
+      // Buffer argument.
+      kernel_args.push_back(buf);
     }
   }
 
-  if (VLOG_IS_ON(100)) {
-    PrintBufferContents(stream, buffer_args);
-  }
+  // if (VLOG_IS_ON(100)) {
+  //   PrintBufferContents(stream, buffer_args);
+  // }
 
-  if (cluster_dim.has_value()) {
-    return ExecuteKernelOnStream(*kernel, buffer_args, launch_dimensions,
-                                 cluster_dim.value(), stream);
-  } else {
-    return ExecuteKernelOnStream(*kernel, buffer_args, launch_dimensions,
-                                 stream);
-  }
+  return ExecuteKernelOnStream(
+      *kernel,
+      absl::Span<std::variant<se::DeviceMemoryBase, se::TensorMap>>(
+          kernel_args.data(), kernel_args.size()),
+      launch_dimensions, cluster_dim, stream);
 }
 
 //===----------------------------------------------------------------------===//

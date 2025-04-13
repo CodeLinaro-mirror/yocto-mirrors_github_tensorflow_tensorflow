@@ -18,10 +18,14 @@ limitations under the License.
 #include <cstddef>
 #include <memory>
 #include <string>
+#include <variant>
 
+#include "absl/container/inlined_vector.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
+#include "absl/types/span.h"
 #include "xla/service/gpu/kernels/custom_kernel.h"
+#include "xla/stream_executor/device_memory.h"
 #include "xla/stream_executor/kernel.h"
 #include "xla/stream_executor/kernel_spec.h"
 #include "xla/stream_executor/launch_dim.h"
@@ -34,8 +38,17 @@ absl::StatusOr<std::unique_ptr<se::KernelArgsPackedArrayBase>>
 KernelArgsPacking(const se::Kernel &kernel, const se::KernelArgs &args) {
   auto *mem_args = se::Cast<se::KernelArgsDeviceMemoryArray>(&args);
 
-  return se::PackKernelArgs(mem_args->device_memory_args(),
-                            mem_args->number_of_shared_bytes());
+  absl::InlinedVector<std::variant<se::DeviceMemoryBase, se::TensorMap>, 4>
+      kernel_args;
+  kernel_args.reserve(mem_args->device_memory_args().size());
+  for (const auto &arg : mem_args->device_memory_args()) {
+    kernel_args.push_back(arg);
+  }
+
+  return se::PackKernelArgs(
+      absl::Span<std::variant<se::DeviceMemoryBase, se::TensorMap>>(
+          kernel_args.data(), kernel_args.size()),
+      mem_args->number_of_shared_bytes());
 }
 
 // Note: Make sure that the kernel_name matches the kernel name in the ptx,

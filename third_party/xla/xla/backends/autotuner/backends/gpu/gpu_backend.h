@@ -29,6 +29,7 @@ limitations under the License.
 #include "xla/service/compiler.h"
 #include "xla/service/executable.h"
 #include "xla/tsl/platform/statusor.h"
+#include "xla/xla.pb.h"
 
 namespace xla {
 
@@ -37,8 +38,12 @@ class GpuBackend : public Backend {
  public:
   // target_config and compiler should outlive the backend.
   GpuBackend(absl::string_view name,
-             const Compiler::TargetConfig& target_config, Compiler* compiler)
-      : name_(name), target_config_(target_config), compiler_(compiler) {}
+             const Compiler::TargetConfig& target_config,
+             const DebugOptions& debug_options, Compiler* compiler)
+      : target_config_(target_config),
+        debug_options_(debug_options),
+        name_(name),
+        compiler_(compiler) {}
 
   absl::string_view name() const override { return name_; }
 
@@ -46,6 +51,7 @@ class GpuBackend : public Backend {
       const HloInstruction& hlo_instruction,
       const BackendConfig& config) override {
     TF_ASSIGN_OR_RETURN(auto hlo_module, WrapInModule(hlo_instruction, config));
+    hlo_module->mutable_config().set_debug_options(debug_options_);
 
     Compiler::CompileOptions options;
     options.target_config = target_config_;
@@ -55,6 +61,10 @@ class GpuBackend : public Backend {
     return compiler_->RunBackend(std::move(optimized_module),
                                  /*executor=*/nullptr, options);
   }
+
+ protected:
+  const Compiler::TargetConfig& target_config_;
+  const DebugOptions& debug_options_;
 
  private:
   // TODO(b/407494653): Provide a default implementation.
@@ -69,7 +79,6 @@ class GpuBackend : public Backend {
       const Compiler::CompileOptions& options) = 0;
 
   std::string name_;
-  const Compiler::TargetConfig& target_config_;
   // TODO(b/407494653): remove compiler when we don't need to run any HLO passes
   // and the codegen backend can directly produce an executable without a
   // compiler instance.

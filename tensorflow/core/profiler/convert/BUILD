@@ -431,6 +431,7 @@ cc_library(
         "@local_xla//xla/tsl/profiler/utils:tf_xplane_visitor",
         "@local_xla//xla/tsl/profiler/utils:timespan",
         "@local_xla//xla/tsl/profiler/utils:tpu_xplane_utils",
+        "@local_xla//xla/tsl/profiler/utils:xplane_schema",
         "@local_xla//xla/tsl/profiler/utils:xplane_utils",
         "@org_xprof//xprof/utils:device_caps_utils",
         "@org_xprof//xprof/utils:event_span",

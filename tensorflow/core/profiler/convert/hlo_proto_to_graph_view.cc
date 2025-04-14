@@ -528,7 +528,7 @@ std::string WrapDotInHtml(std::string dot) {
       });
       add_controls(svg);
     };
-    hpccWasm.graphviz.layout(dot_data, "svg", "dot").then(render_callback);
+    hpccWasm.graphviz.layout(dot_data, "svg", "neato").then(render_callback);
   </script>
 </body>
 </html>

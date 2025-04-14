@@ -22,14 +22,15 @@ limitations under the License.
 #include "absl/types/span.h"
 #include "xla/hlo/builder/xla_builder.h"
 #include "xla/primitive_util.h"
-#include "xla/tests/client_library_test_base.h"
+#include "xla/tests/client_library_test_runner_mixin.h"
+#include "xla/tests/hlo_test_base.h"
 #include "xla/tests/test_macros.h"
 #include "xla/xla_data.pb.h"
 
 namespace xla {
 namespace {
 
-class ArithmeticTest : public ClientLibraryTestBase {
+class ArithmeticTest : public ClientLibraryTestRunnerMixin<HloTestBase> {
  public:
   template <typename NativeT>
   void TestArgMin(std::initializer_list<std::initializer_list<NativeT>> input,

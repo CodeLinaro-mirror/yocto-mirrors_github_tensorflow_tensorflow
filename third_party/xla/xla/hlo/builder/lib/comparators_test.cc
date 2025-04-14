@@ -29,7 +29,8 @@ limitations under the License.
 #include "xla/hlo/testlib/test.h"
 #include "xla/primitive_util.h"
 #include "xla/service/hlo.pb.h"
-#include "xla/tests/client_library_test_base.h"
+#include "xla/tests/client_library_test_runner_mixin.h"
+#include "xla/tests/hlo_test_base.h"
 #include "xla/tests/test_macros.h"
 #include "xla/xla_data.pb.h"
 #include "tsl/platform/protobuf.h"
@@ -37,7 +38,7 @@ limitations under the License.
 namespace xla {
 namespace {
 
-class ComparatorsTest : public ClientLibraryTestBase {
+class ComparatorsTest : public ClientLibraryTestRunnerMixin<HloTestBase> {
  public:
   ComparatorsTest() : builder_(TestName()) {}
   XlaBuilder* builder() { return &builder_; }

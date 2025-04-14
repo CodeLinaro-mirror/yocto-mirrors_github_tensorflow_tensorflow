@@ -25,14 +25,15 @@ limitations under the License.
 #include "xla/hlo/testlib/test.h"
 #include "xla/primitive_util.h"
 #include "xla/shape.h"
-#include "xla/tests/client_library_test_base.h"
+#include "xla/tests/client_library_test_runner_mixin.h"
+#include "xla/tests/hlo_test_base.h"
 #include "xla/tests/test_macros.h"
 #include "xla/xla_data.pb.h"
 
 namespace xla {
 namespace {
 
-class PrngTest : public ClientLibraryTestBase {
+class PrngTest : public ClientLibraryTestRunnerMixin<HloTestBase> {
  public:
   template <PrimitiveType value_type, PrimitiveType bit_type,
             typename ValueT = typename primitive_util::PrimitiveTypeToNative<

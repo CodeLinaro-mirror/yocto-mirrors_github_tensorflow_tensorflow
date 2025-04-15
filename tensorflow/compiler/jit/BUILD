@@ -181,6 +181,7 @@ cc_library(
     ] + if_libtpu(
         if_false = [
             "@local_xla//xla/service:gpu_plugin",  # buildcleaner: keep
+            "@local_xla//xla/backends/gpu/runtime:thunk_runtime_dependencies",  # buildcleaner: keep
         ],
         if_true = [],
     ),

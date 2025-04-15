@@ -207,7 +207,9 @@ class AsynchronousCopyResource {
 
   // Returns true if a set of copy specifications can be satisfied in the
   // order specified.
-  bool HasEnoughResourceMultiCheck(const std::vector<ResourceSpec>& specs);
+  bool HasEnoughResourceMultiCheck(
+      const std::vector<ResourceSpec>& specs,
+      std::vector<std::pair<int64_t, int64_t>>* delay_changes);
 
   int64_t GetScaledIntegerResource(float resource) const {
     float scaled_value = resource * kCopyResourceIntScale;
@@ -1146,6 +1148,10 @@ class MsaAlgorithm : public GlobalDecreasingSizeBestFitHeap<HloValue> {
   std::string buffer_info_str_;
   std::string allocation_info_str_;
   std::string instruction_schedule_str_;
+
+  // A vector of pairs of (time, delay) of delay changes, used as scratch in
+  // AsynchronousCopyResource::HasEnoughResourceMultiCheck().
+  std::vector<std::pair<int64_t, int64_t>> delay_changes_scratch_;
 };
 
 }  // namespace memory_space_assignment

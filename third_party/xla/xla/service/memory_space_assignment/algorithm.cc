@@ -3564,19 +3564,20 @@ bool AsynchronousCopyResource::HasEnoughResource(int64_t exclusive_start_time,
 }
 
 bool AsynchronousCopyResource::HasEnoughResourceMultiCheck(
-    const std::vector<ResourceSpec>& specs) {
-  std::vector<std::pair<int64_t, int64_t>> delay_changes;
-  delay_changes.reserve(delay_.size());
+    const std::vector<ResourceSpec>& specs,
+    std::vector<std::pair<int64_t, int64_t>>* delay_changes_scratch) {
+  delay_changes_scratch->resize(0);
+  delay_changes_scratch->reserve(delay_.size());
   bool result = absl::c_all_of(specs, [&](const ResourceSpec& spec) {
     return ConsumeResource(spec.exclusive_start_time, spec.end_time,
                            GetScaledIntegerResource(spec.resource),
-                           &delay_changes);
+                           delay_changes_scratch);
   });
   // Apply the delay changes in reverse order. This ensures that the original
   // value of each delay is restored.
-  if (!delay_changes.empty()) {
-    for (int64_t i = delay_changes.size() - 1; i >= 0; --i) {
-      const auto& [time, delay] = delay_changes[i];
+  if (!delay_changes_scratch->empty()) {
+    for (int64_t i = delay_changes_scratch->size() - 1; i >= 0; --i) {
+      const auto& [time, delay] = delay_changes_scratch->at(i);
       delay_[time] = delay;
     }
   }
@@ -6009,7 +6010,8 @@ std::vector<float> GetCopyResourcesSortedDescending(
 bool DoWeHaveEnoughCopyResource(
     const std::vector<int64_t>& slice_start_times, int64_t prefetch_end_time,
     const std::vector<float>& copy_resource_per_slice,
-    AsynchronousCopyResource& async_copy_resource) {
+    AsynchronousCopyResource& async_copy_resource,
+    std::vector<std::pair<int64_t, int64_t>>* delay_changes_scratch) {
   CHECK_EQ(slice_start_times.size(), copy_resource_per_slice.size());
 
   std::vector<AsynchronousCopyResource::ResourceSpec> specs;
@@ -6051,7 +6053,8 @@ bool DoWeHaveEnoughCopyResource(
   };
 
   VLOG(5) << "Checking for enough copy resources for: " << specs_to_string();
-  if (!async_copy_resource.HasEnoughResourceMultiCheck(specs)) {
+  if (!async_copy_resource.HasEnoughResourceMultiCheck(specs,
+                                                       delay_changes_scratch)) {
     VLOG(4) << "Not enough copy resources for " << specs_to_string();
     return false;
   }
@@ -6163,10 +6166,10 @@ AllocationResult MsaAlgorithm::CheckPrefetchFit(bool for_sliced_solution,
   CHECK_EQ(sliced_buffer_interval->num_slices(),
            copy_resource_per_slice_sorted_by_start_time.size());
 
-  if (!DoWeHaveEnoughCopyResource(exclusive_slice_start_times,
-                                  context.prefetch_end_time,
-                                  copy_resource_per_slice_sorted_by_start_time,
-                                  prefetch_async_copy_resource_)) {
+  if (!DoWeHaveEnoughCopyResource(
+          exclusive_slice_start_times, context.prefetch_end_time,
+          copy_resource_per_slice_sorted_by_start_time,
+          prefetch_async_copy_resource_, &delay_changes_scratch_)) {
     return AllocationResult::kFailViolatesAsyncCopyResource;
   }
 
@@ -6230,7 +6233,7 @@ AllocationResult MsaAlgorithm::CheckPrefetchFit(bool for_sliced_solution,
     if (!DoWeHaveEnoughCopyResource(
             exclusive_slice_start_times, context.prefetch_end_time,
             copy_resource_per_slice_sorted_by_start_time,
-            prefetch_async_copy_resource_)) {
+            prefetch_async_copy_resource_, &delay_changes_scratch_)) {
       return AllocationResult::kFailViolatesAsyncCopyResource;
     }
 

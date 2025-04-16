@@ -6312,8 +6312,7 @@ bool HloParserImpl::ParseShape(Shape* result,
   }
   result->set_element_type(primitive_type);
   for (int i = 0; i < dimension_sizes.size(); ++i) {
-    result->add_dimensions(dimension_sizes[i]);
-    result->set_dynamic_dimension(i, dynamic_dimensions[i]);
+    result->add_dimensions(dimension_sizes[i], dynamic_dimensions[i]);
   }
   if ((allow_fallback_to_default_layout && options_.fill_missing_layouts()) ||
       ShapeUtil::IsScalar(*result)) {

@@ -276,13 +276,23 @@ class Shape {
     state.dimensions[state.layout->minor_to_major(index)] = value;
   }
 
-  // Appends a new dimension with the given fixed size.
-  // Precondition: this is an array shape, and `value` is >= 0.
-  void add_dimensions(int64_t value) {
-    auto& state = array_state();
-    state.dimensions.push_back(value);
-    state.dynamic_dimensions.push_back(false);
-  }
+  // Appends a new dimension with the given size.
+  // Arguments:
+  //   - `value` is the size of the dimension if it is static, or the upper
+  //      bound of the dimension size if it is dynamic.
+  //   - `is_dynamic` is the dynamic-ness of the dimension:
+  //     - false: the dimension is static.
+  //     - true: the dimension is dynamic.
+  //     - nullopt: (legacy behavior) the dimension is assumed to be static,
+  //       and the function will NOT check that `value` is >= 0.
+  // Precondition:
+  //   - This is an array shape.
+  //   - Either `value` is >= 0, or `is_dynamic` is true and `value` is
+  //     kUnboundedSize.
+  void add_dimensions(
+      int64_t value,
+      // TODO(b/411121729): change this to be a bool after fixing all callers.
+      std::optional<bool> is_dynamic = std::nullopt);
 
   // Clears all dimensions (i.e. makes this shape a scalar).
   // Precondition: this is an array shape.
@@ -534,6 +544,12 @@ class Shape {
 
   using State = std::variant<InvalidState, TokenState, OpaqueState, ArrayState,
                              TupleState>;
+
+  // Like add_dimensions(), but does not CHECK that the arguments are valid.
+  // Instead, we rely on validation down the road to catch invalid shapes.
+  // This is useful for code that should not crash, such as constructing a
+  // Shape from an unvalidated proto.
+  void UnsafeAddDimension(int64_t value, bool is_dynamic);
 
   // Convenience accessors for the state_ variant. Each if_*_state() accessor
   // returns a pointer to the corresponding state struct, or nullptr if the

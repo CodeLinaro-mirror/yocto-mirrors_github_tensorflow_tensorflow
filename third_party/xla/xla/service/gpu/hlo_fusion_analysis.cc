@@ -304,8 +304,7 @@ HloFusionAnalysis::EmitterFusionKind HloFusionAnalysis::GetEmitterFusionKind()
     return EmitterFusionKind::kScatter;
   }
 
-  if (UseConcatenateFusion(fusion_roots_, fusion_heroes_) &&
-      !has_subtype_type) {
+  if (UseConcatenateFusion(fusion_roots_, fusion_heroes_)) {
     return EmitterFusionKind::kConcatenate;
   }
 

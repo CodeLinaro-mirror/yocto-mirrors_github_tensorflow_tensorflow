@@ -15,6 +15,7 @@ limitations under the License.
 
 #include "xla/hlo/experimental/auto_sharding/auto_sharding_iopddl.h"
 
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <string>
@@ -37,15 +38,28 @@ iopddl::Cost ConvertCost(const double cost) {
 }
 
 iopddl::Problem ConvertToProblem(const AutoShardingSolverRequest& request) {
-  CHECK(request.live().empty());  // Contest files don't support live matrices.
   CHECK(request.node_groups().empty());  // Contest files don't support groups.
   iopddl::Problem problem = {.name = request.request_name()};
   for (int64_t node_idx = 0; node_idx < request.num_nodes(); ++node_idx) {
-    CHECK_LT(node_idx, request.node_intervals_size());
-    const auto& interval = request.node_intervals(node_idx);
     iopddl::Interval node_interval = {0, 0};
-    if (interval.first() <= interval.second()) {
-      node_interval = {interval.first(), interval.second() + 1};
+    if (request.live().empty()) {
+      CHECK_LT(node_idx, request.node_intervals_size());
+      const auto& interval = request.node_intervals(node_idx);
+      if (interval.first() <= interval.second()) {
+        node_interval = {interval.first(), interval.second() + 1};
+      }
+    } else {
+      int64_t min_time = kInfinityInt, max_time = -1;
+      for (LivenessIdx t = 0; t < request.live_size(); ++t) {
+        const auto& nodes = request.live(t).nodes();
+        if (std::find(nodes.begin(), nodes.end(), node_idx) != nodes.end()) {
+          min_time = std::min(min_time, t);
+          max_time = std::max(max_time, t);
+        }
+      }
+      if (min_time <= max_time) {
+        node_interval = {min_time, max_time + 1};
+      }
     }
     problem.nodes.push_back({node_interval});
     CHECK_LT(node_idx, request.s_len_size());

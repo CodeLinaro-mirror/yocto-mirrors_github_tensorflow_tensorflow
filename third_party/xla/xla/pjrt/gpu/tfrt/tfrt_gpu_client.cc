@@ -50,6 +50,7 @@ limitations under the License.
 #include "mlir/IR/BuiltinOps.h"
 #include "xla/client/executable_build_options.h"
 #include "xla/client/local_client.h"
+#include "xla/debug_options_flags.h"
 #include "xla/executable_run_options.h"
 #include "xla/hlo/builder/xla_computation.h"
 #include "xla/hlo/ir/hlo_module.h"
@@ -1077,6 +1078,7 @@ TfrtGpuClient::TfrtGpuClient(
     std::vector<std::unique_ptr<TfrtGpuDevice>> devices,
     bool should_stage_host_to_device_transfers,
     std::unique_ptr<tsl::Allocator> host_memory_allocator,
+    std::unique_ptr<gpu::GpuExecutableRunOptions> gpu_run_options,
     std::shared_ptr<const GpuTopology> gpu_topology)
     : process_index_(process_index),
       xla_client_(CHECK_NOTNULL(xla_client)),
@@ -1095,6 +1097,7 @@ TfrtGpuClient::TfrtGpuClient(
       non_blocking_thread_pool_(std::make_unique<tsl::thread::ThreadPool>(
           tsl::Env::Default(), "TfrtGpuClient_non_blocking_thread_pool",
           std::max<int>(DefaultThreadPoolSize(), xla_client->device_count()))),
+      gpu_run_options_(std::move(gpu_run_options)),
       transpose_cache_(1024),
       platform_name_(xla::CudaName()),
       topology_(tsl::Fingerprint64(platform_name_), platform_name_,
@@ -2053,6 +2056,18 @@ absl::StatusOr<std::unique_ptr<PjRtClient>> GetTfrtGpuClient(
         host_memory_allocator,
         GetGpuHostAllocator(xla_client->backend().stream_executors().front()));
   }
+
+  auto gpu_run_options = std::make_unique<gpu::GpuExecutableRunOptions>();
+  if (options.enable_mock_nccl) {
+    gpu_run_options->set_enable_mock_collectives();
+  }
+
+  static const bool xla_gpu_require_exclusive_lock =
+      xla::GetDebugOptionsFromFlags().xla_gpu_require_exclusive_lock();
+  if (xla_gpu_require_exclusive_lock) {
+    gpu_run_options->set_requires_exclusive_lock_on_gpu();
+  }
+
   TF_ASSIGN_OR_RETURN(std::vector<std::unique_ptr<TfrtGpuDevice>> devices,
                       GetTfrtGpuDevices(xla_client));
 
@@ -2076,7 +2091,8 @@ absl::StatusOr<std::unique_ptr<PjRtClient>> GetTfrtGpuClient(
   return std::unique_ptr<PjRtClient>(std::make_unique<TfrtGpuClient>(
       /*process_index=*/0, xla_client, std::move(devices),
       options.should_stage_host_to_device_transfers,
-      std::move(host_memory_allocator), gpu_topology));
+      std::move(host_memory_allocator), std::move(gpu_run_options),
+      std::move(gpu_topology)));
 }
 
 TfrtGpuBuffer::TfrtGpuBuffer(

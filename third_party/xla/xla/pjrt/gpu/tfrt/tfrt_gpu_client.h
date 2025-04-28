@@ -250,6 +250,7 @@ class TfrtGpuClient final : public PjRtClient {
                 std::vector<std::unique_ptr<TfrtGpuDevice>> devices,
                 bool should_stage_host_to_device_transfers,
                 std::unique_ptr<tsl::Allocator> host_memory_allocator,
+                std::unique_ptr<gpu::GpuExecutableRunOptions> gpu_run_options,
                 std::shared_ptr<const GpuTopology> gpu_topology);
 
   ~TfrtGpuClient() override;

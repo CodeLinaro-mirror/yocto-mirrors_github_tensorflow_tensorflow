@@ -139,7 +139,8 @@ TEST(LayoutTest, EquivalentLayouts) {
   ON_CALL(*device2, DefaultMemory()).WillByDefault(Return(memory2.get()));
 
   ON_CALL(*client, GetDefaultLayout)
-      .With(std::make_tuple(DType(DType::kS32), Shape({3, 2}).dims(),
+      .With(std::make_tuple(DType(DType::kS32),
+                            absl::Span<const int64_t>({3, 2}),
                             static_cast<Device*>(device0.get()), memory_kind0))
       .WillByDefault(
           [](DType dtype, absl::Span<const int64_t> dims, Device* device,
@@ -149,7 +150,8 @@ TEST(LayoutTest, EquivalentLayouts) {
                 xla::LayoutUtil::MakeDescendingLayout(2));
           });
   ON_CALL(*client, GetDefaultLayout)
-      .With(std::make_tuple(DType(DType::kS32), Shape({3, 2}).dims(),
+      .With(std::make_tuple(DType(DType::kS32),
+                            absl::Span<const int64_t>({3, 2}),
                             static_cast<Device*>(device1.get()), memory_kind0))
       .WillByDefault(
           [](DType dtype, absl::Span<const int64_t> dims, Device* device,
@@ -160,7 +162,7 @@ TEST(LayoutTest, EquivalentLayouts) {
           });
 
   ON_CALL(*client, GetDefaultLayout)
-      .With(std::tuple(DType(DType::kS32), Shape({3, 2}).dims(),
+      .With(std::tuple(DType(DType::kS32), absl::Span<const int64_t>({3, 2}),
                        static_cast<Device*>(device2.get()), memory_kind0))
       .WillByDefault(
           [](DType dtype, absl::Span<const int64_t> dims, Device* device,

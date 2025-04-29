@@ -146,13 +146,8 @@ bool CheckAffineQuantization(
                        TfLiteTypeGetName(tensor.type), t);
     return false;
   }
-  return true;
-}
-
-bool CheckFp32Scale(TfLiteContext* context, const TfLiteTensor& tensor, int t,
-                    const TfLiteFloatArray& quantization_scale) {
-  for (int i = 0; i < quantization_scale.size; i++) {
-    const float scale = quantization_scale.data[i];
+  for (int i = 0; i < quantization_params.scale->size; i++) {
+    const float scale = quantization_params.scale->data[i];
     if (!std::isnormal(scale) || scale <= 0.0f) {
       TF_LITE_KERNEL_LOG(context,
                          "unsupported scale value (%f) in channel %d for "
@@ -237,10 +232,6 @@ xnn_datatype GetXNNPackDatatype(TfLiteContext* context,
       // Checking if quantization_params->zero_point->size != 1 is redundant,
       // CheckAffineQuantization already checks if it is the same as
       // quantization_params->scale->size.
-
-      if (!CheckFp32Scale(context, tensor, t, *(quantization_params->scale))) {
-        return xnn_datatype_invalid;
-      }
       if (!CheckZeroPointForPerTensorQuantization<uint8_t>(
               context, tensor, t, *(quantization_params->zero_point))) {
         return xnn_datatype_invalid;
@@ -267,9 +258,6 @@ xnn_datatype GetXNNPackDatatype(TfLiteContext* context,
           }
           const auto quantization_scale = quantization_params->scale;
           const auto quantization_zero_point = quantization_params->zero_point;
-          if (!CheckFp32Scale(context, tensor, t, *quantization_scale)) {
-            return xnn_datatype_invalid;
-          }
           if (quantization_scale->size == 1 && tensor.type == kTfLiteInt8) {
             // Per-tensor quantization
             if (!CheckZeroPointForPerTensorQuantization<int8_t>(
@@ -309,6 +297,13 @@ xnn_datatype GetXNNPackDatatype(TfLiteContext* context,
           }
         }
         case kTfLiteBlockwiseQuantization: {
+          if (tensor.type != kTfLiteInt4) {
+            TF_LITE_KERNEL_LOG(context,
+                               "unsupported tensor type %d for blockwise "
+                               "quantized tensor %d in XNNPACK delegate",
+                               tensor.type, t);
+            return xnn_datatype_invalid;
+          }
           const auto quantization_params =
               reinterpret_cast<const TfLiteBlockwiseQuantization*>(
                   tensor.quantization.params);
@@ -329,15 +324,7 @@ xnn_datatype GetXNNPackDatatype(TfLiteContext* context,
                 tensor.name, t);
             return xnn_datatype_invalid;
           }
-          switch (tensor.type) {
-            case kTfLiteInt8:
-              return xnn_datatype_qcint8;
-            case kTfLiteInt4:
-              return xnn_datatype_qbint4;
-            default:
-              // Outermost switch prevents this
-              TFL_UNREACHABLE();
-          }
+          return xnn_datatype_qbint4;
         }
         default:
           TF_LITE_KERNEL_LOG(context,

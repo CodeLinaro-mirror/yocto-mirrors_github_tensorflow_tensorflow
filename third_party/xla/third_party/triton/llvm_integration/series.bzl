@@ -12,5 +12,6 @@ llvm_patch_list = [
     "//third_party/triton:llvm_integration/cl747619712.patch",
     "//third_party/triton:llvm_integration/cl750320998.patch",
     "//third_party/triton:llvm_integration/cl751628816.patch",
+    "//third_party/triton:llvm_integration/cl752825850.patch",
     # Add new patches just above this line
 ]

@@ -153,6 +153,27 @@ cc_library(
 )
 
 cc_library(
+    name = "tf_constant_fold",
+    srcs = [
+        "tf_constant_fold.cc",
+    ],
+    hdrs = [
+        "tf_constant_fold.h",
+    ],
+    compatible_with = get_compatible_with_portable(),
+    deps = [
+        "//tensorflow/compiler/mlir/quantization/common:tf_lift_as_function_call",
+        "//tensorflow/compiler/mlir/tensorflow",
+        "//tensorflow/compiler/mlir/tensorflow/transforms:constant_fold_utils",
+        "@com_google_absl//absl/container:flat_hash_set",
+        "@llvm-project//llvm:Support",
+        "@llvm-project//mlir:IR",
+        "@llvm-project//mlir:Support",
+        "@llvm-project//mlir:TransformUtils",
+    ],
+)
+
+cc_library(
     name = "constant_fold",
     srcs = [
         "constant_fold.cc",

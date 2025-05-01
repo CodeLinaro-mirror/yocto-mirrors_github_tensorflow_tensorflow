@@ -698,9 +698,6 @@ class ProgramShape {
     return parameter_names_;
   }
 
-  std::string ShortDebugString() const { return ToProto().ShortDebugString(); }
-  std::string DebugString() const { return ToProto().DebugString(); }
-
  private:
   // Invariant: parameters_ and parameter_names_ have the same size.
 

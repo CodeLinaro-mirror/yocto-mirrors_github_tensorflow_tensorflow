@@ -16,14 +16,20 @@ limitations under the License.
 #include "xla/status_macros.h"
 
 #include <functional>
+#include <type_traits>
 #include <utility>
 
+#include <gmock/gmock.h>
 #include <gtest/gtest.h>
+#include "absl/base/log_severity.h"
+#include "absl/log/log_sink.h"
+#include "absl/log/scoped_mock_log.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "xla/hlo/testlib/test.h"
 #include "xla/hlo/testlib/test_helpers.h"
 #include "xla/tsl/platform/errors.h"
+#include "xla/tsl/platform/logging.h"
 #include "xla/tsl/platform/statusor.h"
 
 namespace xla {
@@ -35,6 +41,12 @@ absl::Status RetCheckFail() {
 
 absl::Status RetCheckFailWithExtraMessage() {
   TF_RET_CHECK(2 > 3) << "extra message";
+  return absl::OkStatus();
+}
+
+absl::Status RetCheckFailWithLogSeverity() {
+  TF_RET_CHECK(1 == 2).with_log_severity(absl::LogSeverity::kWarning)
+      << "extra message";
   return absl::OkStatus();
 }
 
@@ -55,6 +67,26 @@ TEST(StatusMacros, RetCheckFailingWithExtraMessage) {
   EXPECT_EQ(status.code(), tsl::error::INTERNAL);
   EXPECT_THAT(status.message(),
               ::testing::ContainsRegex("RET_CHECK.*2 > 3 extra message"));
+}
+
+TEST(StatusMacros, RetCheckWithLogSeverity) {
+  // absl::ScopedMockLog only works if we're actually using ABSL logging, and
+  // TSL supports a homegrown logging implementation, so we should only check
+  // the log is emitted when ABSL logging is used.
+  absl::ScopedMockLog mock_log(absl::MockLogDefault::kIgnoreUnexpected);
+  if constexpr (std::is_same_v<absl::LogSink, tsl::TFLogSink>) {
+    EXPECT_CALL(
+        mock_log,
+        Log(absl::LogSeverity::kWarning, ::testing::_,
+            ::testing::ContainsRegex("RET_CHECK.*1 == 2 extra message")));
+  }
+  // StartCapturingLogs has to be called even if we expect not to capture any
+  // logs.
+  mock_log.StartCapturingLogs();
+  absl::Status status = RetCheckFailWithLogSeverity();
+  EXPECT_EQ(status.code(), tsl::error::INTERNAL);
+  EXPECT_THAT(status.message(), ::testing::ContainsRegex(
+                                    "RET_CHECK failure.*1 == 2 extra message"));
 }
 
 TEST(StatusMacros, RetCheckSucceeding) {

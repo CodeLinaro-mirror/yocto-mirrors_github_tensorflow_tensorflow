@@ -43,10 +43,8 @@ extern const char kPossibleAutoJitAlternative[];
 // implicit cast operator to absl::Status, which converts the
 // logged string to a absl::Status object and returns it, after logging the
 // error.  At least one call to operator<< is required; a compile time
-// error will be generated if none are given. Errors will only be
-// logged by default for certain status codes, as defined in
-// IsLoggedByDefault. This class will give ERROR errors if you don't
-// retrieve a absl::Status exactly once before destruction.
+// error will be generated if none are given. This class will give ERROR errors
+// if you don't retrieve a absl::Status exactly once before destruction.
 //
 // The class converts into an intermediate wrapper object
 // MakeErrorStreamWithOutput to check that the error stream gets at least one
@@ -67,6 +65,12 @@ class MakeErrorStream {
     template <typename T>
     MakeErrorStreamWithOutput& operator<<(const T& value) {
       *wrapped_error_stream_ << value;
+      return *this;
+    }
+
+    // Sets the log severity of this message. Default is ERROR.
+    MakeErrorStreamWithOutput& with_log_severity(absl::LogSeverity severity) {
+      wrapped_error_stream_->with_log_severity(severity);
       return *this;
     }
 
@@ -103,7 +107,7 @@ class MakeErrorStream {
     return impl_->make_error_stream_with_output_wrapper_;
   }
 
-  // When this message is logged (see with_logging()), include the stack trace.
+  // When this message is logged, include the stack trace.
   MakeErrorStream& with_log_stack_trace() {
     impl_->should_log_stack_trace_ = true;
     return *this;
@@ -112,6 +116,12 @@ class MakeErrorStream {
   // Disables logging this message.
   MakeErrorStream& without_logging() {
     impl_->should_log_ = false;
+    return *this;
+  }
+
+  // Sets the log severity of this message. Default is ERROR.
+  MakeErrorStream& with_log_severity(absl::LogSeverity severity) {
+    impl_->log_severity_ = severity;
     return *this;
   }
 

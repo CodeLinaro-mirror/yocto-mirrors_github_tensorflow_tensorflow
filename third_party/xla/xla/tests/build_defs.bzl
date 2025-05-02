@@ -1,4 +1,4 @@
-"""Build rules for XLA testing. This file is only used for the OSS build."""
+"""Build rules for XLA testing."""
 
 load(
     "@local_config_rocm//rocm:build_defs.bzl",
@@ -200,9 +200,6 @@ def xla_test(
         backend_tags = {},
         backend_args = {},
         backend_kwargs = {},
-        # Inside Google, we link statically to catch duplicate main() definitions.
-        # However, this increases the size of the test binary, which breaks Nvidia's build.
-        # Therefore we use dynamic linking outside Google.
         linkstatic = False,
         fail_if_no_test_linked = True,
         **kwargs):

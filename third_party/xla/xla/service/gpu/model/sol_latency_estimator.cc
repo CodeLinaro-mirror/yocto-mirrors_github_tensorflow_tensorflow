@@ -106,7 +106,7 @@ int GetNumGpus(const HloInstruction& instr) {
     case HloOpcode::kAllReduce:
     case HloOpcode::kAllReduceStart: {
       result += GpuPerformanceModel::EstimateRunTimeForInstruction(
-                    &instr, gpu_device_info, &analysis, /*config=*/{})
+                    &instr, gpu_device_info, &analysis)
                     .compute_time;
       result += sol_model.RingLatency(
           msg_size, num_nodes, SolGPUCostModel::CollectiveType::kAllReduce);
@@ -114,7 +114,7 @@ int GetNumGpus(const HloInstruction& instr) {
     }
     case HloOpcode::kReduceScatter: {
       result += GpuPerformanceModel::EstimateRunTimeForInstruction(
-                    &instr, gpu_device_info, &analysis, {})
+                    &instr, gpu_device_info, &analysis)
                     .compute_time;
       result += sol_model.RingLatency(
           msg_size, num_nodes, SolGPUCostModel::CollectiveType::kReduceScatter);
@@ -122,10 +122,10 @@ int GetNumGpus(const HloInstruction& instr) {
     }
     case HloOpcode::kAsyncStart: {
       if (instr.async_wrapped_opcode() == HloOpcode::kReduceScatter) {
-        result += GpuPerformanceModel::EstimateRunTimeForInstruction(
-                      instr.async_wrapped_instruction(), gpu_device_info,
-                      &analysis, {})
-                      .compute_time;
+        result +=
+            GpuPerformanceModel::EstimateRunTimeForInstruction(
+                instr.async_wrapped_instruction(), gpu_device_info, &analysis)
+                .compute_time;
         result += sol_model.RingLatency(
             msg_size, num_nodes,
             SolGPUCostModel::CollectiveType::kReduceScatter);
@@ -177,9 +177,8 @@ LatencyEstimator::TimeCost SolLatencyEstimator::NodeCost(
   }
 
   absl::Duration total_estimated_time =
-      GpuPerformanceModel::EstimateRunTimeForInstruction(
-          instr, gpu_info_, &*cost_analysis_,
-          GpuPerformanceModelOptions::Default())
+      GpuPerformanceModel::EstimateRunTimeForInstruction(instr, gpu_info_,
+                                                         &*cost_analysis_)
           .exec_time;
   LatencyEstimator::TimeCost cost_in_us =
       absl::ToDoubleMicroseconds(total_estimated_time);

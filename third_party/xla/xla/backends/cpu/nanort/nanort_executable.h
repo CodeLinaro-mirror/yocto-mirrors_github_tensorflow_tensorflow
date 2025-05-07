@@ -30,6 +30,7 @@ limitations under the License.
 #include "xla/backends/cpu/alignment.h"
 #include "xla/backends/cpu/runtime/thread_pool_task_runner.h"
 #include "xla/ffi/execution_context.h"
+#include "xla/service/computation_placer.h"
 #include "xla/service/executable.h"
 #include "xla/tsl/concurrency/async_value_ref.h"
 #include "xla/tsl/concurrency/chain.h"
@@ -59,7 +60,9 @@ class NanoRtExecutable {
     ExecuteOptions()
         : intra_op_thread_pool_(nullptr),
           task_runner_(nullptr),
-          device_ordinal_(0),
+          local_device_ordinal_(0),
+          global_device_ordinal_(0),
+          device_assignment_(nullptr),
           launch_id_(0),
           ffi_context_(nullptr) {}
     // Sets the thread pool device on which to run Eigen subcomputations.
@@ -78,12 +81,17 @@ class NanoRtExecutable {
 
     ExecuteOptions& set_launch_id(int32_t launch_id);
 
-    ExecuteOptions& set_device_ordinal(int32_t device_ordinal);
+    ExecuteOptions& set_local_device_ordinal(int32_t local_device_ordinal);
+    ExecuteOptions& set_global_device_ordinal(int32_t global_device_ordinal);
+
+    ExecuteOptions& set_device_assignment(DeviceAssignment* device_assignment);
 
     const Eigen::ThreadPoolDevice* intra_op_thread_pool() const;
     ThreadPoolTaskRunner* task_runner() const;
 
-    int32_t device_ordinal() const { return device_ordinal_; }
+    int32_t local_device_ordinal() const { return local_device_ordinal_; }
+    int32_t global_device_ordinal() const { return global_device_ordinal_; }
+    DeviceAssignment* device_assignment() const { return device_assignment_; }
     int32_t launch_id() const { return launch_id_; }
     const ffi::ExecutionContext* ffi_context() const { return ffi_context_; }
 
@@ -91,11 +99,14 @@ class NanoRtExecutable {
     const Eigen::ThreadPoolDevice* intra_op_thread_pool_;
     std::unique_ptr<ThreadPoolTaskRunner> task_runner_;
 
+    int32_t local_device_ordinal_;
+    int32_t global_device_ordinal_;
+    DeviceAssignment* device_assignment_;
+
     // If non-zero, identifies this execution as part of a potentially
     // multi-device launch. This can be used to detect scheduling errors, e.g.
     // if multi-host programs are launched in different orders on different
     // hosts, the launch IDs may be used by the runtime to detect the mismatch.
-    int32_t device_ordinal_;
     int32_t launch_id_;
     const ffi::ExecutionContext* ffi_context_;
   };

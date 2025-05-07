@@ -18,6 +18,7 @@ limitations under the License.
 #include <cstdlib>
 #include <string>
 #include <utility>
+#include <vector>
 
 #if !defined(PLATFORM_WINDOWS)
 #include <dlfcn.h>
@@ -47,14 +48,17 @@ namespace pjrt {
 constexpr int kMinPjRtMinor = 29;
 
 // The bool indicates whether this plugin has been initialized.
-static auto* pjrt_apis =
-    new absl::flat_hash_map<std::string, std::pair<const PJRT_Api*, bool>>{};
+static absl::flat_hash_map<std::string, std::pair<const PJRT_Api*, bool>>*
+    pjrt_apis = nullptr;
 
 static std::string CanonicalizeDeviceType(absl::string_view device_type) {
   return absl::AsciiStrToLower(device_type);
 }
 
 absl::StatusOr<const PJRT_Api*> PjrtApi(absl::string_view device_type) {
+  if (pjrt_apis == nullptr) {
+    return absl::FailedPreconditionError("PJRT_Api is not initialized.");
+  }
   std::string canonicalize_device_type = CanonicalizeDeviceType(device_type);
   auto iter = pjrt_apis->find(canonicalize_device_type);
   if (iter == pjrt_apis->end()) {
@@ -64,7 +68,19 @@ absl::StatusOr<const PJRT_Api*> PjrtApi(absl::string_view device_type) {
   return iter->second.first;
 }
 
+absl::StatusOr<std::vector<std::string>> GetRegisteredPjrtApis() {
+  std::vector<std::string> device_types;
+  for (const auto& [device_type, api_and_initialized] : *pjrt_apis) {
+    device_types.push_back(device_type);
+  }
+  return device_types;
+}
+
 absl::Status SetPjrtApi(absl::string_view device_type, const PJRT_Api* api) {
+  if (pjrt_apis == nullptr) {
+    pjrt_apis = new absl::flat_hash_map<std::string,
+                                        std::pair<const PJRT_Api*, bool>>{};
+  }
   std::string canonicalize_device_type = CanonicalizeDeviceType(device_type);
   if (auto iter = pjrt_apis->find(canonicalize_device_type);
       iter != pjrt_apis->end()) {

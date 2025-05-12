@@ -1,3 +1,4 @@
+load("//xla:xla.default.bzl", "xla_cc_test")
 load("//xla/tests:build_defs.bzl", "xla_test")
 
 package(
@@ -187,16 +188,12 @@ cc_library(
     ],
 )
 
-xla_test(
+xla_cc_test(
     name = "triton_test",
     srcs = ["triton_test.cc"],
-    backends = [
-        "gpu_a100",
-        "gpu_h100",
-        "gpu_b200",
-    ],
     tags = [
         "cuda-only",
+        "gpu",
         "no_mac",
     ],
     deps = [
@@ -207,6 +204,7 @@ xla_test(
         "//xla/hlo/testlib:hlo_hardware_independent_test_base",
         "//xla/service:compiler",
         "//xla/service:executable",
+        "//xla/service:gpu_plugin",
         "//xla/service/gpu:gpu_device_info_for_tests",
         "//xla/service/gpu:matmul_utils",
         "//xla/service/gpu:nvptx_compiler_impl",

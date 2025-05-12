@@ -142,7 +142,7 @@ TEST_F(TritonBackendTest, Compile) {
           *(module->entry_computation()->root_instruction())));
   absl::StatusOr<std::unique_ptr<Executable>> executable = backend_.Compile(
       *(module->entry_computation()->root_instruction()), *config);
-  EXPECT_THAT(executable, IsOk());
+  EXPECT_THAT(executable, IsOk()) << executable.status().message();
 }
 
 }  // namespace

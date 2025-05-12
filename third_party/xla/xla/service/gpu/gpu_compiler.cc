@@ -623,6 +623,7 @@ absl::Status RunPreSPMDPartitionerPasses(HloModule* hlo_module) {
   // passes.
   pre_spmd_pipeline.AddPass<CuDnnCustomCallConverter>();
   pre_spmd_pipeline.AddPass<ConvertMemoryPlacementToInternalAnnotations>();
+  pre_spmd_pipeline.AddPass<FlattenCallGraph>();
   pre_spmd_pipeline.AddPass<CallInliner>(
       /*single_call_site=*/false, /*update_domain=*/false,
       /*composites_to_preserve=*/absl::flat_hash_set<std::string>(),
@@ -2324,8 +2325,15 @@ GpuCompiler::CompileToBackendResult(
   TF_RETURN_IF_ERROR(RunPostSchedulingPipelines(
       module, schedule_metadata.scheduler_mem_limit, gpu_device_info));
 
-  TF_ASSIGN_OR_RETURN(se::Platform * platform,
-                      se::PlatformManager::PlatformWithId(PlatformId()));
+  absl::StatusOr<se::Platform*> platform =
+      se::PlatformManager::PlatformWithId(PlatformId());
+  if (!platform.ok()) {
+    return absl::Status(
+        platform.status().code(),
+        absl::StrCat(
+            platform.status().message(),
+            ". Are you missing gpu_plugin or stream_executor dependency?"));
+  }
 
   // Test whether LinkModules is supported.
   bool can_use_link_modules = (executor != nullptr);
@@ -2351,7 +2359,7 @@ GpuCompiler::CompileToBackendResult(
     TF_ASSIGN_OR_RETURN(
         compile_module_results,
         CompileModuleToLlvmIr(module, llvm_context, target_triple_,
-                              data_layout_, platform, gpu_device_info,
+                              data_layout_, *platform, gpu_device_info,
                               GetCanShareBuffer(gpu_device_info),
                               BufferSizeBytesFunction(),
                               /*split_constants_module=*/use_cache));

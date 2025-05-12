@@ -26,6 +26,7 @@ limitations under the License.
 #include "xla/hlo/testlib/hlo_hardware_independent_test_base.h"
 #include "xla/service/gpu/model/tiled_hlo_computation.h"  // IWYU pragma: keep
 #include "xla/shape_util.h"
+#include "xla/tsl/platform/statusor.h"
 #include "xla/xla_data.pb.h"
 
 namespace xla {
@@ -51,14 +52,16 @@ TEST_F(TiledHloInstructionTest, TileSizesAndStridesShouldMatchHloShapeRank) {
       /*symbol_upper_bounds=*/{});
 
   EXPECT_THAT(TiledHloInstruction::Create(
-                  hlo.get(), /*operands=*/{}, /*tile_sizes=*/{16},
+                  hlo.get(), /*operands=*/{}, /*runtime_variables=*/{},
+                  /*tile_sizes=*/{16},
                   /*tile_strides=*/{1, 1}, tile_offsets_indexing)
                   .status()
                   .message(),
               HasSubstr("Number of tile sizes must be equal to the rank"));
 
   EXPECT_THAT(TiledHloInstruction::Create(
-                  hlo.get(), /*operands=*/{}, /*tile_sizes=*/{16, 16},
+                  hlo.get(), /*operands=*/{}, /*runtime_variables=*/{},
+                  /*tile_sizes=*/{16, 16},
                   /*tile_strides=*/{1, 1, 1}, tile_offsets_indexing)
                   .status()
                   .message(),
@@ -78,7 +81,8 @@ TEST_F(TiledHloInstructionTest,
 
   EXPECT_THAT(
       TiledHloInstruction::Create(
-          hlo.get(), /*operands=*/{}, /*tile_sizes=*/{16, 16},
+          hlo.get(), /*operands=*/{}, /*runtime_variables=*/{},
+          /*tile_sizes=*/{16, 16},
           /*tile_strides=*/{1, 1}, tile_offsets_indexing)
           .status()
           .message(),
@@ -91,11 +95,60 @@ TEST_F(TiledHloInstructionTest,
       /*symbol_upper_bounds=*/{});
 
   EXPECT_THAT(TiledHloInstruction::Create(
-                  hlo.get(), /*operands=*/{}, /*tile_sizes=*/{16, 16},
+                  hlo.get(), /*operands=*/{}, /*runtime_variables=*/{},
+                  /*tile_sizes=*/{16, 16},
                   /*tile_strides=*/{1, 1}, tile_offsets_indexing2)
                   .status()
                   .message(),
               ::testing::HasSubstr("must have 1 dim"));
+}
+
+TEST_F(TiledHloInstructionTest,
+       ShouldReturnErrorIfWrongNumberOfRuntimeVariablesIsProvided) {
+  std::unique_ptr<HloInstruction> p0 = HloInstruction::CreateParameter(
+      /*parameter_number=*/0, ShapeUtil::MakeShape(PrimitiveType::F32, {32}),
+      "p0");
+
+  TF_ASSERT_OK_AND_ASSIGN(
+      std::unique_ptr<TiledHloInstruction> rt0,
+      TiledHloInstruction::Create(
+          p0.get(), /*operands=*/{},
+          /*runtime_variables=*/{},
+          /*tile_sizes=*/{16},
+          /*tile_strides=*/{1},
+          IndexingMap::FromTensorSizes(
+              ParseAffineMap("(d0) -> (d0)", &mlir_context_),
+              /*dim_upper_bounds=*/{4},
+              /*symbol_upper_bounds=*/{})));
+
+  IndexingMap indexing_map(
+      ParseAffineMap("(d0)[rt0] -> (d0 + rt0)", &mlir_context_),
+      /*dimensions=*/
+      {IndexingMap::Variable{0, 32, "d0"}},
+      /*range_vars=*/{},
+      /*rt_vars=*/{IndexingMap::Variable{0, 4, "rt0"}});
+
+  EXPECT_THAT(TiledHloInstruction::Create(p0.get(), /*operands=*/{},
+                                          /*runtime_variables=*/{},
+                                          /*tile_sizes=*/{16},
+                                          /*tile_strides=*/{1}, indexing_map)
+                  .status()
+                  .message(),
+              ::testing::HasSubstr("tile_offsets_indexing has 1 runtime "
+                                   "variables that do not equal to 0"));
+  EXPECT_OK(TiledHloInstruction::Create(p0.get(), /*operands=*/{},
+                                        /*runtime_variables=*/{rt0.get()},
+                                        /*tile_sizes=*/{16},
+                                        /*tile_strides=*/{1}, indexing_map));
+  EXPECT_THAT(
+      TiledHloInstruction::Create(p0.get(), /*operands=*/{},
+                                  /*runtime_variables=*/{rt0.get(), rt0.get()},
+                                  /*tile_sizes=*/{16},
+                                  /*tile_strides=*/{1}, indexing_map)
+          .status()
+          .message(),
+      ::testing::HasSubstr("tile_offsets_indexing has 1 runtime "
+                           "variables that do not equal to 2"));
 }
 
 using TiledHloFusionInstructionTest = TiledHloInstructionTest;
@@ -113,7 +166,8 @@ TEST_F(TiledHloFusionInstructionTest,
       /*symbol_upper_bounds=*/{});
 
   EXPECT_THAT(TiledHloFusionInstruction::Create(
-                  hlo.get(), /*operands=*/{}, /*called_computation=*/nullptr,
+                  hlo.get(), /*operands=*/{}, /*runtime_variables=*/{},
+                  /*called_computation=*/nullptr,
                   /*tile_sizes=*/{16},
                   /*tile_strides=*/{1, 1}, tile_offsets_indexing)
                   .status()
@@ -121,7 +175,8 @@ TEST_F(TiledHloFusionInstructionTest,
               HasSubstr("Number of tile sizes must be equal to the rank"));
 
   EXPECT_THAT(TiledHloFusionInstruction::Create(
-                  hlo.get(), /*operands=*/{}, /*called_computation=*/nullptr,
+                  hlo.get(), /*operands=*/{}, /*runtime_variables=*/{},
+                  /*called_computation=*/nullptr,
                   /*tile_sizes=*/{16, 16},
                   /*tile_strides=*/{1, 1, 1}, tile_offsets_indexing)
                   .status()

@@ -735,6 +735,7 @@ xla_cc_test(
         "//xla/hlo/analysis:indexing_test_utils",
         "//xla/hlo/ir:hlo",
         "//xla/hlo/testlib:hlo_hardware_independent_test_base",
+        "//xla/tsl/platform:statusor",
         "@com_google_googletest//:gtest_main",
         "@llvm-project//mlir:IR",
     ],

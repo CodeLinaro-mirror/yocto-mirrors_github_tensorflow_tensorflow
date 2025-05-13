@@ -1316,14 +1316,19 @@ class LatencyHidingScheduler : public HloModulePass {
       const HloComputation* computation,
       const LatencyEstimator* latency_estimator,
       const AsyncTracker* async_tracker,
-      const HloCostAnalysis::ShapeSizeFunction& shape_size_bytes);
+      const HloCostAnalysis::ShapeSizeFunction& shape_size_bytes,
+      const HloAliasAnalysis* hlo_alias_analysis,
+      const ModulePressureState& module_pressure_state);
 
   using HloPassInterface::Run;
   absl::StatusOr<bool> Run(
       HloModule* module,
       const absl::flat_hash_set<absl::string_view>& execution_threads) override;
 
-  virtual void LogScheduleStatistics(const HloComputation* computation);
+  virtual void LogScheduleStatistics(
+      const HloComputation* computation,
+      const HloAliasAnalysis* hlo_alias_analysis,
+      const ModulePressureState& module_pressure_state);
 
  private:
   std::shared_ptr<LatencyEstimator> latency_estimator_;

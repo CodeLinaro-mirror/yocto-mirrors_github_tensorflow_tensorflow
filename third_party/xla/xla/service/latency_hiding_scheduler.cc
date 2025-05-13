@@ -2712,7 +2712,8 @@ DefaultSchedulerCore::ComputationScheduleToProto(
   proto.set_cycles_per_microsecond(estimator.CyclesPerMicrosecond());
   *proto.mutable_scheduler_statistics() =
       LatencyHidingScheduler::LatencyHidingStatistics(
-          computation, latency_estimator_, async_tracker_, shape_size_bytes_)
+          computation, latency_estimator_, async_tracker_, shape_size_bytes_,
+          alias_analysis_.get(), *module_pressure_state_)
           .ToProto();
 
   const HloGraphNode& first_node = schedule_graph.GetNode(instructions.front());
@@ -2742,7 +2743,9 @@ LatencyHidingScheduler::LatencyHidingStatistics(
     const HloComputation* computation,
     const LatencyEstimator* latency_estimator,
     const AsyncTracker* async_tracker,
-    const HloCostAnalysis::ShapeSizeFunction& shape_size_bytes) {
+    const HloCostAnalysis::ShapeSizeFunction& shape_size_bytes,
+    const HloAliasAnalysis* hlo_alias_analysis,
+    const ModulePressureState& module_pressure_state) {
   const HloModule* module = computation->parent();
   // A map keyed by outstanding collective op's opcode, with value of a tuple
   // including {instruction, scheduled_time, position in the original order}.
@@ -2814,8 +2817,6 @@ LatencyHidingScheduler::LatencyHidingStatistics(
   SchedulerConfig config;
   config.schedule_send_recvs = true;
   config.use_real_cost_model = true;
-  std::unique_ptr<HloAliasAnalysis> hlo_alias_analysis =
-      HloAliasAnalysis::Run(module).value();
   auto instructions_post_order = computation->MakeInstructionPostOrder();
   HloScheduleGraph schedule_graph(&instructions_post_order,
                                   /*alias_analysis=*/nullptr, latency_estimator,
@@ -2849,15 +2850,12 @@ LatencyHidingScheduler::LatencyHidingStatistics(
     }
     curr_pos++;
   }
-  ModulePressureState module_pressure_state(module, hlo_alias_analysis.get(),
-                                            shape_size_bytes);
-  module_pressure_state.InitializePressureStates();
   const MemoryPressureTracker::MemoryPressureState* memory_pressure_state =
       module_pressure_state.ComputationIsMemoryTracked(computation)
           ? &module_pressure_state.GetPressureStateForComputation(computation)
           : nullptr;
   MemoryPressureTracker mem_pressure_tracker(
-      hlo_alias_analysis.get(), module_pressure_state.buffer_tracker(),
+      hlo_alias_analysis, module_pressure_state.buffer_tracker(),
       module_pressure_state.pressure_state_cache());
   if (memory_pressure_state != nullptr) {
     mem_pressure_tracker.Initialize(computation,
@@ -2942,10 +2940,13 @@ LatencyHidingScheduler::SchedulerStatistics::ToProto() const {
 }
 
 void LatencyHidingScheduler::LogScheduleStatistics(
-    const HloComputation* computation) {
+    const HloComputation* computation,
+    const HloAliasAnalysis* hlo_alias_analysis,
+    const ModulePressureState& module_pressure_state) {
   XLA_VLOG_LINES(
-      3, LatencyHidingStatistics(computation, latency_estimator_.get(),
-                                 async_tracker_.get(), shape_size_bytes_)
+      1, LatencyHidingStatistics(computation, latency_estimator_.get(),
+                                 async_tracker_.get(), shape_size_bytes_,
+                                 hlo_alias_analysis, module_pressure_state)
              .ToString());
 }
 
@@ -3012,13 +3013,22 @@ absl::StatusOr<bool> LatencyHidingScheduler::Run(
             << " LatencyHidingScheduler current memory usage: "
             << scheduler_core_->GetMemoryPeak()
             << " bytes. Current limit: " << scheduler_core_->GetMemoryLimit();
-  for (HloComputation* computation : computations_to_schedule) {
-    VLOG(3) << "[" << name() << "] Statistics before scheduling:";
-    LogScheduleStatistics(computation);
-    module->schedule().set_sequence(
-        computation, absl::MakeConstSpan(saved_schedules[computation]));
-    VLOG(3) << "[" << name() << "] Statistics after scheduling:";
-    LogScheduleStatistics(computation);
+  if (VLOG_IS_ON(1)) {
+    std::unique_ptr<HloAliasAnalysis> hlo_alias_analysis =
+        HloAliasAnalysis::Run(module).value();
+    ModulePressureState initial_module_pressure_state(
+        module, hlo_alias_analysis.get(), shape_size_bytes_);
+    initial_module_pressure_state.InitializePressureStates();
+    for (HloComputation* computation : computations_to_schedule) {
+      VLOG(1) << "[" << name() << "] Statistics before scheduling:";
+      LogScheduleStatistics(computation, hlo_alias_analysis.get(),
+                            initial_module_pressure_state);
+      module->schedule().set_sequence(
+          computation, absl::MakeConstSpan(saved_schedules[computation]));
+      VLOG(1) << "[" << name() << "] Statistics after scheduling:";
+      LogScheduleStatistics(computation, hlo_alias_analysis.get(),
+                            initial_module_pressure_state);
+    }
   }
   if (debug_options.xla_dump_latency_hiding_schedule()) {
     TF_ASSIGN_OR_RETURN(ScheduleProto proto,

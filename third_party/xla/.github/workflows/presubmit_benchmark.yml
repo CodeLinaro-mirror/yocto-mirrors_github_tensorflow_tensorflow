@@ -105,6 +105,10 @@ jobs:
       OUTPUT_DIR_NAME: benchmark_output_${{ matrix.benchmark_entry.config_id || matrix.benchmark_entry.benchmark_name }}_${{ matrix.benchmark_entry.hardware_category }}
       # --- Location for scripts (Adjust if you move them, e.g., to .github/scripts) ---
       SCRIPT_DIR_RELATIVE: .github/workflows/benchmarks # Relative to GITHUB_WORKSPACE
+      # --- Path to the baseline file in the repository ---
+      BASELINE_YAML_FILE_RELATIVE: xla/tools/benchmarks/baseline/presubmit_baseline.yml
+      # --- Path to the Python comparison script ---
+      BENCHMARK_SCRIPTS_ROOT_RELATIVE: .github/workflows/benchmarks
 
     steps:
       - name: "Wait For Connection"
@@ -112,25 +116,48 @@ jobs:
         with:
           halt-dispatch-input: ${{ inputs.halt-for-connection }}
 
-      - name: Print Job Info & Set Env Vars
+      - name: Print Job Info & Set Full Paths in ENV
         run: |
           FULL_OUTPUT_DIR_PATH="${GITHUB_WORKSPACE}/${OUTPUT_DIR_NAME}"
-          RESOLVED_SCRIPT_DIR_PATH="${GITHUB_WORKSPACE}/${SCRIPT_DIR_RELATIVE}" # Renamed for clarity
+          RESOLVED_SCRIPT_DIR_PATH="${GITHUB_WORKSPACE}/${SCRIPT_DIR_RELATIVE}"
+          RESOLVED_BASELINE_YAML_PATH="${GITHUB_WORKSPACE}/${BASELINE_YAML_FILE_RELATIVE}"
+          RESOLVED_COMPARISON_SCRIPT_PATH="${GITHUB_WORKSPACE}/${BENCHMARK_SCRIPTS_ROOT_RELATIVE}/compare_with_baseline.py"
 
           echo "--- Benchmark Job Info ---"
           echo "Config ID: $CONFIG_ID"
           echo "Benchmark Name: $BENCHMARK_NAME"
           echo "Runner Label: $RUNNER_LABEL"
           echo "Hardware Category: $HARDWARE_CATEGORY"
-          echo "Output Directory Name (relative to workspace): $OUTPUT_DIR_NAME"
-          echo "Full Output Directory Path (will be created by script): $FULL_OUTPUT_DIR_PATH"
+          echo "Output Directory Name (relative): $OUTPUT_DIR_NAME"
+          echo "Full Output Directory Path: $FULL_OUTPUT_DIR_PATH"
           echo "Full Script Directory Path: $RESOLVED_SCRIPT_DIR_PATH"
+          echo "Full Baseline YAML Path: $RESOLVED_BASELINE_YAML_PATH"
+          echo "Full Comparison Script Path: $RESOLVED_COMPARISON_SCRIPT_PATH"
           echo "GITHUB_WORKSPACE: ${GITHUB_WORKSPACE}"
           echo "Current PWD: $(pwd)"
           echo "--------------------------"
 
+          # These are now available to subsequent steps via env context
           echo "RESOLVED_OUTPUT_DIR=$FULL_OUTPUT_DIR_PATH" >> $GITHUB_ENV
           echo "RESOLVED_SCRIPT_DIR=$RESOLVED_SCRIPT_DIR_PATH" >> $GITHUB_ENV
+          echo "RESOLVED_BASELINE_YAML=$RESOLVED_BASELINE_YAML_PATH" >> $GITHUB_ENV
+          echo "RESOLVED_COMPARISON_SCRIPT=$RESOLVED_COMPARISON_SCRIPT_PATH" >> $GITHUB_ENV
+
+           # Set resolved absolute paths for use in scripts based on static envs
+          # These paths are correctly constructed in a 'run' step using GITHUB_WORKSPACE
+          echo "RESOLVED_OUTPUT_DIR=$FULL_OUTPUT_DIR_PATH" >> $GITHUB_ENV
+          echo "RESOLVED_RUN_BENCHMARK_SCRIPT=${GITHUB_WORKSPACE}/${{ env.BENCHMARK_SCRIPTS_ROOT_RELATIVE }}/run_benchmark.sh" >> $GITHUB_ENV
+          echo "RESOLVED_BASELINE_YAML=${GITHUB_WORKSPACE}/${{ env.BASELINE_YAML_FILE_RELATIVE }}" >> $GITHUB_ENV
+          echo "RESOLVED_RUN_COMPARISON_SCRIPT=${GITHUB_WORKSPACE}/${{ env.BENCHMARK_SCRIPTS_ROOT_RELATIVE }}/run_comparison.sh" >> $GITHUB_ENV
+          echo "RESOLVED_COMPARISON_PYTHON_SCRIPT=${GITHUB_WORKSPACE}/${{ env.BENCHMARK_SCRIPTS_ROOT_RELATIVE }}/compare_with_baseline.py" >> $GITHUB_ENV
+
+
+          # Create the output directory - scripts will assume it exists
+          mkdir -p "$FULL_OUTPUT_DIR_PATH"
+          if [ ! -d "$FULL_OUTPUT_DIR_PATH" ]; then
+            echo "::error::Failed to create output directory: $FULL_OUTPUT_DIR_PATH"
+            exit 1
+          fi
 
       - name: Checkout OpenXLA Repository
         uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
@@ -162,9 +189,89 @@ jobs:
            OUTPUT_DIR: ${{ env.RESOLVED_OUTPUT_DIR }} # Pass the correctly resolved full path
            # Other job-level env vars are automatically inherited
         run: |
+           # The run_benchmark.sh script is expected to create $OUTPUT_DIR/results.json
            bash "${RESOLVED_SCRIPT_DIR}/run_benchmark.sh"
 
-      #TODO(juliagmt): add a step to compare the stats with the baseline and block the PR if there is a regression.
+           # Print the content of results.json for debugging
+           RESULTS_JSON_FILE_PATH="${RESOLVED_OUTPUT_DIR}/results.json"
+           echo "--- Content of results.json (from workflow) ---"
+           if [ -f "$RESULTS_JSON_FILE_PATH" ]; then
+             if command -v jq &> /dev/null && jq '.' "$RESULTS_JSON_FILE_PATH" > /dev/null 2>&1; then
+               jq '.' "$RESULTS_JSON_FILE_PATH"
+             else
+               echo "results.json may not be valid JSON or jq failed, printing with cat:"
+               cat "$RESULTS_JSON_FILE_PATH"
+             fi
+           elif [ -f "${RESULTS_JSON_FILE_PATH}.txt" ]; then
+             echo "results.json not found, printing fallback .txt file:"
+             cat "${RESULTS_JSON_FILE_PATH}.txt"
+           else
+             echo "::warning::Neither results.json nor results.json.txt found at $RESULTS_JSON_FILE_PATH"
+           fi
+           echo "---------------------------------------------"
+
+      - name: Compare Results to Baseline
+        # Run if benchmark step finished (even if it failed but produced a results file)
+        # AND PyYAML installation didn't cause a skip
+        if: (steps.run_hlo.outcome == 'success' || (steps.run_hlo.outcome == 'failure' && (hashFiles(format('{0}/results.json', env.RESOLVED_OUTPUT_DIR)) != '' || hashFiles(format('{0}/results.json.txt', env.RESOLVED_OUTPUT_DIR)) != ''))) && env.skip_comparison_due_to_yaml_install_failure != 'true'
+        run: |
+          echo "Starting baseline comparison..."
+          # Path to the results.json created by run_benchmark.sh
+          ACTUAL_RESULTS_JSON_PATH="${RESOLVED_OUTPUT_DIR}/results.json"
+
+          echo "Results JSON path for comparison script: $ACTUAL_RESULTS_JSON_PATH"
+          echo "Baseline YAML path for comparison script: $RESOLVED_BASELINE_YAML"
+          echo "Comparison script path: $RESOLVED_COMPARISON_SCRIPT"
+
+          if [ ! -f "$ACTUAL_RESULTS_JSON_PATH" ]; then
+            echo "::warning::Primary results file '$ACTUAL_RESULTS_JSON_PATH' not found. Cannot perform baseline comparison."
+            # If results.json.txt exists, the comparison script won't use it.
+            # This indicates an issue in run_benchmark.sh not creating the primary results.json
+            # Depending on policy, this could be an error: exit 1
+            exit 0 # Exiting cleanly to not block if results are missing
+          fi
+
+          # Construct the config_id for baseline lookup (must match keys in baseline YAML)
+          NUM_HOSTS=$(echo "$TOPOLOGY_JSON" | jq -r '.num_hosts // "1"')
+          DEVICES_PER_HOST=$(echo "$TOPOLOGY_JSON" | jq -r '.num_devices_per_host // "1"')
+          HW_CAT_LOWER=$(echo "$HARDWARE_CATEGORY" | tr '[:upper:]' '[:lower:]')
+          # Use CONFIG_ID (which is matrix.benchmark_entry.config_id || matrix.benchmark_entry.benchmark_name)
+          SCRIPT_CONFIG_ID_FOR_BASELINE_LOOKUP="${CONFIG_ID}_${HW_CAT_LOWER}_${NUM_HOSTS}_host_${DEVICES_PER_HOST}_device"
+
+          echo "Constructed Config ID for baseline lookup: $SCRIPT_CONFIG_ID_FOR_BASELINE_LOOKUP"
+
+          python3 "$RESOLVED_COMPARISON_SCRIPT" \
+            --results-json-file="$ACTUAL_RESULTS_JSON_PATH" \
+            --baseline-yaml-file="$RESOLVED_BASELINE_YAML" \
+            --config-id="$SCRIPT_CONFIG_ID_FOR_BASELINE_LOOKUP"
+
+          COMPARISON_EXIT_CODE=$?
+          if [ $COMPARISON_EXIT_CODE -ne 0 ]; then
+            echo "::error::Baseline comparison script failed or regressions detected (Exit Code: $COMPARISON_EXIT_CODE)."
+            exit $COMPARISON_EXIT_CODE # This will fail the GitHub Actions step and block the PR
+          fi
+          echo "Baseline comparison successful: No regressions detected or no applicable baselines found."
+
+      - name: Compare Results to Baseline (dedicated script)
+        run: |
+          echo "Starting baseline comparison using dedicated shell script..."
+
+          # Construct the config_id for baseline lookup (from env vars set earlier)
+          NUM_HOSTS=$(echo "$TOPOLOGY_JSON" | jq -r '.num_hosts // "1"')
+          DEVICES_PER_HOST=$(echo "$TOPOLOGY_JSON" | jq -r '.num_devices_per_host // "1"')
+          HW_CAT_LOWER=$(echo "$HARDWARE_CATEGORY" | tr '[:upper:]' '[:lower:]')
+          SCRIPT_CONFIG_ID_FOR_BASELINE_LOOKUP="${CONFIG_ID}_${HW_CAT_LOWER}_${NUM_HOSTS}_host_${DEVICES_PER_HOST}_device"
+
+          # Call the new run_comparison.sh script, passing all necessary arguments
+          bash "${RESOLVED_RUN_COMPARISON_SCRIPT}" \
+            "${RESOLVED_OUTPUT_DIR}/results.json" \
+            "${RESOLVED_BASELINE_YAML}" \
+            "${SCRIPT_CONFIG_ID_FOR_BASELINE_LOOKUP}" \
+            "${TARGET_METRICS_JSON}" \
+            "${RESOLVED_COMPARISON_PYTHON_SCRIPT}" # Pass the path to the Python script
+
+          # The shell script will handle its own exit code for success/failure
+          echo "Baseline comparison shell script execution completed."
 
       - name: Upload Benchmark Artifacts
         if: always()

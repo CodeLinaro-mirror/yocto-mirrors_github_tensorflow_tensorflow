@@ -80,7 +80,7 @@ absl::StatusOr<GpuDeviceMemory> GpuDeviceMemory::Allocate(
 TrackedGpuDeviceBuffer::TrackedGpuDeviceBuffer(
     tsl::AsyncValueRef<GpuDeviceMemory> buffer,
     absl::InlinedVector<tsl::AsyncValueRef<GpuEvent>, 4> definition_events,
-    std::function<void()> on_delete_callback)
+    absl::AnyInvocable<void() &&> on_delete_callback)
     : TrackedGpuDeviceBuffer(std::move(buffer), AfterAll(definition_events),
                              std::move(on_delete_callback)) {
   VLOG(4) << "TrackedGpuDeviceBuffer::TrackedGpuDeviceBuffer: " << this << "\n "
@@ -90,7 +90,7 @@ TrackedGpuDeviceBuffer::TrackedGpuDeviceBuffer(
 TrackedGpuDeviceBuffer::TrackedGpuDeviceBuffer(
     tsl::AsyncValueRef<GpuDeviceMemory> buffer,
     tsl::AsyncValueRef<GpuEvent> definition_event,
-    std::function<void()> on_delete_callback)
+    absl::AnyInvocable<void() &&> on_delete_callback)
     : buffer_(std::move(buffer)),
       definition_event_(std::move(definition_event)),
       deallocation_event_(tsl::MakeConstructedAsyncValueRef<GpuEvent>()),
@@ -107,7 +107,7 @@ TrackedGpuDeviceBuffer::~TrackedGpuDeviceBuffer() {
 
   ReleaseDeviceMemory();
   if (on_delete_callback_) {
-    on_delete_callback_();
+    std::move(on_delete_callback_)();
   }
 }
 

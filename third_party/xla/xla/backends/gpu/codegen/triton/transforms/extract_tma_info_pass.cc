@@ -94,6 +94,7 @@ struct ExtractTmaInfoPass
             rewriter.getAttr<TmaDescriptorAttr>(
                 tma_descriptor_attr.getGlobalShape(),
                 tma_descriptor_attr.getBlockShape(),
+                tma_descriptor_attr.getTileStrides(),
                 tma_descriptor_attr.getLayout(),
                 tma_descriptor_attr.getElementByteSize(),
                 SwizzleModeAttr::get(&getContext(), swizzle_mode.value())));

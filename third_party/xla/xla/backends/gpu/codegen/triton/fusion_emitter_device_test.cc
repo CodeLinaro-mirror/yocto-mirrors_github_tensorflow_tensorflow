@@ -1103,12 +1103,6 @@ ENTRY entry_computation {
 // Parameterized to make sure that slices are also handled correctly when TMA is
 // enabled.
 TEST_P(TmaParameterizedTritonEmitterTest, TestSliceWithTileThatNeedsMasking) {
-  bool tma_enabled = GetParam();
-  if (tma_enabled) {
-    GTEST_SKIP()
-        << "TODO(b/413301521): Skipping TMA due to: contiguous dimension "
-           "size too small.";
-  }
   constexpr absl::string_view kHloText = R"(
 HloModule m
 
@@ -1373,15 +1367,7 @@ backend_config={
   EXPECT_TRUE(RunAndCompareNoHloPasses(kHloText, kExactMatch));
 }
 
-// Parameterized to provide coverage for strided access with TMA.
-TEST_P(TmaParameterizedTritonEmitterTest,
-       BitcastNormalizedLayoutsIsLoweredCorrectly) {
-  bool tma_enabled = GetParam();
-  if (tma_enabled) {
-    GTEST_SKIP() << "TODO(b/417021441): Skipping TMA due to: "
-                    "CUDA_ERROR_ILLEGAL_INSTRUCTION. "
-                    "Potentially due to incorrect strides handling.";
-  }
+TEST_F(TritonEmitterTest, BitcastNormalizedLayoutsIsLoweredCorrectly) {
   constexpr absl::string_view kHloText = R"(
 triton_computation {
   p = f32[8,48]{1,0} parameter(0)
@@ -1412,16 +1398,7 @@ CHECK:     triton_xla.insert
   EXPECT_TRUE(RunAndCompareNoHloPasses(kHloText, kExactMatch));
 }
 
-// Parameterized to provide coverage for both strided access and non-canonical
-// layouts with TMA.
-TEST_P(TmaParameterizedTritonEmitterTest,
-       BitcastNonNormalizedInputLayoutIsLoweredCorrectly) {
-  bool tma_enabled = GetParam();
-  if (tma_enabled) {
-    GTEST_SKIP() << "TODO(b/417021441): Skipping TMA due to: "
-                    "CUDA_ERROR_ILLEGAL_INSTRUCTION. "
-                    "Potentially due to incorrect strides handling.";
-  }
+TEST_F(TritonEmitterTest, BitcastNonNormalizedInputLayoutIsLoweredCorrectly) {
   constexpr absl::string_view kHloText = R"(
 triton_computation {
   p = s32[48,16]{0,1} parameter(0)
@@ -2063,11 +2040,6 @@ CHECK:     triton_xla.insert
 }
 
 TEST_P(TmaParameterizedTritonEmitterTest, BroadcastWorksCorrectly) {
-  bool tma_enabled = GetParam();
-  if (tma_enabled) {
-    GTEST_SKIP() << "TODO(b/415758695): Skipping TMA due to incorrect handling "
-                    "of swizzle. Re-enable once fixed.";
-  }
   constexpr absl::string_view kTritonHloText = R"(
 computation {
   p0 = s32[256]{0} parameter(0)

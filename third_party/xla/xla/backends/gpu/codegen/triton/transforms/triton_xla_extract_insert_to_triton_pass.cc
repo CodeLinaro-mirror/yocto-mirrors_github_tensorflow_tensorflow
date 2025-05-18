@@ -43,6 +43,7 @@ limitations under the License.
 #include "mlir/IR/Types.h"
 #include "mlir/IR/Value.h"
 #include "mlir/IR/ValueRange.h"
+#include "mlir/Interfaces/ViewLikeInterface.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Support/LLVM.h"
 #include "mlir/Support/LogicalResult.h"
@@ -98,9 +99,20 @@ bool TmaIsEnabledForDevice(
   return is_cuda && device_info.cuda_compute_capability().IsAtLeastHopper();
 }
 
+bool AreAllTileStridesStatic(OffsetSizeAndStrideOpInterface op) {
+  for (int64_t idx = 0; idx < op.getStaticStrides().size(); ++idx) {
+    if (op.isDynamicStride(idx)) {
+      return false;
+    }
+  }
+  return true;
+}
+
 bool CanUseTMA(::xla::EmitterLocOpBuilder& builder, bool tma_enabled,
                const stream_executor::DeviceDescription& device_description,
                const ArrayRef<int64_t>& tile_shape,
+               bool are_all_tile_strides_static,
+               const ArrayRef<int64_t>& tile_strides,
                const TypedValue<RankedTensorType>& tensor,
                const ArrayRef<int64_t>& layout) {
   if (!tma_enabled) {
@@ -128,10 +140,14 @@ bool CanUseTMA(::xla::EmitterLocOpBuilder& builder, bool tma_enabled,
 
   // Limitations of TMA:
   // - The minor dimension of the global input must be divisible by 16.
+  // - The minor dimension must be contiguous. i.e. its tile stride must be 1.
   // - The block size must be less than 256 in every dimension.
   // See source:
   // https://docs.nvidia.com/cuda/cuda-driver-api/group__CUDA__TENSOR__MEMORY.html
   if (tensor.getType().getShape()[layout[0]] % 16 != 0) {
+    return false;
+  }
+  if (!are_all_tile_strides_static || tile_strides[layout[0]] != 1) {
     return false;
   }
   return llvm::none_of(tile_shape, [](int64_t dim) { return dim > 256; });
@@ -454,6 +470,7 @@ class RewriteExtract : public mlir::OpRewritePattern<ExtractOp> {
 
     auto offsets = op.getOffsetsAsValues(builder);
     if (CanUseTMA(builder, tma_enabled_, *device_description_, tile_shape,
+                  AreAllTileStridesStatic(op), op.getStaticStrides(),
                   op.getSrc(), op.getLayout())) {
       AddTmaAttributes(builder, op.getSrc(), tile_shape, op.getLayout());
 
@@ -545,6 +562,7 @@ class RewriteInsert : public mlir::OpRewritePattern<InsertOp> {
 
     auto offsets = op.getOffsetsAsValues(builder);
     if (CanUseTMA(builder, tma_enabled_, *device_description_, tile_shape,
+                  AreAllTileStridesStatic(op), op.getStaticStrides(),
                   op.getDst(), op.getLayout())) {
       AddTmaAttributes(builder, op.getDst(), tile_shape, op.getLayout());
 

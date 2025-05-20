@@ -17,12 +17,17 @@ limitations under the License.
 
 #include <iterator>
 #include <memory>
+#include <optional>
+#include <utility>
 #include <vector>
 
 #include "absl/log/log.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
+#include "xla/backends/autotuner/backends/gpu/cublas.h"
+#include "xla/backends/autotuner/backends/gpu/cublaslt.h"
+#include "xla/backends/autotuner/backends/gpu/custom_kernel.h"
 #include "xla/backends/autotuner/codegen_backend.h"
 #include "xla/hlo/ir/hlo_casting_utils.h"
 #include "xla/hlo/ir/hlo_instruction.h"
@@ -31,6 +36,8 @@ limitations under the License.
 #include "xla/hlo/utils/hlo_query.h"
 #include "xla/service/compiler.h"
 #include "xla/service/gpu/backend_configs.pb.h"
+#include "xla/service/gpu/cublas_cudnn.h"
+#include "xla/service/gpu/ir_emission_utils.h"
 #include "xla/service/gpu/transforms/custom_kernel_fusion_rewriter.h"
 #include "xla/service/gpu/transforms/dot_algorithm_rewriter.h"
 #include "xla/service/gpu/transforms/gemm_rewriter.h"
@@ -40,6 +47,7 @@ limitations under the License.
 #include "xla/stream_executor/device_description.h"
 #include "xla/stream_executor/stream_executor.h"
 #include "xla/tools/hlo_decomposer.h"
+#include "xla/tsl/platform/statusor.h"
 #include "xla/util.h"
 
 namespace xla {
@@ -47,8 +55,7 @@ namespace gpu {
 
 namespace se = ::stream_executor;
 
-using FissionBackendConfig = HloModuleProto;
-
+namespace {
 HloCostAnalysis::Options PriorityFusionOptions() {
   // The real pointer size is set in GpuCompiler. In HloCostAnalysis, the
   // pointer size is used only to determine the size of tuple types. We
@@ -56,6 +63,7 @@ HloCostAnalysis::Options PriorityFusionOptions() {
   // the default value here, instead of piping the real value.
   return {.count_multiple_input_accesses = true};
 }
+}  // namespace
 
 // Logs the error message if the status is not ok, otherwise returns true.
 template <typename T>
@@ -72,7 +80,7 @@ bool contains_error(absl::StatusOr<T> status_or,
 // custom call for the dot operation.
 // If rewrite_to_cublaslt is true, we will try to rewrite the dot to a cublasLt
 // custom call, otherwise we will try to rewrite it to a cublas custom call.
-std::vector<std::unique_ptr<FissionBackendConfig>> FissionFusionToCublas(
+std::optional<std::unique_ptr<HloModule>> FissionFusionToCublas(
     const HloFusionInstruction* fusion, se::StreamExecutor* stream_executor,
     bool rewrite_to_cublaslt) {
   const HloComputation* fusion_computation = fusion->called_computation();
@@ -88,7 +96,7 @@ std::vector<std::unique_ptr<FissionBackendConfig>> FissionFusionToCublas(
 
   if (dot == nullptr) {
     LOG(WARNING) << "No dot instruction found in the fusion.";
-    return {};
+    return std::nullopt;
   }
 
   // Substitute algorithms, which are not supported by cuBLAS for the check, but
@@ -110,7 +118,7 @@ std::vector<std::unique_ptr<FissionBackendConfig>> FissionFusionToCublas(
 
     if (contains_error(dot_algorithm_rewriter.Run(hlo_module.get()),
                        "Dot algorithm rewriter failed")) {
-      return {};
+      return std::nullopt;
     };
 
     GemmRewriter gemm_rewriter(device_description.gpu_compute_capability(),
@@ -118,7 +126,7 @@ std::vector<std::unique_ptr<FissionBackendConfig>> FissionFusionToCublas(
                                GemmRewriterOptions{dtype});
     absl::StatusOr<bool> changed = gemm_rewriter.Run(hlo_module.get());
     if (contains_error(changed, "Gemm rewriter failed")) {
-      return {};
+      return std::nullopt;
     }
 
     is_rewritten_to_cublas_custom_call |= *changed;
@@ -127,20 +135,18 @@ std::vector<std::unique_ptr<FissionBackendConfig>> FissionFusionToCublas(
         /*thread_pool=*/nullptr, device_description, PriorityFusionOptions());
     if (contains_error(fusion_pass.Run(hlo_module.get()),
                        "Priority fusion failed")) {
-      return {};
+      return std::nullopt;
     }
   }
 
   if (is_rewritten_to_cublas_custom_call) {
-    std::vector<std::unique_ptr<FissionBackendConfig>> configs;
-    configs.push_back(std::make_unique<HloModuleProto>(hlo_module->ToProto()));
-    return configs;
+    return hlo_module;
   }
 
-  return {};
+  return std::nullopt;
 }
 
-std::vector<std::unique_ptr<FissionBackendConfig>> FissionFusionToCustomKernel(
+std::optional<std::unique_ptr<HloModule>> FissionFusionToCustomKernel(
     const HloFusionInstruction* fusion, se::StreamExecutor* stream_executor) {
   const HloComputation* fusion_computation = fusion->called_computation();
   std::unique_ptr<HloModule> hlo_module =
@@ -161,12 +167,85 @@ std::vector<std::unique_ptr<FissionBackendConfig>> FissionFusionToCustomKernel(
     return {};
   };
   if (*is_rewritten_to_custom_kernel) {
-    std::vector<std::unique_ptr<FissionBackendConfig>> configs;
-    configs.push_back(std::make_unique<HloModuleProto>(hlo_module->ToProto()));
-    return configs;
+    return hlo_module;
   }
 
-  return {};
+  return std::nullopt;
+}
+
+absl::StatusOr<std::vector<std::unique_ptr<BackendConfig>>> GetCublasConfigs(
+    CublasBackend& cublas_backend, std::unique_ptr<HloModule> module,
+    se::StreamExecutor* stream_executor) {
+  std::vector<std::unique_ptr<BackendConfig>> configs;
+
+  for (HloComputation* computation : module->MakeNonfusionComputations()) {
+    for (HloInstruction* instruction : computation->instructions()) {
+      if (IsLegacyCublasMatmul(*instruction)) {
+        TF_ASSIGN_OR_RETURN(configs, cublas_backend.GetSupportedConfigs(
+                                         *instruction, stream_executor));
+      }
+    }
+  }
+
+  return configs;
+}
+
+absl::StatusOr<std::vector<std::unique_ptr<BackendConfig>>> GetCublasLtConfigs(
+    CublasLtBackend& cublaslt_backend, std::unique_ptr<HloModule> module,
+    se::StreamExecutor* stream_executor) {
+  std::vector<std::unique_ptr<BackendConfig>> configs;
+
+  for (HloComputation* computation : module->MakeNonfusionComputations()) {
+    for (HloInstruction* instruction : computation->instructions()) {
+      if (IsCublasLtMatmul(*instruction) || IsCublasLtMatmulF8(*instruction)) {
+        TF_ASSIGN_OR_RETURN(configs, cublaslt_backend.GetSupportedConfigs(
+                                         *instruction, stream_executor));
+      }
+    }
+  }
+
+  return configs;
+}
+
+bool IsCustomKernel(const HloComputation* computation) {
+  if (!computation->IsFusionComputation()) {
+    return false;
+  }
+
+  HloInstruction* instruction = computation->FusionInstruction();
+  absl::StatusOr<GpuBackendConfig> gpu_backend_config =
+      instruction->backend_config<GpuBackendConfig>();
+  if (!gpu_backend_config.ok()) {
+    return false;
+  }
+
+  if (instruction->fusion_kind() != HloInstruction::FusionKind::kCustom) {
+    return false;
+  }
+
+  if (!gpu_backend_config->has_fusion_backend_config()) {
+    return false;
+  }
+
+  return gpu_backend_config->fusion_backend_config().kind() ==
+         kCustomFusionKind;
+}
+
+absl::StatusOr<std::vector<std::unique_ptr<BackendConfig>>>
+GetCustomKernelConfigs(CustomKernelBackend& custom_kernel_backend,
+                       std::unique_ptr<HloModule> module,
+                       se::StreamExecutor* stream_executor) {
+  std::vector<std::unique_ptr<BackendConfig>> configs;
+
+  for (HloComputation* computation : module->MakeNonfusionComputations()) {
+    if (IsCustomKernel(computation)) {
+      TF_ASSIGN_OR_RETURN(
+          configs, custom_kernel_backend.GetSupportedConfigs(
+                       *computation->FusionInstruction(), stream_executor));
+    }
+  }
+
+  return configs;
 }
 
 absl::StatusOr<std::vector<std::unique_ptr<BackendConfig>>>
@@ -178,26 +257,52 @@ FissionBackend::GetSupportedConfigs(const HloInstruction& instr,
 
   const HloFusionInstruction* fusion = DynCast<HloFusionInstruction>(&instr);
 
-  std::vector<std::unique_ptr<FissionBackendConfig>> cublas_configs =
+  std::vector<std::unique_ptr<BackendConfig>> configs;
+
+  std::optional<std::unique_ptr<HloModule>> cublas_module =
       FissionFusionToCublas(fusion, stream_executor,
                             /*rewrite_to_cublaslt=*/false);
-  std::vector<std::unique_ptr<FissionBackendConfig>> cublaslt_configs =
+  if (cublas_module.has_value()) {
+    CublasBackend cublas_backend =
+        CublasBackend(&target_config(), &debug_options(), compiler());
+    TF_ASSIGN_OR_RETURN(
+        std::vector<std::unique_ptr<BackendConfig>> cublas_configs,
+        GetCublasConfigs(cublas_backend, std::move(*cublas_module),
+                         stream_executor));
+    configs.insert(configs.end(),
+                   std::make_move_iterator(cublas_configs.begin()),
+                   std::make_move_iterator(cublas_configs.end()));
+  }
+
+  std::optional<std::unique_ptr<HloModule>> cublaslt_module =
       FissionFusionToCublas(fusion, stream_executor,
                             /*rewrite_to_cublaslt=*/true);
-  std::vector<std::unique_ptr<FissionBackendConfig>> custom_kernel_configs =
-      FissionFusionToCustomKernel(fusion, stream_executor);
+  if (cublaslt_module.has_value()) {
+    CublasLtBackend cublaslt_backend =
+        CublasLtBackend(&target_config(), &debug_options(), compiler());
+    TF_ASSIGN_OR_RETURN(
+        std::vector<std::unique_ptr<BackendConfig>> cublaslt_configs,
+        GetCublasLtConfigs(cublaslt_backend, std::move(*cublaslt_module),
+                           stream_executor));
+    configs.insert(configs.end(),
+                   std::make_move_iterator(cublaslt_configs.begin()),
+                   std::make_move_iterator(cublaslt_configs.end()));
+  }
 
-  std::vector<std::unique_ptr<BackendConfig>> configs;
-  configs.reserve(cublas_configs.size() + cublaslt_configs.size() +
-                  custom_kernel_configs.size());
-  configs.insert(configs.end(), std::make_move_iterator(cublas_configs.begin()),
-                 std::make_move_iterator(cublas_configs.end()));
-  configs.insert(configs.end(),
-                 std::make_move_iterator(cublaslt_configs.begin()),
-                 std::make_move_iterator(cublaslt_configs.end()));
-  configs.insert(configs.end(),
-                 std::make_move_iterator(custom_kernel_configs.begin()),
-                 std::make_move_iterator(custom_kernel_configs.end()));
+  std::optional<std::unique_ptr<HloModule>> custom_kernel_module =
+      FissionFusionToCustomKernel(fusion, stream_executor);
+  if (custom_kernel_module.has_value()) {
+    CustomKernelBackend custom_kernel_backend =
+        CustomKernelBackend(&target_config(), &debug_options(), compiler());
+    TF_ASSIGN_OR_RETURN(
+        std::vector<std::unique_ptr<BackendConfig>> custom_kernel_configs,
+        GetCustomKernelConfigs(custom_kernel_backend,
+                               std::move(*custom_kernel_module),
+                               stream_executor));
+    configs.insert(configs.end(),
+                   std::make_move_iterator(custom_kernel_configs.begin()),
+                   std::make_move_iterator(custom_kernel_configs.end()));
+  }
 
   return configs;
 }

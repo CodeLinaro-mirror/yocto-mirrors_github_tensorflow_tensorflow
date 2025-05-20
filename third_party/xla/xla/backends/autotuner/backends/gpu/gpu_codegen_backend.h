@@ -48,6 +48,7 @@ class GpuCodegenBackend : public CodegenBackend {
 
   absl::string_view name() const override { return name_; }
 
+  Compiler* compiler() const { return compiler_; }
   const Compiler::TargetConfig& target_config() const { return target_config_; }
   const DebugOptions& debug_options() const { return debug_options_; }
 

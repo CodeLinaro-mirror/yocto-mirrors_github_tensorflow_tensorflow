@@ -313,6 +313,9 @@ cc_library(
     hdrs = ["fission.h"],
     tags = ["gpu"],
     deps = [
+        ":cublas",
+        ":cublaslt",
+        ":custom_kernel",
         ":gpu_codegen_backend",
         "//xla:util",
         "//xla/backends/autotuner:codegen_backend",
@@ -322,6 +325,8 @@ cc_library(
         "//xla/service:hlo_cost_analysis",
         "//xla/service:hlo_proto_cc",
         "//xla/service/gpu:backend_configs_cc",
+        "//xla/service/gpu:cublas_cudnn",
+        "//xla/service/gpu:ir_emission_utils",
         "//xla/service/gpu/transforms:custom_kernel_fusion_rewriter",
         "//xla/service/gpu/transforms:dot_algorithm_rewriter",
         "//xla/service/gpu/transforms:gemm_rewriter",
@@ -329,11 +334,11 @@ cc_library(
         "//xla/stream_executor:device_description",
         "//xla/stream_executor:stream_executor_h",
         "//xla/tools:hlo_decomposer_lib",
+        "//xla/tsl/platform:statusor",
         "@com_google_absl//absl/log",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings:string_view",
-        "@llvm-project//llvm:Support",
     ],
 )
 

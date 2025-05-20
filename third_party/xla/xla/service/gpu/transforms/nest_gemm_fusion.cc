@@ -376,10 +376,11 @@ bool IsSafeToSinkBitcastBelow(HloInstruction* instruction) {
   }
 }
 
-// Parameters to rewrite a broadcast + reshape as reshape + broadcast.
-struct ReshapeBroadcastOutputParams {
-  std::vector<int64_t> new_broadcast_dim_map;
-  Shape new_operand_shape;
+// Parameters to rewrite a
+// reshape(broadcast/tanspose) as broadcast/transpose(reshape).
+struct ReshapeOutputParams {
+  Shape new_shape;                // The reshape output shape.
+  std::vector<int64_t> new_dims;  // The dims of the broadcast/transpose.
 };
 
 // Returns parameters to rewrite a broadcast + reshape as reshape + broadcast.
@@ -397,7 +398,7 @@ struct ReshapeBroadcastOutputParams {
 // Assumes that:
 // - broadcast does not transpose dimensions (checked by hlo_verifier);
 // - reshape does not mix operand and broadcast dimensions (checks);
-absl::StatusOr<ReshapeBroadcastOutputParams> CalculateBroadcastOutputReshape(
+absl::StatusOr<ReshapeOutputParams> CalculateBroadcastOutputReshape(
     const HloBroadcastInstruction* broadcast,
     absl::Span<const int64_t> target_dims) {
   // The rewrite works by splitting the broadcast output dimensions and the
@@ -406,11 +407,11 @@ absl::StatusOr<ReshapeBroadcastOutputParams> CalculateBroadcastOutputReshape(
   // the operand is used to construct the new operand shape.
   auto broadcast_dims = broadcast->shape().dimensions();
   QCHECK_EQ(broadcast->dimensions().size(),
-            broadcast->operands()[0]->shape().dimensions().size())
+            broadcast->operand(0)->shape().dimensions().size())
       << absl::StrCat("Broadcast 'dimensions' parameter size ",
                       broadcast->dimensions().size(),
                       " does not the match the operand rank ",
-                      broadcast->operands()[0]->shape().dimensions().size());
+                      broadcast->operand(0)->shape().dimensions().size());
   if (Product(broadcast_dims) != Product(target_dims)) {
     return absl::InvalidArgumentError(absl::StrCat(
         "Broadcast shape dimensions product ", Product(broadcast_dims), " (",
@@ -428,7 +429,7 @@ absl::StatusOr<ReshapeBroadcastOutputParams> CalculateBroadcastOutputReshape(
   for (const int64_t i : broadcast->dimensions()) {
     output_dim_from_operand[i] = true;
   }
-  ReshapeBroadcastOutputParams result;
+  ReshapeOutputParams result;
   std::vector<int64_t> new_operand_dims;
   absl::InlinedVector<std::pair<int64_t, int64_t>, 8> factors =
       CommonFactors(broadcast_dims, target_dims);
@@ -453,13 +454,58 @@ absl::StatusOr<ReshapeBroadcastOutputParams> CalculateBroadcastOutputReshape(
     }
     // Update the expected operand shape.
     for (int64_t j = target_from; j < target_to; ++j) {
-      result.new_broadcast_dim_map.push_back(j);
+      result.new_dims.push_back(j);
       new_operand_dims.push_back(target_dims[j]);
     }
   }
-  result.new_operand_shape = ShapeUtil::MakeShape(
-      broadcast->operand(0)->shape().element_type(), new_operand_dims);
+  result.new_shape =
+      ShapeUtil::MakeShape(broadcast->shape().element_type(), new_operand_dims);
   return std::move(result);
+}
+
+absl::StatusOr<ReshapeOutputParams> CalculateTransposeOutputReshape(
+    const HloTransposeInstruction* transpose,
+    absl::Span<const int64_t> target_dims) {
+  // The rewrite works by splitting the transpose output dimensions and the
+  // target dimensions into groups of equal size. Every group is then associated
+  // with one of the operand dimensions.
+  auto transpose_dims = transpose->shape().dimensions();
+  QCHECK_EQ(transpose->dimensions().size(),
+            transpose->operand(0)->shape().dimensions().size())
+      << absl::StrCat("Transpose 'dimensions' parameter size ",
+                      transpose->dimensions().size(),
+                      " does not the match the operand rank ",
+                      transpose->operand(0)->shape().dimensions().size());
+  if (Product(transpose_dims) != Product(target_dims)) {
+    return absl::InvalidArgumentError(absl::StrCat(
+        "Transpose shape dimensions product ", Product(transpose_dims), " (",
+        transpose->shape().ToString(),
+        ") does not match target shape dimensions product ",
+        Product(target_dims), " (", absl::StrJoin(target_dims, ","), ")"));
+  }
+  if (!LayoutUtil::IsMonotonicWithDim0Major(transpose->shape().layout())) {
+    // TODO(b/393299275): do we need to support non-default layouts?
+    return absl::UnimplementedError(
+        absl::StrCat("Not-default layouts for broadcast is not supported yet: ",
+                     transpose->shape().layout().ToString()));
+  }
+  std::vector<int64_t> new_dims(target_dims.size(), 0);
+  std::vector<int64_t> new_operand_dims;
+  absl::InlinedVector<std::pair<int64_t, int64_t>, 8> factors =
+      CommonFactors(transpose_dims, target_dims);
+  int64_t dim = 0;
+  for (int64_t i : transpose->dimensions()) {
+    auto [transpose_from, target_from] = factors[i];
+    auto [transpose_to, target_to] = factors[i + 1];
+    // Update the expected operand shape.
+    for (int64_t j = target_from; j < target_to; ++j) {
+      new_dims[j] = dim++;
+      new_operand_dims.push_back(target_dims[j]);
+    }
+  }
+  return ReshapeOutputParams{
+      ShapeUtil::MakeShape(transpose->shape().element_type(), new_operand_dims),
+      std::move(new_dims)};
 }
 
 // Simulates a rewrite of all producers of a given bitcast, moving the bitcast
@@ -536,12 +582,21 @@ PlanHoistBitcastToCallers(const HloInstruction* bitcast) {
         // its operand.
         break;
       case HloOpcode::kBroadcast: {
-        TF_ASSIGN_OR_RETURN(ReshapeBroadcastOutputParams params,
+        TF_ASSIGN_OR_RETURN(ReshapeOutputParams params,
                             CalculateBroadcastOutputReshape(
                                 Cast<HloBroadcastInstruction>(instruction),
                                 shape.dimensions()));
         TF_RETURN_IF_ERROR(
-            set_shape(instruction->operands(), params.new_operand_shape));
+            set_shape(instruction->operands(), params.new_shape));
+        break;
+      }
+      case HloOpcode::kTranspose: {
+        TF_ASSIGN_OR_RETURN(ReshapeOutputParams params,
+                            CalculateTransposeOutputReshape(
+                                Cast<HloTransposeInstruction>(instruction),
+                                shape.dimensions()));
+        TF_RETURN_IF_ERROR(
+            set_shape(instruction->operands(), params.new_shape));
         break;
       }
       default:
@@ -585,7 +640,16 @@ absl::Status HoistBitcastUpwardsToCallers(
             CalculateBroadcastOutputReshape(broadcast, shape.dimensions());
         QCHECK_OK(params);  // This must be OK as we have already ran this in
                             // AssignShapesToHoistBitcastToCallers.
-        *broadcast->mutable_dimensions() = params.value().new_broadcast_dim_map;
+        *broadcast->mutable_dimensions() = params.value().new_dims;
+        break;
+      }
+      case HloOpcode::kTranspose: {
+        auto* transpose = Cast<HloTransposeInstruction>(instruction);
+        auto params =
+            CalculateTransposeOutputReshape(transpose, shape.dimensions());
+        QCHECK_OK(params);  // This must be OK as we have already ran this in
+                            // AssignShapesToHoistBitcastToCallers.
+        *transpose->mutable_dimensions() = params.value().new_dims;
         break;
       }
       default:

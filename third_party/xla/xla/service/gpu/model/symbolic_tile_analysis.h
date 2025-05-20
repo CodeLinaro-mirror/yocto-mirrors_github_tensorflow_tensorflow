@@ -24,6 +24,7 @@ limitations under the License.
 #include <variant>
 #include <vector>
 
+#include "absl/container/flat_hash_map.h"
 #include "absl/container/inlined_vector.h"
 #include "absl/log/check.h"
 #include "absl/log/log.h"
@@ -33,8 +34,9 @@ limitations under the License.
 #include "xla/hlo/analysis/indexing_map.h"
 #include "xla/hlo/ir/hlo_computation.h"
 #include "xla/hlo/ir/hlo_instruction.h"
+#include "xla/hlo/ir/hlo_instructions.h"
 #include "xla/hlo/utils/hlo_traversal.h"
-#include "xla/service/gpu/model/symbolic_tile.h"
+#include "xla/service/gpu/model/constraint_expression.h"
 #include "xla/service/gpu/model/symbolic_tiled_hlo_instruction.h"
 #include "xla/service/gpu/model/tiled_hlo_computation.h"
 #include "xla/service/instruction_fusion.h"
@@ -45,6 +47,50 @@ namespace gpu {
 class SymbolicTileAnalysis;
 using SymbolicTileAnalysisOrError =
     std::variant<SymbolicTileAnalysis, FusionDecision>;
+
+// A `TilingSpecification` describes the structure of a set of expected tile
+// sizes, by indicating how many tile sizes must be specified for each
+// instruction within a set.
+//
+// The intent is for `TilingSpecification`s to be used in order to construct
+// `Tiling`s for single fusions, with the guarantee that if the `Tiling`
+// satisfies the `TilingSpecification`, then the `Tiling` contains exactly
+// as many parameters as necessary to tile the whole fusion.
+//
+// TODO(b/419026602): reductions are ignored for now. This will need to handle
+// them.
+class TilingSpecification {
+ public:
+  // Constructs a tiling specification for a given fusion. The derivation
+  // is only guaranteed to succeed in the absence of output tuple shapes and
+  // tokens. This still handles basic pre-constructed multi-output fusions
+  // anyway, since the adaptor skips through the root tuple instruction if it
+  // exists.
+  static absl::StatusOr<TilingSpecification> FromFusion(
+      const HloFusionAdaptor& fusion_adaptor);
+
+  // Same as the overload using `HloFusionAdaptor`, but for a fusion
+  // instruction.
+  static absl::StatusOr<TilingSpecification> FromFusion(
+      const HloFusionInstruction& fusion);
+
+  // Returns the underlying map describing the necessary parameters for each
+  // relevant instruction in the fusion.
+  const absl::flat_hash_map<const HloInstruction*, int64_t>&
+  specification_for_instruction() const {
+    return specification_for_instruction_;
+  }
+
+ private:
+  explicit TilingSpecification(
+      absl::flat_hash_map<const HloInstruction*, int64_t>
+          specification_for_instruction)
+      : specification_for_instruction_(
+            std::move(specification_for_instruction)) {};
+
+  absl::flat_hash_map<const HloInstruction*, int64_t>
+      specification_for_instruction_;
+};
 
 // Holds the indexing information for the roots of the computation.
 struct RootIndexing {
@@ -123,7 +169,7 @@ class SymbolicTileAnalysis {
   // `constraints_are_known_satisfied` to true bypasses this check.
   //
   // If `compute_all_tile_offset_indexing_maps == true`, all
-  // TiledHloInstructions will have tile offset indexing maps set. Otherwise,
+  // `TiledHloInstruction`s will have tile offset indexing maps set. Otherwise,
   // the indexing maps will be set only for instructions that have equal hash to
   // deduplicate them.
   absl::StatusOr<TiledHloComputation> ComputeTiledHloInstructions(

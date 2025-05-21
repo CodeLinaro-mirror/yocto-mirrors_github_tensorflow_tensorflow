@@ -387,7 +387,7 @@ MeshAxesAndIds findMeshAxesAndIds(ModuleOp moduleOp) {
   namedAxes.reserve(axes.size());
   for (auto [axisIndex, axisSize] : llvm::enumerate(axes)) {
     auto name = StringAttr::get(moduleOp->getContext(),
-                                absl::StrCat("axis_", axisIndex));
+                                absl::StrCat("_axis_", axisIndex));
     namedAxes.push_back(
         MeshAxisAttr::get(moduleOp->getContext(), name, axisSize));
   }

@@ -20,6 +20,7 @@ limitations under the License.
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/types/span.h"
+#include "xla/backends/gpu/runtime/copy_thunk.h"
 #include "xla/backends/gpu/runtime/gemm_thunk.h"
 #include "xla/backends/gpu/runtime/sequential_thunk.h"
 #include "xla/backends/gpu/runtime/thunk.h"
@@ -48,12 +49,24 @@ absl::StatusOr<std::unique_ptr<Thunk>> DeserializeThunkProto(
     return SequentialThunk::FromProto(
         thunk_info, thunk_proto.sequential_thunk(), deserializer);
   }
-
+  if (thunk_proto.has_copy_thunk()) {
+    return CopyThunk::FromProto(thunk_info, thunk_proto.copy_thunk(),
+                                buffer_allocations);
+  }
+  if (thunk_proto.has_device_to_host_copy_thunk()) {
+    return DeviceToHostCopyThunk::FromProto(
+        thunk_info, thunk_proto.device_to_host_copy_thunk(),
+        buffer_allocations);
+  }
+  if (thunk_proto.has_host_to_device_copy_thunk()) {
+    return HostToDeviceCopyThunk::FromProto(
+        thunk_info, thunk_proto.host_to_device_copy_thunk(),
+        buffer_allocations);
+  }
   if (thunk_proto.has_gemm_thunk()) {
     return GemmThunk::FromProto(thunk_info, thunk_proto.gemm_thunk(),
                                 buffer_allocations);
   }
-
   return absl::InvalidArgumentError("Unknown thunk type found in ThunkProto.");
 }
 

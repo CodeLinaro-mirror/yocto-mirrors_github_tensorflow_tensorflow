@@ -525,14 +525,17 @@ LogicalResult importShardings(
     const SmallDenseMap<int64_t, StringRef>& deviceIdToMaximalMeshName,
     ArrayRef<bool> allowPropagationToArgs,
     ArrayRef<bool> allowPropagationToResults) {
+  auto getRank = [](mlir::Type type) {
+    return mlir::isa<ShapedType>(type) ? mlir::cast<ShapedType>(type).getRank()
+                                       : 0;
+  };
   for (auto [argNum, argType] : llvm::enumerate(funcOp.getArgumentTypes())) {
     if (auto oldSharding =
             funcOp.getArgAttrOfType<StringAttr>(argNum, kXlaShardingAttr)) {
       funcOp.setArgAttr(
           argNum, kShardingAttr,
           convertToSdySharding(parseShardingFromString(oldSharding), globalMesh,
-                               deviceIdToMaximalMeshName,
-                               mlir::cast<ShapedType>(argType).getRank(),
+                               deviceIdToMaximalMeshName, getRank(argType),
                                shouldOpenDims(allowPropagationToArgs, argNum)));
       funcOp.removeArgAttr(argNum, kXlaShardingAttr);
     }
@@ -545,8 +548,7 @@ LogicalResult importShardings(
           resNum, kShardingAttr,
           convertToSdySharding(
               parseShardingFromString(oldSharding), globalMesh,
-              deviceIdToMaximalMeshName,
-              mlir::cast<ShapedType>(resType).getRank(),
+              deviceIdToMaximalMeshName, getRank(resType),
               shouldOpenDims(allowPropagationToResults, resNum)));
       funcOp.removeResultAttr(
           resNum, StringAttr::get(funcOp.getContext(), kXlaShardingAttr));
@@ -564,10 +566,10 @@ LogicalResult importShardings(
       newShardings.reserve(op->getNumResults());
       for (const auto& [resHloSharding, resType] :
            llvm::zip_equal(flatHloSharding, op->getResultTypes())) {
-        newShardings.push_back(convertToSdySharding(
-            resHloSharding, globalMesh, deviceIdToMaximalMeshName,
-            mlir::cast<ShapedType>(resType).getRank(),
-            /*openDims=*/false));
+        newShardings.push_back(convertToSdySharding(resHloSharding, globalMesh,
+                                                    deviceIdToMaximalMeshName,
+                                                    getRank(resType),
+                                                    /*openDims=*/false));
       }
       mlir::sdy::setShardings(op, newShardings);
       op->removeAttr(kXlaShardingAttr);

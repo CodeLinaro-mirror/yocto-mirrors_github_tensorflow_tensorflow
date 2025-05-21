@@ -199,8 +199,9 @@ void convertShardyAttrs(FuncOp funcOp, IRRewriter& rewriter) {
     if (mlir::isa<stablehlo::SendOp, stablehlo::RecvOp>(op)) {
       auto sharding = parseStringAttr<TensorShardingPerValueAttr>(
           dictAttr, kShardingRoundTripAttr);
-      CHECK(sharding) << "Expect sharding to exist for SendOp/RecvOp.";
-      op->setAttr(kShardingAttr, sharding);
+      if (sharding) {
+        op->setAttr(kShardingAttr, sharding);
+      }
     }
     // NOTE: we are only setting the sharding on known custom-calls. For any
     // other op that has a `kShardingRoundTripAttr` we discard it. XLA sometimes

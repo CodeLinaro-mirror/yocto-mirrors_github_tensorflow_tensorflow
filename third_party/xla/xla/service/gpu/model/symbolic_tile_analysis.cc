@@ -705,17 +705,20 @@ absl::StatusOr<int64_t> GetRealRootIndex(
   while (!worklist.empty()) {
     auto tiled_hlo_instruction = worklist.back();
     worklist.pop_back();
-    HloInstructionAdaptor instruction_adaptor(*tiled_hlo_instruction->hlo(),
-                                              &fusion);
 
-    if (!fusion.ContainsInstruction(instruction_adaptor)) {
+    if (!fusion.ContainsInstruction(tiled_hlo_instruction->hlo())) {
       continue;
+    }
+    if (tiled_hlo_instruction->hlo()->opcode() == HloOpcode::kFusion) {
+      continue;  // Don't analyze parameter operands of nested fusions.
     }
 
     HloInstructionIndexing operands_indexing =
         ComputeOutputToInputIndexing(tiled_hlo_instruction->hlo(),
                                      /*output_id=*/0, ctx);
 
+    HloInstructionAdaptor instruction_adaptor(*tiled_hlo_instruction->hlo(),
+                                              &fusion);
     for (auto [operand, operand_indexing_map_set] :
          llvm::zip(instruction_adaptor.GetOperands(),
                    operands_indexing.indexing_maps)) {

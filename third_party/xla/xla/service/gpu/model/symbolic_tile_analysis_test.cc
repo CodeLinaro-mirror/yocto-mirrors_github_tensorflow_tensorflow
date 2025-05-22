@@ -1622,7 +1622,7 @@ ENTRY main {
        tiled_hlo_computation.instructions()) {
     if (auto tiled_fusion =
             dynamic_cast<const TiledHloFusionInstruction*>(tiled_instr)) {
-      nested_fusions[tiled_fusion->operand(0)->hlo()->parameter_number()] =
+      nested_fusions[tiled_fusion->hlo()->operand(0)->parameter_number()] =
           tiled_fusion;
     }
   }
@@ -1718,7 +1718,7 @@ ENTRY main {
        tiled_hlo_computation.instructions()) {
     if (auto tiled_fusion =
             dynamic_cast<const TiledHloFusionInstruction*>(tiled_instr)) {
-      nested_fusions[tiled_fusion->operand(0)->hlo()->parameter_number()] =
+      nested_fusions[tiled_fusion->hlo()->operand(0)->parameter_number()] =
           tiled_fusion;
     }
   }

@@ -1830,6 +1830,7 @@ absl::Status DefaultSchedulerCore::ScheduleAnnotation(
     }
   }
   int64_t num_scheduled = 0;
+  int64_t non_ready_instr = 0;
   int64_t annotation_size =
       annotation_tracker_->GetNumInstructions(computation, annotation);
   while (!sched_state->annotation_ready.empty()) {
@@ -1853,6 +1854,44 @@ absl::Status DefaultSchedulerCore::ScheduleAnnotation(
 
     TF_RET_CHECK(node != nullptr)
         << "Couldn't find an annotated node to schedule.";
+    // Delay last instruction of annotation maybe.
+    if (config_.flexible_scheduling_annotation_scheduling &&
+        num_scheduled == annotation_size - 1) {
+      // If not ready then delay it.
+      if (node->GetReadyTime() > sched_state->current_time) {
+        VLOG(2) << "Non ready instr: " << node->GetInstr().name();
+        ++non_ready_instr;
+        node->ClearAnnotation();
+        sched_state->nodes_holding_annotations.insert(node);
+        continue;
+      }
+      // If not resource constrained, on this async op then delay it anyway.
+      // Rest of scheduling rules will schedule it when its constrained.
+      if (sched_state->async_tracker->IsSupportedAsyncStart(node->GetInstr())) {
+        bool resource_constrained = false;
+        for (const auto& [resource_type, usage_type] : node->GetResources()) {
+          auto max_it =
+              sched_state->max_concurrent_resource.find(resource_type);
+          auto res_it =
+              sched_state->resource_users_in_queue.find(resource_type);
+          resource_constrained =
+              max_it != sched_state->max_concurrent_resource.end() &&
+              max_it->second == 0 &&
+              res_it != sched_state->resource_users_in_queue.end() &&
+              res_it->second > 0;
+          if (resource_constrained) {
+            break;
+          }
+        }
+        if (!resource_constrained) {
+          VLOG(2) << "Not resource constrained: " << node->GetInstr().name();
+          ++non_ready_instr;
+          node->ClearAnnotation();
+          sched_state->nodes_holding_annotations.insert(node);
+          continue;
+        }
+      }
+    }
     // Delete the node from the ready set.
     auto node_it = std::find(sched_state->ready_set.begin(),
                              sched_state->ready_set.end(), node);
@@ -1870,7 +1909,7 @@ absl::Status DefaultSchedulerCore::ScheduleAnnotation(
             << annotation_size << "): " << node->GetInstr().name();
   }
   // Check that we scheduled all the nodes in the annotation.
-  TF_RET_CHECK(num_scheduled == annotation_size)
+  TF_RET_CHECK(num_scheduled == annotation_size - non_ready_instr)
       << "Couldn't schedule all annotated nodes in one go.";
   return absl::OkStatus();
 }
@@ -1897,6 +1936,7 @@ absl::StatusOr<HloGraphNode::TimeCost> DefaultSchedulerCore::ScheduleNode(
   sched_state->new_sequence_reversed.push_back(
       const_cast<HloInstruction*>(&n->GetInstr()));
   n->SetScheduled();
+  sched_state->nodes_holding_annotations.erase(n);
 
   // If this node was a successor to one or more scheduling groups, update the
   // number of scheduled successors for each of those groups and add the group
@@ -2671,7 +2711,8 @@ DefaultSchedulerCore::ScheduleComputation(const HloComputation* computation) {
       };
       return absl::StrJoin(sched_state.ready_set, "\n", LogFormatter());
     }());
-    if (!sched_state.ready_annotations.empty()) {
+    if (!sched_state.ready_annotations.empty() &&
+        sched_state.nodes_holding_annotations.empty()) {
       // Pick the first ready annotation whose scheduling will not cross the
       // overlap limit. If there is no such annotation, continue with scheduling
       // non-annotated ops.

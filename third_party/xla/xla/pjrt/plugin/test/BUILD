@@ -84,3 +84,21 @@ xla_cc_test(
         "@com_google_googletest//:gtest_main",
     ],
 )
+
+xla_cc_test(
+    name = "plugin_compile_only_test",
+    srcs = ["plugin_compile_only_test.cc"],
+    tags = ["no_oss"],
+    deps = [
+        ":plugin_test_fixture",
+        "//xla/pjrt:mlir_to_hlo",
+        "//xla/pjrt:pjrt_c_api_client",
+        "//xla/pjrt:pjrt_client",
+        "//xla/pjrt:pjrt_compiler",
+        "//xla/pjrt:pjrt_executable",
+        "//xla/pjrt/plugin/xla_tpu:tpu_static_registration",
+        "//xla/tsl/platform:statusor",
+        "@com_google_googletest//:gtest_main",
+        "@llvm-project//mlir:IR",
+    ],
+)

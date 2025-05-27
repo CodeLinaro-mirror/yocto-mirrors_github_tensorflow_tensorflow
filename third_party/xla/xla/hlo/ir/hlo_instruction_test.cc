@@ -36,7 +36,8 @@ namespace {
 using HloInstructionTest = HloHardwareIndependentTestBase;
 
 TEST_F(HloInstructionTest, SetFrontendAttribute) {
-  HloConstantInstruction instr(ShapeUtil::MakeShape(U32, {3, 2}));
+  HloConstantInstruction instr(
+      ShapeUtil::MakeValidatedShape(U32, {3, 2}).value());
   instr.set_frontend_attribute("key1", "value1");
   EXPECT_EQ(instr.get_frontend_attribute("key1").value(), "value1");
   instr.set_frontend_attribute("key1", "value2");
@@ -44,7 +45,8 @@ TEST_F(HloInstructionTest, SetFrontendAttribute) {
 }
 
 TEST_F(HloInstructionTest, AddFrontendAttribute) {
-  HloConstantInstruction instr(ShapeUtil::MakeShape(U32, {3, 2}));
+  HloConstantInstruction instr(
+      ShapeUtil::MakeValidatedShape(U32, {3, 2}).value());
   EXPECT_TRUE(instr.add_frontend_attribute("key1", "value1"));
   EXPECT_EQ(instr.get_frontend_attribute("key1").value(), "value1");
   EXPECT_FALSE(instr.add_frontend_attribute("key1", "value2"));
@@ -52,7 +54,8 @@ TEST_F(HloInstructionTest, AddFrontendAttribute) {
 }
 
 TEST_F(HloInstructionTest, SetFrontendAttributes) {
-  HloConstantInstruction instr(ShapeUtil::MakeShape(U32, {3, 2}));
+  HloConstantInstruction instr(
+      ShapeUtil::MakeValidatedShape(U32, {3, 2}).value());
   instr.add_frontend_attribute("key1", "value1");
   FrontendAttributes attributes;
   attributes.mutable_map()->insert({"key1", "value2"});
@@ -64,7 +67,8 @@ TEST_F(HloInstructionTest, SetFrontendAttributes) {
 }
 
 TEST_F(HloInstructionTest, AddFrontendAttributes) {
-  HloConstantInstruction instr(ShapeUtil::MakeShape(U32, {3, 2}));
+  HloConstantInstruction instr(
+      ShapeUtil::MakeValidatedShape(U32, {3, 2}).value());
   instr.add_frontend_attribute("key1", "value1");
   FrontendAttributes attributes;
   attributes.mutable_map()->insert({"key1", "value2"});
@@ -76,10 +80,10 @@ TEST_F(HloInstructionTest, AddFrontendAttributes) {
 }
 
 TEST_F(HloInstructionTest, CustomCallInstructionStorage) {
-  HloCustomCallInstruction instr(ShapeUtil::MakeShape(U32, {3, 2}),
-                                 /*operands=*/{}, "custom_call_target",
-                                 /*opaque=*/"",
-                                 CustomCallApiVersion::API_VERSION_ORIGINAL);
+  HloCustomCallInstruction instr(
+      ShapeUtil::MakeValidatedShape(U32, {3, 2}).value(),
+      /*operands=*/{}, "custom_call_target",
+      /*opaque=*/"", CustomCallApiVersion::API_VERSION_ORIGINAL);
   EXPECT_EQ(instr.GetPerInstructionStorage(), nullptr);
   auto* storage1 = new HloCustomCallInstruction::PerInstructionStorage();
   auto* storage2 = new HloCustomCallInstruction::PerInstructionStorage();
@@ -95,9 +99,11 @@ TEST_F(HloInstructionTest, CustomCallInstructionStorage) {
 }
 
 TEST_F(HloInstructionTest, DeriveComputeTypeAttribute) {
-  HloConstantInstruction instr0(ShapeUtil::MakeShape(U32, {3, 2}));
+  HloConstantInstruction instr0(
+      ShapeUtil::MakeValidatedShape(U32, {3, 2}).value());
   instr0.add_frontend_attribute(kXlaComputeTypeAttr, kXlaComputeTypeHost);
-  HloConstantInstruction instr1(ShapeUtil::MakeShape(U32, {3, 2}));
+  HloConstantInstruction instr1(
+      ShapeUtil::MakeValidatedShape(U32, {3, 2}).value());
   instr0.SetupDerivedInstruction(&instr1);
   EXPECT_FALSE(instr1.has_frontend_attributes());
 }

@@ -134,9 +134,11 @@ cc_library(
     deps = [
         "//xla:shape_util",
         "//xla:util",
+        "//xla/runtime:work_dimensions",
         "//xla/service:platform_util",
         "//xla/stream_executor:device_description",
         "//xla/stream_executor:launch_dim",
+        "@com_google_absl//absl/log:check",
         "@com_google_absl//absl/strings",
     ],
 )
@@ -667,6 +669,7 @@ cc_library(
         "//xla:status_macros",
         "//xla:util",
         "//xla:xla_data_proto_cc",
+        "//xla/codegen:ir_emission_utils",
         "//xla/hlo/ir:hlo",
         "//xla/hlo/utils:hlo_traversal",
         "//xla/service:buffer_assignment",
@@ -2416,6 +2419,7 @@ cc_library(
         ":ir_emission_utils",
         ":reduction_utils",
         "//xla:shape_util",
+        "//xla/codegen:ir_emission_utils",
         "//xla/hlo/ir:hlo",
         "//xla/hlo/utils:hlo_traversal",
         "//xla/stream_executor:device_description",

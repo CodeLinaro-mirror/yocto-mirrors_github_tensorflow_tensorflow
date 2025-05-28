@@ -47,6 +47,9 @@ limitations under the License.
 #include "mlir/IR/AffineMap.h"
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/Support/LLVM.h"
+#include "xla/runtime/work_dimensions.h"
+#include "xla/runtime/work_group.h"
+#include "xla/runtime/work_item.h"
 #include "tsl/platform/logging.h"  // IWYU pragma: keep
 
 namespace xla {
@@ -998,6 +1001,21 @@ std::vector<IndexingMap::Variable> DimVarsFromGPUGrid(
       IndexingMap::Variable{0, grid_sizes[3] - 1, kVarKindBlockX},
       IndexingMap::Variable{0, grid_sizes[4] - 1, kVarKindBlockY},
       IndexingMap::Variable{0, grid_sizes[5] - 1, kVarKindBlockZ},
+  };
+}
+
+std::vector<IndexingMap::Variable> DimVarsFromWorkDimensions(
+    const WorkDimensions& work_dimensions) {
+  const NumWorkItems& num_work_items = work_dimensions.num_work_items;
+  const NumWorkGroups& num_work_groups = work_dimensions.num_work_groups;
+  // TODO(willfroom): Change the name to work items/groups.
+  return {
+      IndexingMap::Variable(0, num_work_items.x - 1, kVarKindThreadX),
+      IndexingMap::Variable(0, num_work_items.y - 1, kVarKindThreadY),
+      IndexingMap::Variable(0, num_work_items.z - 1, kVarKindThreadZ),
+      IndexingMap::Variable(0, num_work_groups.x - 1, kVarKindBlockX),
+      IndexingMap::Variable(0, num_work_groups.y - 1, kVarKindBlockY),
+      IndexingMap::Variable(0, num_work_groups.z - 1, kVarKindBlockZ),
   };
 }
 

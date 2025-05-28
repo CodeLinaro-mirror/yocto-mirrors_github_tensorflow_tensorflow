@@ -36,6 +36,7 @@ limitations under the License.
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/Support/LLVM.h"
 #include "xla/hlo/ir/hlo_instruction.h"
+#include "xla/runtime/work_dimensions.h"
 
 namespace xla {
 
@@ -482,6 +483,11 @@ std::vector<IndexingMap::Variable> DimVarsFromTensorSizes(
 
 std::vector<IndexingMap::Variable> DimVarsFromGPUGrid(
     absl::Span<const int64_t> grid_sizes);
+
+// Helper to get the work item and work group dimension variables from the work
+// dimensions.
+std::vector<IndexingMap::Variable> DimVarsFromWorkDimensions(
+    const WorkDimensions& work_dimensions);
 
 std::vector<IndexingMap::Variable> RangeVarsFromTensorSizes(
     absl::Span<const int64_t> tensor_sizes);

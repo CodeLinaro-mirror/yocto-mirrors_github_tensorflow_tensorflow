@@ -129,8 +129,12 @@ static absl::StatusOr<uint32_t> DefineTensorValue(xnn_subgraph_t subgraph,
     tensor_flags = XNN_VALUE_FLAG_EXTERNAL_OUTPUT;
   }
 
+  // TODO: XNNPACK maintains a pointer to this memory. Is this memory guaranteed
+  // to exist when invoking the subgraph?
+  const void* value =
+      instr->IsConstant() ? instr->literal().untyped_data() : nullptr;
   XNN_RETURN_IF_ERROR(xnn_define_tensor_value(
-      subgraph, type, dims.size(), dims.data(), nullptr,
+      subgraph, type, dims.size(), dims.data(), value,
       /*external_id=*/tensor_id, tensor_flags, &tensor_id));
 
   return tensor_id;
@@ -256,6 +260,11 @@ static absl::StatusOr<xnn_subgraph_t> EmitXnnSubgraph(
       case HloOpcode::kParameter: {
         TF_ASSIGN_OR_RETURN(tensor_ids[instr],
                             DefineParameter(subgraph, instr));
+      } break;
+
+      case HloOpcode::kConstant: {
+        TF_ASSIGN_OR_RETURN(tensor_ids[instr],
+                            DefineTensorValue(subgraph, instr));
       } break;
 
       case HloOpcode::kConvert: {

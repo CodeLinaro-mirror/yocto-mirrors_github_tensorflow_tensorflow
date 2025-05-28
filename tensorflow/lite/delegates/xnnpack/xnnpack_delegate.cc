@@ -137,8 +137,7 @@ bool CheckAffineQuantization(
                        TfLiteTypeGetName(tensor.type), t);
     return false;
   }
-  if (quantization_params.scale->size != quantization_params.zero_point->size &&
-      quantization_params.zero_point->size != 1) {
+  if (quantization_params.scale->size != quantization_params.zero_point->size) {
     TF_LITE_KERNEL_LOG(context,
                        "mismatching number of scale (%d) and zero "
                        "point (%d) quantization parameters for %s "
@@ -181,8 +180,7 @@ bool CheckZeroPointForPerTensorQuantization(
 bool CheckZeroPointForPerChannelQuantization(
     TfLiteContext* context, const TfLiteTensor& tensor, int t,
     const TfLiteIntArray& quantization_zero_point) {
-  // All zero points must be 0, except for INT4 tensors where it can also
-  // be 8.
+  // All zero points must be 0, except for INT4 tensors where it can also be 8.
   for (int c = 0; c < quantization_zero_point.size; c++) {
     const int zero_point = quantization_zero_point.data[c];
     if (zero_point != 0 && (tensor.type != kTfLiteInt4 && zero_point != 8)) {
@@ -236,7 +234,7 @@ xnn_datatype GetXNNPackDatatype(TfLiteContext* context,
       // CheckAffineQuantization already checks if it is the same as
       // quantization_params->scale->size.
       if (!CheckZeroPointForPerTensorQuantization<uint8_t>(
-              context, tensor, t, *quantization_params->zero_point)) {
+              context, tensor, t, *(quantization_params->zero_point))) {
         return xnn_datatype_invalid;
       }
       return xnn_datatype_quint8;
@@ -416,21 +414,18 @@ struct PairHash {
 class ResourceInfo {
  public:
   // Associate a VarHandle node and global id to this local subgraph resource.
-  bool SetVarHandle(int node_index, const TfLiteNode* var_handle,
-                    int global_id) {
+  bool SetVarHandle(int node_index, int global_id) {
     if (global_id_ != -1 && global_id_ != global_id) {
       // This VarHandle op is changing the resource tensor to a different value.
       // We can't delegate this.
       return false;
     }
     global_id_ = global_id;
-    var_handle_ = var_handle;
     var_handle_node_index_ = node_index;
     return true;
   }
 
   // A representative VarHandle node that assigns this resource tensor.
-  const TfLiteNode* GetVarHandle() const { return var_handle_; }
   int GetVarHandleNodeIndex() const { return var_handle_node_index_; }
   // A unique ID indicating which handle this resource tensor comes from.
   int GetGlobalId() const { return global_id_; }
@@ -440,7 +435,7 @@ class ResourceInfo {
   // the flags to pass to `xnn_define_tensor` for this tensor.
   bool AddProxyValue(const TfLiteTensor* tensors, int id,
                      uint32_t value_flags = 0) {
-    if (!var_handle_) {
+    if (var_handle_node_index_ < 0) {
       // We don't have a var handle yet, can't be accessed.
       return false;
     }
@@ -465,7 +460,6 @@ class ResourceInfo {
 
  private:
   int global_id_ = -1;
-  const TfLiteNode* var_handle_ = nullptr;
   int var_handle_node_index_ = -1;
   int proxy_value_ = -1;
   uint32_t value_flags_ = 0;
@@ -491,19 +485,18 @@ TfLiteStatus DefineXNNPACKValue(TfLiteContext* context, xnn_subgraph_t subgraph,
   switch (datatype) {
     case xnn_datatype_qint8:
     case xnn_datatype_quint8:
-    case xnn_datatype_qint32: {
-      const TfLiteAffineQuantization* quantization_params =
-          static_cast<const TfLiteAffineQuantization*>(
-              tensor.quantization.params);
-      int32_t zero_point = quantization_params->zero_point->data[0];
+    case xnn_datatype_qint32:
       status = xnn_define_quantized_tensor_value(
-          subgraph, datatype, zero_point,
+          subgraph, datatype,
+          static_cast<const TfLiteAffineQuantization*>(
+              tensor.quantization.params)
+              ->zero_point->data[0],
           static_cast<const TfLiteAffineQuantization*>(
               tensor.quantization.params)
               ->scale->data[0],
           dims.size(), dims.data(), data, XNN_INVALID_VALUE_ID, flags,
           xnnpack_id);
-    } break;
+      break;
     case xnn_datatype_qcint4:
     case xnn_datatype_qcint8:
     case xnn_datatype_qcint32:
@@ -1193,6 +1186,8 @@ class Subgraph {
   TfLiteStatus Prepare(TfLiteContext* context, TfLiteNode* node,
                        bool enable_subgraph_reshaping, Delegate* delegate) {
     std::lock_guard<std::mutex> lock(delegate->workspace_mutex_);
+    tflite::Subgraph* this_subgraph =
+        reinterpret_cast<tflite::Subgraph*>(context->impl_);
 
     if (enable_subgraph_reshaping) {
       xnn_status status = xnn_status_invalid_state;
@@ -1249,9 +1244,12 @@ class Subgraph {
     for (std::pair<const int, void*>& io_info : externals_) {
       const auto& resource_it = resources_.find(io_info.first);
       if (resource_it != resources_.end()) {
-        const TfLiteNode* var_handle = resource_it->second.GetVarHandle();
-        if (var_handle) {
-          TF_LITE_ENSURE_STATUS(PrepareVarHandle(context, var_handle));
+        const int node_index = resource_it->second.GetVarHandleNodeIndex();
+        const auto* var_handle_and_registration =
+            this_subgraph->node_and_registration(node_index);
+        if (var_handle_and_registration) {
+          TF_LITE_ENSURE_STATUS(
+              PrepareVarHandle(context, &var_handle_and_registration->first));
         }
       }
     }
@@ -1287,15 +1285,17 @@ class Subgraph {
           io_info.second = data_pointer;
         }
       } else {
-        const TfLiteNode* var_handle = resource_it->second.GetVarHandle();
+        const int node_index = resource_it->second.GetVarHandleNodeIndex();
         int resource_id;
-        if (var_handle) {
+        const auto* var_handle_and_registration =
+            this_subgraph->node_and_registration(node_index);
+        if (var_handle_and_registration) {
           // By invoking VarHandle here, we're effectively reordering these ops
           // to be at the beginning of the subgraph. This is OK because
           // VarHandle has no input dependencies, and we already checked that
           // multiple different VarHandles are not written to the same variable.
-          TF_LITE_ENSURE_STATUS(
-              InvokeVarHandle(context, var_handle, resource_id));
+          TF_LITE_ENSURE_STATUS(InvokeVarHandle(
+              context, &var_handle_and_registration->first, resource_id));
         } else {
           // There was no var handle. Maybe the resource is a static tensor?
           const TfLiteTensor& resource_tensor =
@@ -2125,9 +2125,9 @@ class Subgraph {
             return kTfLiteError;
           }
           if (quantization_params->scale->size > 1) {
-            int zero_point = quantization_params->zero_point->data[0];
             if (xnn_validate_channelwise_quantized_tensor(
-                    xnn_datatype_qcint8, zero_point,
+                    xnn_datatype_qcint8,
+                    /*zero_point=*/quantization_params->zero_point->data[0],
                     quantization_params->scale->data, tensor_dims.size(),
                     /*channel_dim=*/quantization_params->quantized_dimension,
                     tensor_dims.data()) != xnn_status_success) {
@@ -3593,6 +3593,12 @@ class Subgraph {
           for (int i = 0; i < output_channels; ++i) {
             filter_params->scale->data[i] = filter_tensor.params.scale;
           }
+          TfLiteIntArrayFree(filter_params->zero_point);
+          filter_params->zero_point = TfLiteIntArrayCreate(output_channels);
+          for (int i = 0; i < output_channels; ++i) {
+            filter_params->zero_point->data[i] =
+                filter_tensor.params.zero_point;
+          }
         }
         uint32_t dq_quantized_id = XNN_INVALID_VALUE_ID;
         std::vector<size_t> input_dims(
@@ -4532,6 +4538,12 @@ class Subgraph {
           filter_params->scale = TfLiteFloatArrayCreate(output_channels);
           std::fill_n(filter_params->scale->data, output_channels,
                       filter_tensor.params.scale);
+          TfLiteIntArrayFree(filter_params->zero_point);
+          filter_params->zero_point = TfLiteIntArrayCreate(output_channels);
+          for (int i = 0; i < output_channels; ++i) {
+            filter_params->zero_point->data[i] =
+                filter_tensor.params.zero_point;
+          }
         }
         std::vector<size_t> input_dims(
             &input_tensor.dims->data[0],
@@ -6381,6 +6393,12 @@ class Subgraph {
           for (int i = 0; i < output_channels; ++i) {
             filter_params->scale->data[i] = filter_tensor.params.scale;
           }
+          TfLiteIntArrayFree(filter_params->zero_point);
+          filter_params->zero_point = TfLiteIntArrayCreate(output_channels);
+          for (int i = 0; i < output_channels; ++i) {
+            filter_params->zero_point->data[i] =
+                filter_tensor.params.zero_point;
+          }
         }
         uint32_t dq_quantized_id = XNN_INVALID_VALUE_ID;
         std::vector<size_t> input_dims(
@@ -6504,7 +6522,7 @@ class Subgraph {
     ResourceInfo& resource_info =
         delegate.GetResourceInfo(node->outputs->data[0]);
     const int global_id = delegate.GetGlobalId(params);
-    resource_info.SetVarHandle(node_index, node, global_id);
+    resource_info.SetVarHandle(node_index, global_id);
     if (subgraph == nullptr) {
       // Always return error here because we don't know the type of this
       // variable yet, so we pretend that we can't handle this. Later, after
@@ -6909,17 +6927,10 @@ TfLiteIntArray* Delegate::PrepareOpsToDelegate(TfLiteContext* context) {
                              input_tensor.params.scale);
             } else {
               // Per-channel quantization
-              const int* zero_point_data = quant_params->zero_point->data;
-              std::vector<int> broadcast_zero_points;
-              if (quant_params->zero_point->size != quant_params->scale->size) {
-                broadcast_zero_points.resize(quant_params->scale->size,
-                                             quant_params->zero_point->data[0]);
-                zero_point_data = broadcast_zero_points.data();
-              }
               PerChannelDequantizeInt8(
                   reinterpret_cast<const int8_t*>(packed_data),
                   reinterpret_cast<float*>(unpacked_data),
-                  GetTensorShape(&input_tensor), zero_point_data,
+                  GetTensorShape(&input_tensor), quant_params->zero_point->data,
                   quant_params->scale->data, quant_params->quantized_dimension);
             }
             break;

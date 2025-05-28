@@ -54,7 +54,7 @@ void TestPreCalibrationComponentPass::runOnOperation() {
   MLIRContext& ctx = getContext();
 
   // Simply runs the PreCalibrationComponent with a default configuration.
-  PreCalibrationComponent component(&ctx);
+  quant::stablehlo::PreCalibrationComponent component(&ctx);
   QuantizationConfig quantization_config{};
   quantization_config.mutable_static_range_ptq_preset();
   quantization_config = ExpandPresets(PopulateDefaults(quantization_config));

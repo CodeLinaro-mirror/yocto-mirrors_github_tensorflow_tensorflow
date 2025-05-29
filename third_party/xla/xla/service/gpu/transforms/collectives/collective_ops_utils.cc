@@ -137,6 +137,57 @@ absl::StatusOr<GPUCommunicationType> CommunicationType(
   return GPUCommunicationType::UNDEFINED;
 }
 
+absl::StatusOr<GPUCommunicationType> CommunicationType(
+    int num_devices_per_host, const HloChannelInstruction& instr,
+    const se::GpuComputeCapability& gpu_version) {
+  if (!std::holds_alternative<se::CudaComputeCapability>(gpu_version)) {
+    return absl::FailedPreconditionError("Only CUDA is supported.");
+  }
+
+  // Handle collective instructions that have device_list
+  if (auto* collective =
+          dynamic_cast<const HloCollectiveInstruction*>(&instr)) {
+    TF_ASSIGN_OR_RETURN(
+        CommunicationMetadata comm,
+        CommunicationContext(collective->device_list(), num_devices_per_host));
+    if (IsSingleHost(comm)) {
+      return GPUCommunicationType::SINGLE_HOST;
+    }
+    if (IsRailAligned(comm, num_devices_per_host)) {
+      return GPUCommunicationType::RAIL_ALIGNED;
+    }
+    if (IsNonRailAligned(comm, num_devices_per_host)) {
+      return GPUCommunicationType::NON_RAIL_ALIGNED;
+    }
+  } else if (auto* permute =
+                 dynamic_cast<const HloCollectivePermuteInstruction*>(&instr)) {
+    // For permute, we need to create a device list from the source-target pairs
+    absl::flat_hash_map<int64_t, size_t> node_to_participant_count;
+    for (const auto& [source, target] : permute->source_target_pairs()) {
+      int64_t source_node = source / num_devices_per_host;
+      int64_t target_node = target / num_devices_per_host;
+      node_to_participant_count[source_node]++;
+      node_to_participant_count[target_node]++;
+    }
+    CommunicationMetadata comm{node_to_participant_count};
+    if (IsSingleHost(comm)) {
+      return GPUCommunicationType::SINGLE_HOST;
+    }
+    if (IsRailAligned(comm, num_devices_per_host)) {
+      return GPUCommunicationType::RAIL_ALIGNED;
+    }
+    if (IsNonRailAligned(comm, num_devices_per_host)) {
+      return GPUCommunicationType::NON_RAIL_ALIGNED;
+    }
+  } else {
+    return absl::FailedPreconditionError(
+        "Cannot determine communication type for non-collective channel "
+        "instruction");
+  }
+
+  return GPUCommunicationType::UNDEFINED;
+}
+
 std::optional<bool> IsMultiHostTopology(
     const HloModuleConfig& config,
     const se::DeviceDescription& device_description) {

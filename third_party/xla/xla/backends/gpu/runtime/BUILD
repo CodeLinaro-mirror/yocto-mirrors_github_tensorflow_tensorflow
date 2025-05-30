@@ -1,6 +1,6 @@
 load("//xla:xla.default.bzl", "xla_cc_test")
 load("//xla/tests:build_defs.bzl", "xla_test")
-load("//xla/tsl:tsl.bzl", "internal_visibility", "nvtx_headers")
+load("//xla/tsl:tsl.bzl", "if_oss", "internal_visibility", "nvtx_headers")
 load("//xla/tsl/platform:build_config.bzl", "tf_proto_library")
 load("//xla/tsl/platform/default:cuda_build_defs.bzl", "if_cuda_is_configured")
 
@@ -29,7 +29,9 @@ cc_library(
     name = "annotation",
     srcs = ["annotation.cc"],
     hdrs = ["annotation.h"],
-    local_defines = if_cuda_is_configured(["GOOGLE_CUDA=1"]),
+    local_defines = if_cuda_is_configured(["GOOGLE_CUDA=1"]) + if_oss([
+        "NVTX_VERSION_3_1=1",
+    ]),
     deps = [
         "//xla:printer",
         "//xla/hlo/ir:hlo",

@@ -9,6 +9,12 @@ filegroup(
     srcs = ["lib/libcudart_static.a"],
     visibility = ["@local_config_cuda//cuda:__pkg__"],
 )
+
+filegroup(
+    name = "cuda_h",
+    srcs = ["include/cuda.h"],
+    visibility = ["//visibility:public"],
+)
 %{multiline_comment}
 cc_import(
     name = "cuda_stub",

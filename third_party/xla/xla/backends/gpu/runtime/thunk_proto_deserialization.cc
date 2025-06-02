@@ -24,6 +24,7 @@ limitations under the License.
 #include "xla/backends/gpu/runtime/conditional_thunk.h"
 #include "xla/backends/gpu/runtime/copy_thunk.h"
 #include "xla/backends/gpu/runtime/gemm_thunk.h"
+#include "xla/backends/gpu/runtime/replica_id_thunk.h"
 #include "xla/backends/gpu/runtime/sequential_thunk.h"
 #include "xla/backends/gpu/runtime/thunk.h"
 #include "xla/backends/gpu/runtime/triangular_solve_thunk.h"
@@ -89,6 +90,11 @@ absl::StatusOr<std::unique_ptr<Thunk>> DeserializeThunkProto(
     return TriangularSolveThunk::FromProto(std::move(thunk_info),
                                            thunk_proto.triangular_solve_thunk(),
                                            buffer_allocations);
+  }
+  if (thunk_proto.has_replica_id_thunk()) {
+    return ReplicaIdThunk::FromProto(std::move(thunk_info),
+                                     thunk_proto.replica_id_thunk(),
+                                     buffer_allocations);
   }
   return absl::InvalidArgumentError("Unknown thunk type found in ThunkProto.");
 }

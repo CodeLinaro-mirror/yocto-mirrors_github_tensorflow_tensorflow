@@ -49,13 +49,14 @@ limitations under the License.
 #include "tensorflow/compiler/mlir/quantization/common/tf_attrs_and_constraints.h"
 #include "tensorflow/compiler/mlir/quantization/tensorflow/cc/tf_constant_fold.h"
 #include "tensorflow/compiler/mlir/quantization/tensorflow/passes/tf_passes.h"
-#include "tensorflow/compiler/mlir/quantization/tensorflow/utils/tf_tf_to_xla_attribute_utils.h"
+#include "tensorflow/compiler/mlir/quantization/tensorflow/utils/tf_to_xla_attribute_utils.h"
 #include "tensorflow/compiler/mlir/tensorflow/ir/tf_ops.h"
 #include "xla/xla_data.pb.h"
 
 namespace mlir::tf_quant {
 namespace {
 
+using ::mlir::quant::CalculatePaddingAndPadIfNeeded;
 constexpr StringRef kTfQuantCreatedEinsum = "__tf_quant_created_einsum";
 
 // Replaces mixed-type Conv and Matmul cast hacks with TF XLA ops.

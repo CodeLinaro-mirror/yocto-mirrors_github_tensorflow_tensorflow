@@ -180,6 +180,11 @@ class ConnectionState : public tsl::ReferenceCounted<ConnectionState> {
   // used.
   virtual void Send(size_t req_id, const void* data, size_t offset, size_t size,
                     bool is_largest, absl::AnyInvocable<void() &&> on_done) = 0;
+
+  virtual void SendError(size_t req_id, size_t offset, size_t size,
+                         bool is_largest, absl::Status status) {
+    CHECK_OK(status);
+  }
 };
 
 // Basic rendevous table.

@@ -119,13 +119,14 @@ TEST(PremappedCopierState, RoundTrip) {
   std::deque<LocalQueueInfo> local_queue;
 
   for (size_t i = 0; i < src_work_units.size(); ++i) {
-    cstate->ScheduleCopy(
-        std::move(src_work_units[i]),
-        [&mu, &local_queue](PremappedCopierState* state, void* buf,
-                            const DmaCopyChunk& chunk) {
-          absl::MutexLock l(&mu);
-          local_queue.push_back(LocalQueueInfo{buf, chunk.offset, chunk.size});
-        });
+    cstate->ScheduleCopy(std::move(src_work_units[i]),
+                         [&mu, &local_queue](PremappedCopierState* state,
+                                             absl::StatusOr<void*> buf,
+                                             const DmaCopyChunk& chunk) {
+                           absl::MutexLock l(&mu);
+                           local_queue.push_back(LocalQueueInfo{
+                               buf.ValueOrDie(), chunk.offset, chunk.size});
+                         });
   }
   for (size_t i = 0; i < src_work_units.size(); ++i) {
     auto cond = [&]() -> bool { return !local_queue.empty(); };

@@ -826,6 +826,7 @@ def strict_cc_test(
         shuffle_tests = True,
         args = None,
         fail_if_no_test_linked = True,
+        fail_if_no_test_selected = True,
         **kwargs):
     """A drop-in replacement for cc_test that enforces some good practices by default.
 
@@ -848,10 +849,14 @@ def strict_cc_test(
         args = args + ["--gtest_shuffle"]
 
     if fail_if_no_test_linked:
-        # Fail if no tests are linked.
-        # This is to avoid having a test target that does not run any tests.
-        # This can happen if the test's link options are not set correctly.
-        args = args + ["--gtest_fail_if_no_test_linked"]
+        # Fail if no tests are linked. This is to avoid having a test target that does not run any
+        # tests. This can happen if the test's link options are not set correctly.
+        args = args + ["--gunit_fail_if_no_test_linked"]
+
+    if fail_if_no_test_selected:
+        # Fail if no tests are selected. This is to avoid having a test target that does not run any
+        # tests. This can happen if the test has extraneous shards or disables all its test cases.
+        args.append("--gunit_fail_if_no_test_selected")
 
     native.cc_test(
         name = name,

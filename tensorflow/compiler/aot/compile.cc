@@ -320,7 +320,7 @@ absl::Status Main(const MainFlags& flags) {
   if (compile_result.is_aot_thunks()) {
     const auto obj_files = compile_result.get_aot_thunks().value()->obj_files();
     DCHECK_EQ(obj_files.size(), 1);
-    const absl::string_view obj_file = obj_files[0];
+    const absl::string_view obj_file = obj_files[0].contents();
     TF_RETURN_IF_ERROR(
         WriteStringToFile(env, flags.out_function_object, obj_file));
   } else {

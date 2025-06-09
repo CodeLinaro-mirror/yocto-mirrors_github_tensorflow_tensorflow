@@ -85,9 +85,12 @@ class InspectShardingCallPartitioner : public xla::CustomCallPartitioner {
       args.free_error(&args);
       return result;
     }
-    partitioner->SetPartitionedHlo(
-        instruction,
-        partitioner->GetPartitionedHlo(instruction->mutable_operand(0)));
+    // InspectSharding is a custom call that is inserted by the SPMD partitioner
+    // to inspect the sharding of the operand. It's an identity op, so we can
+    // just use set the operand PartitionedHlo as the one for the instruction.
+    auto partitioned_hlo =
+        partitioner->GetPartitionedHlo(instruction->mutable_operand(0));
+    partitioner->SetPartitionedHlo(instruction, std::move(partitioned_hlo));
     return absl::OkStatus();
   }
   HloSharding PropagateUserSharding(

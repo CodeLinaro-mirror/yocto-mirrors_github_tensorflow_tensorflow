@@ -53,7 +53,7 @@ bool_flag(
 
 config_setting(
     name = "overrided_nvshmem_libs",
-    flag_values = {":true_setting": "False"},
+    flag_values = {":override_include_nvshmem_libs": "False"},
     visibility = ["//visibility:private"],
 )
 

@@ -19,8 +19,9 @@ ENTRY main {
   // CHECK:      mhlo.frontend_attributes = {
   // CHECK-DAG:    _dummy_frontend_attribute = "xyz"
   // CHECK-DAG:    _xla_compute_type = "host"
+  // CHECK-DAG:    backend_config = "{\22flag_configs\22:[]}"
   // CHECK:      }
   call = f32[] call(param1), to_apply=comp, frontend_attributes={k="v"}
   ROOT add = f32[] add(param, call), frontend_attributes={
-    _xla_compute_type="host", _dummy_frontend_attribute="xyz"}
+    _xla_compute_type="host", _dummy_frontend_attribute="xyz", backend_config={"flag_configs":[]}}
 }

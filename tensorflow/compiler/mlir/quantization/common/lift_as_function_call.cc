@@ -51,7 +51,7 @@ limitations under the License.
 #include "mlir/Support/LLVM.h"  // from @llvm-project
 #include "mlir/Support/LogicalResult.h"  // from @llvm-project
 #include "stablehlo/dialect/Version.h"  // from @stablehlo
-#include "tensorflow/compiler/mlir/quantization/common/tf_attrs_and_constraints.h"
+#include "tensorflow/compiler/mlir/quantization/common/attrs_and_constraints.h"
 #include "tensorflow/compiler/mlir/quantization/common/tf_quantization_lib/tf_quantization_utils.h"
 #include "tensorflow/compiler/mlir/quantization/stablehlo/quantization_config.pb.h"
 #include "tensorflow/compiler/mlir/quantization/stablehlo/utils/stablehlo_type_utils.h"
@@ -65,10 +65,6 @@ limitations under the License.
 namespace mlir::quant {
 
 using ::stablehlo::quantization::Method;
-using tf_quant::ContainsConvOrDot;
-using tf_quant::GetEntryFunctionName;
-using tf_quant::kAttrMapAttribute;
-using tf_quant::kQuantizationMethodAttr;
 using tf_quant::kQuantTraitAttrName;
 using tf_quant::QuantizationTrait;
 using tf_quant::QuantTraitValues;

@@ -178,7 +178,7 @@ tf_cc_test(
     srcs = ["constant_fold_test.cc"],
     deps = [
         ":constant_fold",
-        "//tensorflow/compiler/mlir/quantization/common:tf_attrs_and_constraints",
+        "//tensorflow/compiler/mlir/quantization/common:attrs_and_constraints",
         "//tensorflow/compiler/mlir/quantization/common:tf_test_base",
         "//tensorflow/compiler/mlir/tensorflow",
         "//tensorflow/core:tensorflow",

@@ -30,9 +30,9 @@ limitations under the License.
 #include "mlir/IR/Value.h"  // from @llvm-project
 #include "mlir/Support/LLVM.h"  // from @llvm-project
 #include "stablehlo/dialect/StablehloOps.h"  // from @stablehlo
+#include "tensorflow/compiler/mlir/quantization/common/attrs_and_constraints.h"
 #include "tensorflow/compiler/mlir/quantization/common/ir/QuantOps.h"
 #include "tensorflow/compiler/mlir/quantization/common/lift_as_function_call.h"
-#include "tensorflow/compiler/mlir/quantization/common/tf_attrs_and_constraints.h"
 #include "tensorflow/compiler/mlir/quantization/common/tf_quantization_lib/tf_quantization_utils.h"
 #include "tensorflow/compiler/mlir/quantization/stablehlo/quantization_config.pb.h"
 #include "tensorflow/compiler/mlir/quantization/tensorflow/quantization_options.pb.h"
@@ -48,7 +48,6 @@ namespace {
 using ::mlir::stablehlo::DotGeneralOp;
 using ::stablehlo::quantization::Method;
 using ::stablehlo::quantization::StaticRangePtq;
-using tf_quant::GetDotGeneralQuantizationDim;
 using tf_quant::GetUniformQuantizedTypeForBias;
 using tf_quant::kQuantTraitAttrName;
 using tf_quant::QuantizationTrait;

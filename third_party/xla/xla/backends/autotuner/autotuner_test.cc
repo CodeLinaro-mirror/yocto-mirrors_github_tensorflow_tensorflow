@@ -141,5 +141,34 @@ TEST(AutotunerTest, AutotuneAppliesBestConfig) {
   EXPECT_THAT(autotuner->Autotune(dummy_instr.get()), IsOk());
 }
 
+TEST(AutotunerTest, AutotuneHandlesFailingBackendGracefully) {
+  std::vector<std::unique_ptr<BackendConfig>> configs;
+  configs.push_back(GetTestConfig("test_config"));
+
+  auto backend_1 = std::make_unique<MockCodegenBackend>();
+  EXPECT_CALL(*backend_1, GetSupportedConfigs)
+      .WillOnce(Return(absl::InternalError("GetSupportedConfigs error")));
+  auto backend_2 = std::make_unique<MockCodegenBackend>();
+  EXPECT_CALL(*backend_2, GetSupportedConfigs)
+      .WillOnce(Return(std::move(configs)));
+  EXPECT_CALL(*backend_2, Compile(_, _))
+      .WillOnce(Return(absl::InternalError("test error")));
+
+  std::vector<std::unique_ptr<CodegenBackend>> backends;
+  backends.push_back(std::move(backend_1));
+  backends.push_back(std::move(backend_2));
+
+  auto profiler = std::make_unique<MockProfiler>();
+  std::vector<ProfileResult> profile_results = {{absl::Seconds(1)},
+                                                {absl::Seconds(2)}};
+  EXPECT_CALL(*profiler, ProfileWithSharedBuffers)
+      .WillOnce(Return(profile_results));
+
+  auto autotuner = xla::Autotuner::Create(
+      std::move(backends), nullptr, std::move(profiler), xla::AutotuneConfig());
+  auto dummy_instr = HloInstruction::CreateConstant(LiteralUtil::CreateR0(1));
+  EXPECT_THAT(autotuner->Autotune(dummy_instr.get()), IsOk());
+}
+
 }  // namespace
 }  // namespace xla

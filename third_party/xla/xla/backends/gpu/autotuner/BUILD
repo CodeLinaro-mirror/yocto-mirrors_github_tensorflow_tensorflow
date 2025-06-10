@@ -54,6 +54,7 @@ cc_library(
         "//xla/stream_executor:stream_executor_h",
         "//xla/stream_executor:stream_executor_memory_allocator",
         "//xla/stream_executor/cuda:cuda_compute_capability",
+        "//xla/stream_executor/cuda:repeat_buffer_kernel_cuda",
         "//xla/stream_executor/gpu:redzone_allocator",
         "//xla/tools:hlo_decomposer_lib",
         "//xla/tsl/lib/gtl:iterator_range",
@@ -436,6 +437,7 @@ cc_library(
     hdrs = ["factory.h"],
     tags = ["gpu"],
     deps = [
+        ":cublas",
         ":triton",
         "//xla/backends/autotuner:codegen_backend",
         "//xla/service:compiler",

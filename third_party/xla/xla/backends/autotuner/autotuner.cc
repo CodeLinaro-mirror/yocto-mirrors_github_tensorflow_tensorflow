@@ -52,13 +52,18 @@ absl::Status Autotuner::Autotune(HloInstruction* instr) {
   CodegenBackend* best_codegen_backend = nullptr;
   absl::Duration min_duration = absl::InfiniteDuration();
   for (auto& codegen_backend : codegen_backends_) {
-    TF_ASSIGN_OR_RETURN(
-        std::vector<std::unique_ptr<BackendConfig>> configs,
-        codegen_backend->GetSupportedConfigs(*instr, stream_executor_));
-    VLOG(1) << "Got " << configs.size()
+    VLOG(1) << "Autotuning with codegen backend: " << codegen_backend->name();
+    absl::StatusOr<std::vector<std::unique_ptr<BackendConfig>>> configs =
+        codegen_backend->GetSupportedConfigs(*instr, stream_executor_);
+    if (!configs.ok()) {
+      VLOG(1) << "Skipping codegen backend: " << codegen_backend->name()
+              << " due to error: " << configs.status();
+      continue;
+    }
+    VLOG(1) << "Got " << (*configs).size()
             << " configs from codegen backend: " << codegen_backend->name();
     std::vector<std::unique_ptr<Executable>> executables;
-    for (auto& config : configs) {
+    for (auto& config : *configs) {
       VLOG(2) << "Trying to compile config: " << config->DebugString();
       auto executable = codegen_backend->Compile(*instr, *config);
       // TODO b/407495547: Change it to tolerate only specific compilation
@@ -75,7 +80,7 @@ absl::Status Autotuner::Autotune(HloInstruction* instr) {
     for (int i = 0; i < results.size(); ++i) {
       if (results[i].duration < min_duration) {
         min_duration = results[i].duration;
-        best_config = std::move(configs[i]);
+        best_config = std::move((*configs)[i]);
         best_codegen_backend = codegen_backend.get();
       }
     }

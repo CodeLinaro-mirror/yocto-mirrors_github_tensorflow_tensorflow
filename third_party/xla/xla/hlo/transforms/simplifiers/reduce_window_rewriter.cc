@@ -161,24 +161,24 @@ absl::StatusOr<bool> ReduceWindowRewriter::TryOptimizeCumSumOrProd(
   // except for one.
   int64_t rank = operand_shape.dimensions().size();
   const Window& window = reduce_window->window();
-  int64_t scan_dim_num = -1;
-  for (int i = 0; i < rank; ++i) {
-    const WindowDimension& window_dim = window.dimensions(i);
-    if (window_util::IsTrivialWindowDimension(window_dim)) {
-      continue;
-    }
-    if (scan_dim_num != -1) {
-      // At least two non-trivial dimensions exist, so, no cigar.
-      return false;
-    }
-    scan_dim_num = i;
+  std::vector<int64_t> non_trivial_window_dimensions =
+      reduce_window->non_trivial_window_dimensions();
+  if (non_trivial_window_dimensions.size() != 1) {
+    return false;
   }
+  const int64_t scan_dim_num = non_trivial_window_dimensions.front();
+  const int64_t scan_length = operand_shape.dimensions(scan_dim_num);
 
-  if (scan_dim_num == -1) {
+  if (scan_length <= base_length_) {
     return false;
   }
 
-  const int64_t scan_length = operand_shape.dimensions(scan_dim_num);
+  if (reduce_window->to_apply()->root_instruction()->shape().IsTuple() &&
+      reduce_window->to_apply()->root_instruction()->opcode() !=
+          HloOpcode::kTuple) {
+    return false;
+  }
+
   absl::Span<HloInstruction* const> init_values = reduce_window->init_values();
   const WindowDimension& scan_window_dim = window.dimensions(scan_dim_num);
 
@@ -199,16 +199,6 @@ absl::StatusOr<bool> ReduceWindowRewriter::TryOptimizeCumSumOrProd(
   bool is_exclusive = forward_scan
                           ? (scan_window_dim.padding_low() == scan_length)
                           : (scan_window_dim.padding_high() == scan_length);
-
-  if (scan_length <= base_length_) {
-    return false;
-  }
-
-  if (reduce_window->to_apply()->root_instruction()->shape().IsTuple() &&
-      reduce_window->to_apply()->root_instruction()->opcode() !=
-          HloOpcode::kTuple) {
-    return false;
-  }
 
   VLOG(2) << "Rewriting Scan: " << reduce_window->ToString();
   HloComputation* parent = reduce_window->parent();

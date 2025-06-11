@@ -1414,6 +1414,7 @@ xla_test(
         "//xla/tests:xla_test_backend_predicates",
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings",
+        "@com_google_googletest//:gtest",
         "@eigen_archive//:eigen3",
     ],
 )

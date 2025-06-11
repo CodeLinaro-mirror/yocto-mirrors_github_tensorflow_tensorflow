@@ -197,6 +197,7 @@ limitations under the License.
 #include "xla/service/gpu/transforms/collectives/collective_backend_assigner.h"
 #include "xla/service/gpu/transforms/collectives/collective_combiner_annotator.h"
 #include "xla/service/gpu/transforms/collectives/collective_permute_cycle_decomposer.h"
+#include "xla/service/gpu/transforms/collectives/collective_pipelining_analyzer.h"
 #include "xla/service/gpu/transforms/collectives/convert_async_collectives_to_sync.h"
 #include "xla/service/gpu/transforms/collectives/gpu_collective_combiner_utils.h"
 #include "xla/service/gpu/transforms/collectives/reduce_scatter_combiner.h"
@@ -956,6 +957,7 @@ absl::Status RunCollectiveOptimizationPasses(
   // Remove dead computations after collective quantization.
   collectives_pipeline.AddPass<HloDCE>();
 
+  collectives_pipeline.AddPass<CollectivePipeliningAnalyzer>();
   if (debug_options.xla_gpu_enable_pipelined_all_reduce() ||
       IsPassEnabledAtOptimizationEffort<CollectivePipeliner>(*hlo_module)) {
     CollectivePipeliner::Config config{

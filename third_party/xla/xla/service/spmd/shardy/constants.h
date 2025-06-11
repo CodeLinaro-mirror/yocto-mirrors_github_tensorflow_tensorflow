@@ -143,6 +143,11 @@ inline constexpr llvm::StringRef kGlobalToLocalShapeCallTargetName =
 inline constexpr llvm::StringRef kLocalToGlobalShapeCallTargetName =
     "xla.sdy.LocalToGlobalShape";
 
+// Attribute name for indicating whether a value has unreduced axes. Is either
+// `true` or not set.
+inline constexpr llvm::StringRef kHasUnreducedAxes =
+    "xla.sdy.has_unreduced_axes";
+
 // The name of the global mesh.
 inline constexpr llvm::StringRef kGlobalMeshName = "mesh";
 

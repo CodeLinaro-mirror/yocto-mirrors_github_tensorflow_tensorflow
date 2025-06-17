@@ -106,7 +106,7 @@ bool AreDtypesSupported(const Shape& lhs_shape, const Shape& rhs_shape,
   return true;
 }
 
-absl::StatusOr<bool> IsXnnDotSupported(
+absl::StatusOr<bool> IsDotSupportedByXnn(
     const DotDimensionNumbers& dot_dimensions, const Shape& lhs_shape,
     const Shape& rhs_shape, const Shape& out_shape,
     const TargetMachineFeatures* cpu_features) {
@@ -151,9 +151,8 @@ absl::StatusOr<xnn_datatype> XnnDatatype(const PrimitiveType& type) {
 
 absl::StatusOr<xnn_unary_operator> XnnUnaryOperator(const HloOpcode& opcode) {
   switch (opcode) {
-    // TODO(ashaposhnikov): Need to debug the crash with kAbs.
-    // case HloOpcode::kAbs:
-    //  return xnn_unary_abs;
+    case HloOpcode::kAbs:
+      return xnn_unary_abs;
     case HloOpcode::kCeil:
       return xnn_unary_ceiling;
     case HloOpcode::kClz:
@@ -162,25 +161,23 @@ absl::StatusOr<xnn_unary_operator> XnnUnaryOperator(const HloOpcode& opcode) {
       return xnn_unary_convert;
     case HloOpcode::kCos:
       return xnn_unary_cosine;
-    // TODO(ashaposhnikov): Need to debug the crash with kExp.
-    // case HloOpcode::kExp:
-    //  return xnn_unary_exp;
+    case HloOpcode::kExp:
+      return xnn_unary_exp;
     case HloOpcode::kCbrt:
       return xnn_unary_cube_root;
-    // case HloOpcode::kErf:
-    // case HloOpcode::kExpm1:
+    case HloOpcode::kErf:
+    case HloOpcode::kExpm1:
     case HloOpcode::kFloor:
       return xnn_unary_floor;
     case HloOpcode::kLog:
       return xnn_unary_log;
-    // case HloOpcode::kLog1p:
+    case HloOpcode::kLog1p:
     case HloOpcode::kLogistic:
       return xnn_unary_sigmoid;
-    // TODO(ashaposhnikov): Need to debug the crash with kNegate.
-    // case HloOpcode::kNegate:
-    //  return xnn_unary_negate;
-    // case HloOpcode::kNot:
-    // case HloOpcode::kRoundNearestAfz:
+    case HloOpcode::kNegate:
+      return xnn_unary_negate;
+    case HloOpcode::kNot:
+    case HloOpcode::kRoundNearestAfz:
     case HloOpcode::kRoundNearestEven:
       return xnn_unary_bankers_rounding;
     case HloOpcode::kRsqrt:
@@ -189,10 +186,9 @@ absl::StatusOr<xnn_unary_operator> XnnUnaryOperator(const HloOpcode& opcode) {
       return xnn_unary_sign;
     case HloOpcode::kSin:
       return xnn_unary_sine;
-    // TODO(ashaposhnikov): Need to debug the crash with kSqrt.
-    // case HloOpcode::kSqrt:
-    //  return xnn_unary_square_root;
-    // case HloOpcode::kTan:
+    case HloOpcode::kSqrt:
+      return xnn_unary_square_root;
+    case HloOpcode::kTan:
     case HloOpcode::kTanh:
       return xnn_unary_tanh;
     default:
@@ -235,6 +231,35 @@ absl::StatusOr<xnn_binary_operator> XnnBinaryOperator(const HloOpcode& opcode) {
     default:
       return InvalidArgument("Unsupported XNNPACK binary operator: %s",
                              HloOpcodeString(opcode));
+  }
+}
+
+bool IsConstantSupportedByXnn(const HloInstruction* hlo) {
+  CHECK(hlo->IsConstant());
+
+  if (!XnnDatatype(hlo->shape().element_type()).ok()) {
+    return false;
+  }
+
+  return hlo->shape().IsArray();
+}
+
+bool IsElementwiseOpSupportedByXnn(const HloInstruction* hlo) {
+  CHECK(hlo->IsElementwise());
+  // In XLA IsElementwise is true for constants.
+  CHECK(!hlo->IsConstant());
+
+  if (!XnnDatatype(hlo->shape().element_type()).ok()) {
+    return false;
+  }
+
+  switch (hlo->operand_count()) {
+    case 1:
+      return XnnUnaryOperator(hlo->opcode()).ok();
+    case 2:
+      return XnnBinaryOperator(hlo->opcode()).ok();
+    default:
+      return false;
   }
 }
 

@@ -330,26 +330,5 @@ TEST_F(XnnFusionTest, UnsupportedDot) {
               HasSubstr("Unsupported XNNPACK Dot op variation"));
 }
 
-TEST_F(XnnFusionTest, UnsupportedOp) {
-  constexpr absl::string_view kModuleStr = R"(
-    HloModule unsupported_sqrt
-
-    xnn_fusion {
-      %x = f32[10] parameter(0)
-      ROOT %sqrt = f32[10] sqrt(%x)
-    }
-
-    ENTRY entry {
-      %x = f32[10] parameter(0)
-      ROOT %sqrt = f32[10] fusion(%x), kind=kCustom, calls=xnn_fusion,
-        backend_config={"fusion_config": {kind: "__xnn_fusion"}}
-    })";
-
-  auto status = RunAndCompare(kModuleStr, ErrorSpec{0.0});
-  EXPECT_FALSE(status);
-  EXPECT_THAT(status.message(),
-              HasSubstr("Unsupported XNNPACK fusion instruction"));
-}
-
 }  // namespace
 }  // namespace xla::cpu

@@ -38,8 +38,7 @@ FusionDecision XnnGraphFusion::ShouldFuse(HloInstruction* consumer,
   }
 
   HloInstruction* producer = consumer->mutable_operand(operand_index);
-  if (!(producer->opcode() == HloOpcode::kParameter ||
-        producer->opcode() == HloOpcode::kConstant || IsOpSupported(producer)))
+  if (!(producer->opcode() == HloOpcode::kParameter || IsOpSupported(producer)))
     return FusionDecision::Forbid("Unsupported producer");
 
   return FusionDecision::Allow();
@@ -65,22 +64,13 @@ HloInstruction* XnnGraphFusion::Fuse(HloInstruction* producer,
 }
 
 bool XnnGraphFusion::IsOpSupported(const HloInstruction* instr) const {
-  if (!XnnDatatype(instr->shape().element_type()).ok()) {
+  if (instr->IsConstant()) {
+    return IsConstantSupportedByXnn(instr);
+  } else if (instr->IsElementwise()) {
+    return IsElementwiseOpSupportedByXnn(instr);
+  } else {
     return false;
   }
-
-  if (instr->IsElementwise()) {
-    switch (instr->operand_count()) {
-      case 1:
-        return XnnUnaryOperator(instr->opcode()).ok();
-      case 2:
-        return XnnBinaryOperator(instr->opcode()).ok();
-      default:
-        return false;
-    }
-  }
-
-  return false;
 }
 
 bool XnnGraphFusion::IsXnnGraphFusion(const HloInstruction* instr) const {

@@ -4577,6 +4577,14 @@ void MsaAlgorithm::ExportAllocationsForRepacking(
     allocation_block.original_slice_data = std::nullopt;
     allocation_block.repacked_slice_data = std::nullopt;
 
+    if (allocation_block.allocation->is_reserved_allocation()) {
+      ReservedAllocation* reserved_allocation =
+          static_cast<ReservedAllocation*>(allocation_block.allocation);
+      if (!reserved_allocation->is_chunk_reserved_in_interval_tree()) {
+        continue;
+      }
+    }
+
     if (!allocation_block.allocation->is_sliced_copy_allocation()) {
       allocations.push_back(&allocation_block);
       continue;
@@ -5048,16 +5056,6 @@ void MsaAlgorithm::ReleaseReservedAllocationForAlternateMemoryColorings(
                               reserved_allocation->end_time(),
                               reserved_allocation->chunk()));
   reserved_allocation->chunk_freed_in_interval_tree();
-  // Remove the allocation from the repack_allocation_blocks_ list.
-  auto it = std::remove_if(
-      repack_allocation_blocks_.begin(), repack_allocation_blocks_.end(),
-      [reserved_allocation](
-          const RepackAllocationBlock& repack_allocation_block) {
-        return repack_allocation_block.allocation == reserved_allocation;
-      });
-  size_t original_size = repack_allocation_blocks_.size();
-  repack_allocation_blocks_.erase(it, repack_allocation_blocks_.end());
-  CHECK_EQ(original_size - repack_allocation_blocks_.size(), 1);
 }
 
 void MsaAlgorithm::FreeAlternateMemoryColoringReservedAllocations(

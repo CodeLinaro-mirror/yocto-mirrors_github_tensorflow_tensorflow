@@ -2367,12 +2367,42 @@ struct BufferMap {
   std::vector<Buffer> buffers;
 };
 
+int64_t AllocateStaticBuffers(BufferMap& buffers,
+                              const BufferAssignmentProto& proto) {
+  int64_t memory = 0;
+  for (const auto& alloc : proto.buffer_allocations()) {
+    if (!alloc.is_thread_local() &&
+        (alloc.is_entry_computation_parameter() || alloc.is_constant() ||
+         alloc.maybe_live_out())) {
+      Buffer* best_buffer = nullptr;
+      size_t best_size = 0;
+      for (const auto& assigned : alloc.assigned()) {
+        if (!buffers.id_to_buffer.contains(assigned.logical_buffer_id())) {
+          continue;
+        }
+        Buffer* buffer = buffers.id_to_buffer[assigned.logical_buffer_id()];
+        if (buffer->size > best_size) {
+          best_size = buffer->size;
+          best_buffer = buffer;
+        }
+      }
+      if (best_buffer) {
+        best_buffer->ref_count++;
+        memory += best_buffer->size;
+      }
+    }
+  }
+  return memory;
+}
+
 }  // namespace
 
 absl::StatusOr<int> ComputePeakMemory(const BufferAssignmentProto& proto) {
   BufferMap buffers(proto);
-  int64_t memory = 0;
-  int64_t peak_memory = 0;
+
+  int64_t memory = AllocateStaticBuffers(buffers, proto);
+  int64_t peak_memory = memory;
+
   for (const HeapSimulatorTrace& trace : proto.heap_simulator_traces()) {
     for (const HeapSimulatorTrace::Event& event : trace.events()) {
       Buffer* buffer = buffers.id_to_buffer[event.buffer_id()];

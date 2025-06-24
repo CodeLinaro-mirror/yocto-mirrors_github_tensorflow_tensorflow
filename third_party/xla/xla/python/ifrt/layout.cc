@@ -35,6 +35,7 @@ limitations under the License.
 #include "xla/python/ifrt/dtype.h"
 #include "xla/python/ifrt/layout.pb.h"
 #include "xla/python/ifrt/serdes.h"
+#include "xla/python/ifrt/serdes_default_version_accessor.h"
 #include "xla/python/ifrt/serdes_version.h"
 #include "xla/python/ifrt/shape.h"
 #include "xla/python/ifrt/sharding.h"
@@ -58,7 +59,7 @@ absl::StatusOr<LayoutProto> Layout::ToProto(SerDesVersion version) const {
   // `LayoutProto` does not store its own version. It delegates the details to
   // SerDes of the `Layout` subclasses.
   std::unique_ptr<SerializeOptions> options;
-  if (version != SerDesVersion::current()) {
+  if (version != SerDesDefaultVersionAccessor::Get()) {
     options = std::make_unique<SerializeOptions>();
     options->version = version;
   }

@@ -34,6 +34,7 @@ limitations under the License.
 #include "xla/python/ifrt/ir/ifrt_ir_compile_options.pb.h"
 #include "xla/python/ifrt/program.h"
 #include "xla/python/ifrt/serdes.h"
+#include "xla/python/ifrt/serdes_default_version_accessor.h"
 #include "xla/python/ifrt/serdes_version.h"
 
 namespace xla {
@@ -140,7 +141,7 @@ struct IfrtIRCompileOptions
 
   // Returns a `IfrtIrCompileOptionsProto` representation.
   absl::StatusOr<IfrtIrCompileOptionsProto> ToProto(
-      SerDesVersion version = SerDesVersion::current()) const;
+      SerDesVersion version = SerDesDefaultVersionAccessor::Get()) const;
 
   static char ID;  // NOLINT
 };

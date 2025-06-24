@@ -72,8 +72,9 @@ class SerDesVersion {
     return SerDesVersion(SerDesVersionNumber(0));
   }
 
-  // Visibility-controlled accessors that can use an old version.
+  // Visibility-controlled accessors that can use an old or testing version.
   friend class SerDesAnyVersionAccessor;
+  friend class SerDesDefaultVersionAccessor;
   friend class SerDesWeek4OldVersionAccessor;
 
   SerDesVersionNumber version_number_;

@@ -1110,6 +1110,7 @@ absl::StatusOr<xla::CompiledMemoryStats> GetCompiledMemoryStats(
   results.host_output_size_in_bytes = args.host_output_size_in_bytes;
   results.host_alias_size_in_bytes = args.host_alias_size_in_bytes;
   results.host_temp_size_in_bytes = args.host_temp_size_in_bytes;
+  results.peak_memory_in_bytes = args.peak_memory_in_bytes;
   return results;
 }
 

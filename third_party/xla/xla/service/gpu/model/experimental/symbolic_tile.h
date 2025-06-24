@@ -18,30 +18,52 @@ limitations under the License.
 
 #include <cstdint>
 #include <string>
-#include <vector>
 
+#include "llvm/ADT/ArrayRef.h"
+#include "llvm/ADT/SmallVector.h"
+#include "mlir/IR/AffineExpr.h"
 #include "mlir/IR/AffineMap.h"
 #include "xla/hlo/ir/hlo_instruction.h"
 
 namespace xla::gpu {
 
 // A map from tile IDs, sizes and runtime variables to tile's offsets, sizes
-// and strides.
+// and strides. It also contains the upper bounds of the tile.
+// In most of the cases, the upper bounds will coincide with the shape of the
+// tensor from which the tile is extracted.
 //
-// (tile IDs) [tile sizes] {runtime variables} -> (offsets, sizes, strides)
-// tile IDs correspond to the dimension variables of the `tile_map`.
-// tile sizes and RT vars correspond to the symbol variables of the
-// `tile_map`.
-struct ExperimentalSymbolicTile {
+// (tile IDs) [tile sizes] {runtime variables} ->
+//     offsets [offsets_]  sizes [sizes_] strides [strides_]
+//     upper bounds [upper_bounds_]
+//
+// tile IDs correspond to the dimension variables of the affine expressions
+// tile sizes and RT vars correspond to the symbol variables.
+class ExperimentalSymbolicTile {
+ public:
+  ExperimentalSymbolicTile(mlir::MLIRContext* mlir_context,
+                           int64_t num_tile_ids,
+                           llvm::ArrayRef<mlir::AffineExpr> offsets,
+                           llvm::ArrayRef<mlir::AffineExpr> sizes,
+                           llvm::ArrayRef<mlir::AffineExpr> strides,
+                           llvm::ArrayRef<mlir::AffineExpr> upper_bounds,
+                           llvm::ArrayRef<const HloInstruction*> rt_vars);
+
   std::string ToString() const;
 
-  mlir::AffineMap offset_map() const;
-  mlir::AffineMap size_map() const;
-  mlir::AffineMap stride_map() const;
+  llvm::ArrayRef<mlir::AffineExpr> offsets() const { return offsets_; }
+  llvm::ArrayRef<mlir::AffineExpr> sizes() const { return sizes_; }
+  llvm::ArrayRef<mlir::AffineExpr> strides() const { return strides_; }
+  llvm::ArrayRef<mlir::AffineExpr> upper_bounds() const {
+    return upper_bounds_;
+  }
 
-  int64_t num_tids() const { return tile_map.getNumDims(); }
-  int64_t num_result_dims() const { return tile_map.getNumResults() / 3; }
-  int64_t num_rt_vars() const { return rt_vars.size(); }
+  int64_t num_tile_ids() const { return num_tile_ids_; }
+  int64_t num_result_dims() const { return offsets().size(); }
+
+  llvm::ArrayRef<const HloInstruction*> rt_vars() const { return rt_vars_; }
+  int64_t num_rt_vars() const { return rt_vars_.size(); }
+
+  mlir::MLIRContext* mlir_context() const { return mlir_context_; }
 
   // This allows GUnit to print the tile.
   template <typename Sink>
@@ -49,8 +71,14 @@ struct ExperimentalSymbolicTile {
     sink.Append(tile.ToString());
   }
 
-  mlir::AffineMap tile_map;
-  std::vector<const HloInstruction*> rt_vars;
+ private:
+  mlir::MLIRContext* mlir_context_;
+  int64_t num_tile_ids_;
+  llvm::SmallVector<mlir::AffineExpr> offsets_;
+  llvm::SmallVector<mlir::AffineExpr> sizes_;
+  llvm::SmallVector<mlir::AffineExpr> strides_;
+  llvm::SmallVector<mlir::AffineExpr> upper_bounds_;
+  llvm::SmallVector<const HloInstruction*> rt_vars_;
 };
 
 }  // namespace xla::gpu

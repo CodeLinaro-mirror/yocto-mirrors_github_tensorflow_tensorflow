@@ -107,6 +107,7 @@ limitations under the License.
 #include "xla/tsl/platform/statusor.h"
 #include "xla/tsl/platform/types.h"
 #include "xla/xla_data.pb.h"
+#include "tsl/platform/protobuf.h"
 
 #define DEBUG_TYPE "xla-translate"
 
@@ -964,7 +965,12 @@ std::optional<xla::OpSharding> CreateTupleSharding(
   xla::OpSharding sharding;
   sharding.set_type(xla::OpSharding::TUPLE);
   for (const std::optional<xla::OpSharding>& tuple_sharding : tuple_shardings) {
-    if (tuple_sharding) {
+    if (tuple_sharding && tuple_sharding->type() == xla::OpSharding::TUPLE) {
+      std::copy(tuple_sharding->tuple_shardings().begin(),
+                tuple_sharding->tuple_shardings().end(),
+                tsl::protobuf::RepeatedPtrFieldBackInserter(
+                    sharding.mutable_tuple_shardings()));
+    } else if (tuple_sharding) {
       *sharding.add_tuple_shardings() = *tuple_sharding;
     } else {
       xla::OpSharding fallback_sharding;
@@ -5560,6 +5566,7 @@ LogicalResult ConvertToHloModule::LowerReturn(
     if (failed(GetXlaOp(ret, value_map, &operand, inst))) return failure();
 
     if (ret_tuple_sharding) {
+      builder->SetSharding(*ret_tuple_sharding);
       auto tuple = Tuple(builder, {operand});
       builder->SetSharding(*ret_shardings[0]);
       *return_value = GetTupleElement(tuple, 0);

@@ -180,6 +180,7 @@ cc_library(
         "@llvm-project//mlir:TensorDialect",
         "@llvm-project//mlir:TransformUtils",
         "@local_tsl//tsl/platform:ml_dtypes",
+        "@local_tsl//tsl/platform:protobuf",
         "@stablehlo//:base",
         "@stablehlo//:stablehlo_ops",
         "@stablehlo//:stablehlo_passes",

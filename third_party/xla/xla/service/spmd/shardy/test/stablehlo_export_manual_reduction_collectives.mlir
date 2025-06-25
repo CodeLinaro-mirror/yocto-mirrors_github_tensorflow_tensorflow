@@ -266,3 +266,5 @@ func.func @unique_channel_handle_2(%arg0: tensor<8x8xf32> {sdy.sharding = #sdy.s
   %0 = sdy.all_reduce {"x"} %arg0 out_sharding=<@mesh, [{}, {}]> : tensor<8x8xf32>
   return %0 : tensor<8x8xf32>
 }
+
+// DO NOT SUBMIT - add tests!

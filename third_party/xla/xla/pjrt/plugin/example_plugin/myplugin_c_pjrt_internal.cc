@@ -19,11 +19,14 @@ limitations under the License.
 #include <memory>
 #include <utility>
 
+#include "absl/base/no_destructor.h"
 #include "absl/status/status.h"
 #include "xla/pjrt/c/pjrt_c_api.h"
 #include "xla/pjrt/c/pjrt_c_api_layouts_extension.h"
 #include "xla/pjrt/c/pjrt_c_api_wrapper_impl.h"
+#include "xla/pjrt/extensions/example/example_extension.h"
 #include "xla/pjrt/pjrt_client.h"
+#include "xla/pjrt/plugin/example_plugin/example_extension_impl.h"
 #include "xla/pjrt/plugin/example_plugin/myplugin_cpp_pjrt.h"
 
 namespace myplugin_pjrt {
@@ -49,16 +52,28 @@ PJRT_Error* PJRT_MypluginDeviceTopology_Create(
       "Topology not supported for MyPlugin compilation.")};
 }
 
+PJRT_Error* PJRT_MyPlugin_GetExampleExtensionCpp(
+    PJRT_ExampleExtension_GetExampleExtensionCpp_Args* args) {
+  static absl::NoDestructor<xla::ExampleExtensionImpl> example_extension_cpp(
+      "standard_prefix: ", "myplugin_prefix: ");
+  args->extension_cpp.extension_cpp = example_extension_cpp.get();
+  return nullptr;
+}
+
 const PJRT_Api* GetMyPluginPjrtApi() {
   printf("C++ Calling GetPjrtApi");
   static PJRT_Layouts_Extension layouts_extension =
       pjrt::CreateLayoutsExtension(nullptr);
 
+  static PJRT_Example_Extension example_extension =
+      pjrt::CreateExampleExtension(&layouts_extension.base,
+                                   PJRT_MyPlugin_GetExampleExtensionCpp);
+
   static const PJRT_Api pjrt_api = pjrt::CreatePjrtApi(
       myplugin_pjrt::PJRT_MypluginClient_Create,
       myplugin_pjrt::PJRT_MypluginExecuteContext_Create,
       myplugin_pjrt::PJRT_MypluginDeviceTopology_Create,
-      pjrt::PJRT_Plugin_Initialize_NoOp, &layouts_extension.base,
+      pjrt::PJRT_Plugin_Initialize_NoOp, &example_extension.base,
       pjrt::PJRT_Plugin_Attributes_Xla);
 
   printf("MyPlugin called GetPjrtApi\n");

@@ -17,12 +17,16 @@ limitations under the License.
 
 #include <memory>
 
+#include <gmock/gmock.h>
 #include <gtest/gtest.h>
+#include "absl/status/status.h"
 #include "xla/runtime/device_id.h"
 #include "xla/tsl/platform/statusor.h"
 
 namespace xla {
 namespace {
+
+using ::testing::status::StatusIs;
 
 TEST(ComputationPlacerTest, Basic) {
   ComputationPlacer cp;
@@ -48,6 +52,17 @@ TEST(ComputationPlacerTest, SerDes) {
   TF_ASSERT_OK_AND_ASSIGN(std::unique_ptr<DeviceAssignment> da2,
                           DeviceAssignment::Deserialize(proto));
   EXPECT_EQ(da, *da2);
+}
+
+TEST(ComputationPlacerTest, SerDesError) {
+  ComputationPlacer cp;
+  TF_ASSERT_OK_AND_ASSIGN(DeviceAssignment da, cp.AssignDevices(4, 2));
+  DeviceAssignmentProto proto;
+  da.Serialize(&proto);
+  proto.set_replica_count(-1);
+  EXPECT_THAT(DeviceAssignment::Deserialize(proto),
+              StatusIs(absl::StatusCode::kInvalidArgument,
+                       ::testing::HasSubstr("replica_count() > 0")));
 }
 
 TEST(ComputationPlacerTest, DuplicateDevices) {

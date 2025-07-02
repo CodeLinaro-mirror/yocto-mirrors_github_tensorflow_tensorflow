@@ -559,6 +559,37 @@ Shape ShapeUtil::PrependMajorDimension(int64_t bound, Shape shape) {
   TF_DCHECK_OK(ValidateShape(*shape));
 }
 
+Shape ShapeUtil::InsertDimensionAtIndex(Shape shape, int64_t dim_idx,
+                                        int64_t bound) {
+  CHECK(shape.IsArray());
+  CHECK_GE(dim_idx, 0);
+  CHECK_LE(dim_idx, shape.dimensions().size());
+
+  const auto& dims = shape.dimensions();
+  std::vector<int64_t> new_dims(dims.begin(), dims.begin() + dim_idx);
+  new_dims.push_back(bound);
+  new_dims.insert(new_dims.end(), dims.begin() + dim_idx, dims.end());
+  Shape new_shape(shape.element_type(), new_dims);
+
+  if (shape.has_layout()) {
+    auto* layout = new_shape.mutable_layout();
+
+    if (dim_idx == shape.dimensions().size()) {
+      layout->add_minor_to_major(dim_idx);
+    }
+
+    for (int64_t dim : shape.layout().minor_to_major()) {
+      layout->add_minor_to_major(dim >= dim_idx ? dim + 1 : dim);
+      if (dim == dim_idx) {
+        layout->add_minor_to_major(dim_idx);
+      }
+    }
+  }
+
+  TF_DCHECK_OK(ValidateShape(new_shape));
+  return new_shape;
+}
+
 /* static */ void ShapeUtil::CopyDynamicDimensions(Shape* to,
                                                    const Shape& from) {
   CHECK_EQ(to->dimensions().size(), from.dimensions().size());

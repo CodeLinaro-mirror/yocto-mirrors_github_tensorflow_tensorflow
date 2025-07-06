@@ -32,6 +32,26 @@ def TritonXLAExtractInsertToTritonPass : Pass<"triton-xla-extract-insert-to-trit
   let constructor = "CreateTritonXLAExtractInsertToTritonPass()";
 }
 
+def TritonXLAContractDimsPass : Pass<"triton-xla-contract-dims", "mlir::ModuleOp"> {
+  let summary = "Remove superfluous size-1 dimensions.";
+  let description = [{
+    This pass tries to remove size-1 dimensions from tensors.
+  }];
+  let dependentDialects = [
+    "::mlir::triton::xla::XlaTritonDialect"
+  ];
+  let options = [
+    // Enabling contract-store would allow more optimizations, but the extracted
+    // contract_dims don't all disappear for softmax-like code (see the
+    // diamond_may_duplicate_code test), and end up crashing Triton.
+    Option<"contract_store_", "contract-store", "bool", "false",
+           "Extract contract_dims from tt.store. Enable for testing only.">,
+    Option<"finalize_", "finalize", "bool", "true",
+           "Convert contract_dims back to reshape. Disable for testing only.">,
+  ];
+  let constructor = "CreateTritonXLAContractDimsPass()";
+}
+
 def GeneralizeKernelSignaturePass
     : Pass<"generalize-kernel-signature"> {
   let summary = "Rewrite kernels to use generic data pointer arguments.";

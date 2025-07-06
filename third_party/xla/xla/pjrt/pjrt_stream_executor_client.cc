@@ -2888,10 +2888,13 @@ PjRtStreamExecutorLoadedExecutable::ExecuteHelper(
     std::vector<std::unique_ptr<PjRtBuffer>> outputs;
     TF_ASSIGN_OR_RETURN(auto hlo_modules, GetHloModules());
     for (const auto& hlo_module : hlo_modules) {
+      const xla::Shape& output_shape =
+          hlo_module->result_shape().IsTuple()
+              ? hlo_module->result_shape().tuple_shapes(0)
+              : hlo_module->result_shape();
       TF_ASSIGN_OR_RETURN(
           auto error_buffer,
-          client_->CreateErrorBuffer(input_error, hlo_module->result_shape(),
-                                     memory_space));
+          client_->CreateErrorBuffer(input_error, output_shape, memory_space));
       outputs.push_back(std::move(error_buffer));
     }
     auto future = std::make_optional(PjRtFuture<>(input_error));

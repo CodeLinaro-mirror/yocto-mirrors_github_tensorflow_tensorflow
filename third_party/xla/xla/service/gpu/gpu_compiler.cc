@@ -667,6 +667,7 @@ absl::Status RunPreSPMDPartitionerPasses(HloModule* hlo_module) {
 
 absl::Status RunSPMDPasses(
     HloModule* hlo_module, const Compiler::TargetConfig& gpu_target_config,
+    const AliasInfo* alias_info,
     const AlgebraicSimplifierOptions& layout_insensitive_algsimp_opts) {
   bool auto_sharding = hlo_module->config().use_auto_spmd_partitioning();
 #ifndef PLATFORM_GOOGLE
@@ -686,7 +687,8 @@ absl::Status RunSPMDPasses(
                     if (auto_sharding) {
                       spmd_pipeline.AddPass<AutoSharding>(
                           DefaultAutoShardingOptionFromModuleConfig(
-                              hlo_module->config()));
+                              hlo_module->config()),
+                          alias_info);
                     }
                   });
 #else
@@ -1420,7 +1422,7 @@ absl::Status GpuCompiler::OptimizeHloModule(
           GetAlgebraicSimplifierOptions(hlo_module->config()));
 
   TF_RETURN_IF_ERROR(RunPreSPMDPartitionerPasses(hlo_module));
-  TF_RETURN_IF_ERROR(RunSPMDPasses(hlo_module, gpu_target_config,
+  TF_RETURN_IF_ERROR(RunSPMDPasses(hlo_module, gpu_target_config, alias_info,
                                    layout_insensitive_algsimp_opts));
 
   // Dump the HLO module after SPMD partitioning. There should be no more Python

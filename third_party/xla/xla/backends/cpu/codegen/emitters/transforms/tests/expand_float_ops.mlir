@@ -15,3 +15,17 @@ func.func @extend(%input: bf16) -> f32 {
 }
 
 // CHECK-NOT: arith.extf
+
+// -----
+
+module {
+  func.func @erf64(%arg0: f64) -> f64 {
+    %ret = math.erf %arg0 : f64
+    return %ret : f64
+  }
+}
+
+// CHECK-LABEL: @erf64
+// CHECK-NOT: math.erf
+// CHECK: %[[ERF_CALL:.*]] = call @erf
+// CHECK: return %[[ERF_CALL]]

@@ -15,6 +15,7 @@ limitations under the License.
 
 #include "xla/service/hlo_cse.h"
 
+#include <functional>
 #include <memory>
 #include <optional>
 #include <string>
@@ -22,6 +23,8 @@ limitations under the License.
 
 #include "absl/container/flat_hash_map.h"
 #include "absl/container/flat_hash_set.h"
+#include "absl/hash/hash.h"
+#include "absl/log/log.h"
 #include "absl/status/statusor.h"
 #include "xla/hlo/ir/hlo_casting_utils.h"
 #include "xla/hlo/ir/hlo_computation.h"
@@ -249,6 +252,7 @@ absl::StatusOr<bool> HloCSE::Run(
 
 absl::StatusOr<bool> HloCSE::RunOnComputation(HloComputation* computation) {
   if (only_fusion_computations_ && !computation->IsFusionComputation()) {
+    VLOG(10) << "Skipping non-fusion computation: " << computation->name();
     return false;
   }
 
@@ -275,11 +279,21 @@ absl::StatusOr<bool> HloCSE::RunOnComputation(HloComputation* computation) {
     return *lhs == *rhs;
   };
 
-  auto cse_equal = [&](const CseKey& lhs, const CseKey& rhs) {
-    return lhs.hlo->IdenticalIgnoringCommutativeOperandOrder(
-        *rhs.hlo, eq_instructions, eq_computations, is_layout_sensitive_,
-        /*sharding_sensitive=*/true);
-  };
+  std::function<bool(const CseKey&, const CseKey&)> cse_equal_with_channel_id =
+      [&](const CseKey& lhs, const CseKey& rhs) {
+        return lhs.hlo->IdenticalIgnoringCommutativeOperandOrder(
+            *rhs.hlo, eq_instructions, eq_computations, is_layout_sensitive_,
+            /*sharding_sensitive=*/true);
+      };
+  std::function<bool(const CseKey&, const CseKey&)> cse_equal_no_channel_id =
+      [&](const CseKey& lhs, const CseKey& rhs) {
+        return lhs.hlo->IdenticalIgnoringChannelIdValues(
+            *rhs.hlo, eq_instructions, eq_computations, is_layout_sensitive_,
+            /*sharding_sensitive=*/true);
+      };
+  auto cse_equal = computation->parent()->config().ChannelIdSensitive()
+                       ? cse_equal_with_channel_id
+                       : cse_equal_no_channel_id;
 
   // HLO instructions are grouped into equivalency classes by using the
   // cse_equal predicate defined above. This set holds a representative
@@ -293,24 +307,35 @@ absl::StatusOr<bool> HloCSE::RunOnComputation(HloComputation* computation) {
     if (instruction->operand_count() == 0 &&
         instruction->opcode() != HloOpcode::kPartitionId &&
         instruction->opcode() != HloOpcode::kReplicaId) {
+      VLOG(10) << "Skipping instruction with zero operands: "
+               << instruction->name();
       continue;
     }
     // Skip instructions which have side effects.
     if (instruction->HasSideEffect()) {
+      VLOG(10) << "Skipping instruction with side effects: "
+               << instruction->name();
       continue;
     }
 
     // Skip instructions that cannot be safely removed.
     if (!computation->IsSafelyRemovable(instruction,
                                         ignore_control_dependencies_)) {
+      VLOG(10) << "Skipping instruction that cannot be safely removed: "
+               << instruction->name();
       continue;
     }
 
     if (only_scalars_ && !ShapeUtil::IsScalar(instruction->shape())) {
+      VLOG(10) << "Skipping instruction that is not a scalar: "
+               << instruction->name();
       continue;
     }
 
-    auto pair = representatives.insert(CseKey{instruction});
+    auto cse_key = CseKey{instruction};
+    VLOG(10) << "Adding instruction " << instruction->name() << " with CSE key "
+             << absl::Hash<CseKey>{}(cse_key);
+    auto pair = representatives.insert(cse_key);
     if (!pair.second) {
       HloInstruction* equivalent_instruction = pair.first->hlo;
       TF_RETURN_IF_ERROR(

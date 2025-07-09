@@ -3911,6 +3911,8 @@ cc_library(
         "//xla/hlo/pass:hlo_pass",
         "@com_google_absl//absl/container:flat_hash_map",
         "@com_google_absl//absl/container:flat_hash_set",
+        "@com_google_absl//absl/hash",
+        "@com_google_absl//absl/log",
         "@com_google_absl//absl/status:statusor",
         "@local_tsl//tsl/platform:errors",
     ],

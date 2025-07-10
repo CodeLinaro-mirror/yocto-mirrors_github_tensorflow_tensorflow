@@ -2289,7 +2289,7 @@ class ConvertLoweredCumOp : public OpConversionPattern<mhlo::ReduceWindowOp> {
     }
 
     if (cumulative_axis == -1) {
-      rw.emitOpError() << "no reduced dimension is found.";
+      // No reduced dimension was found.
       return failure();
     }
 

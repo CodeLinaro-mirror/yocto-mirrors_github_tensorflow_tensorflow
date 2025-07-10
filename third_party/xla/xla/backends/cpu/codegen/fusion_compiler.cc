@@ -165,13 +165,13 @@ static void AddLoweringPasses(mlir::OpPassManager& pm, int32_t vector_width,
   pm.addPass(mlir::createSymbolDCEPass());
   pm.addPass(mlir::createCSEPass());
 
-  pm.addNestedPass<mlir::func::FuncOp>(cpu::CreateExpandFloatOpsPass());
+  pm.addPass(cpu::CreateExpandFloatOpsPass());
   pm.addPass(emitters::CreateExpandFloatOpsPass());
   pm.addPass(emitters::CreateEraseDeadFunctionsPass());
   pm.addPass(mlir::createLowerAffinePass());
   pm.addPass(mlir::createInlinerPass());
   pm.addPass(mlir::createSCFToControlFlowPass());
-  pm.addNestedPass<mlir::func::FuncOp>(emitters::CreateLowerXlaMathLibPass());
+  pm.addPass(emitters::CreateLowerXlaMathLibPass());
   pm.addNestedPass<mlir::func::FuncOp>(mlir::createConvertMathToLLVMPass());
   pm.addPass(emitters::CreateLowerToLLVMPass(/*target_type=*/"cpu"));
   pm.addPass(mlir::createReconcileUnrealizedCastsPass());

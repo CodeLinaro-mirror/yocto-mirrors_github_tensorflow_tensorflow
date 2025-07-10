@@ -240,14 +240,10 @@ absl::StatusOr<Literal> HloRunner::ExecuteWithBufferAssignment(
   return TransferLiteralFromDevice(result.Result());
 }
 
-absl::StatusOr<Literal> HloRunner::ExecuteWithExecutable(
-    OpaqueExecutable* executable, absl::Span<const Literal* const> arguments) {
-  return ExecuteWithExecutableAndProfile(executable, arguments, nullptr);
-}
-
-absl::StatusOr<Literal> HloRunner::ExecuteWithExecutableAndProfile(
-    OpaqueExecutable* executable, absl::Span<const Literal* const> arguments,
-    ExecutionProfile* profile) {
+absl::StatusOr<std::vector<absl::StatusOr<Literal>>>
+HloRunner::ExecuteWithExecutable(OpaqueExecutable* executable,
+                                 absl::Span<const Literal* const> arguments,
+                                 int64_t num_repeats) {
   TF_ASSIGN_OR_RETURN(HloRunnerExecutable* const hlo_runner_executable,
                       HloRunnerExecutable::TryUnwrap(*this, executable));
   TF_ASSIGN_OR_RETURN(
@@ -255,11 +251,20 @@ absl::StatusOr<Literal> HloRunner::ExecuteWithExecutableAndProfile(
       TransferLiteralsToDevice(arguments, &hlo_runner_executable->executable()
                                                ->module()
                                                .entry_computation_layout()));
-  TF_ASSIGN_OR_RETURN(ExecutionOutput result,
-                      ExecuteWithDeviceBuffers(
-                          /*executable=*/hlo_runner_executable,
-                          /*arguments=*/argument_buffers, /*profile=*/profile));
-  return TransferLiteralFromDevice(result.Result());
+
+  std::vector<absl::StatusOr<Literal>> results;
+  results.reserve(num_repeats);
+  for (int64_t i = 0; i < num_repeats; ++i) {
+    absl::StatusOr<ExecutionOutput> result = ExecuteWithDeviceBuffers(
+        /*executable=*/hlo_runner_executable,
+        /*arguments=*/argument_buffers, /*profile=*/nullptr);
+    if (!result.ok()) {
+      results.push_back(result.status());
+      continue;
+    }
+    results.push_back(TransferLiteralFromDevice(result->Result()));
+  }
+  return results;
 }
 
 // Create a partially owning vector of `ExecutionInput`s based on an owning

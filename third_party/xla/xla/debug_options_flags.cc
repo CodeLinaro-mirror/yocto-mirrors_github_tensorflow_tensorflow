@@ -321,6 +321,10 @@ DebugOptions DefaultDebugOptionsIgnoringFlags() {
 
   opts.set_xla_gpu_enable_triton_gemm(true);
   opts.clear_xla_gpu_unsupported_generic_triton_emitter_features();
+  // When changing the default value of the flag, please make sure to update the
+  // default value of the command line flag in `MakeDebugOptionsFlags`.
+  opts.add_xla_gpu_unsupported_generic_triton_emitter_features(
+      DebugOptions::GENERIC_TRITON_EMITTER_ENABLE_NESTED_GEMM);
   opts.set_xla_gpu_unsupported_enable_triton_multi_output_fusion(true);
   opts.set_xla_gpu_enable_cudnn_int8x32_convolution_reordering(true);
   opts.set_xla_gpu_triton_gemm_any(true);
@@ -1837,7 +1841,7 @@ void MakeDebugOptionsFlags(std::vector<tsl::Flag>* flag_list,
           &DebugOptions::GenericTritonEmitterFeature_Parse,
           debug_options
               ->mutable_xla_gpu_unsupported_generic_triton_emitter_features()),
-      "",
+      "enable_nested_gemm",
       "Comma-separated list of individual features of generic Triton emitter. "
       "Use +/- prefix to modify the default list, or list features to enable "
       "explicitly - that will override the defaults."));

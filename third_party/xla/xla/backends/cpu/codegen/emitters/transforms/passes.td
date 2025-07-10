@@ -65,6 +65,8 @@ def ExpandFloatOpsPass : Pass<"xla-cpu-expand-float-ops", "mlir::func::FuncOp"> 
 
   let dependentDialects = [
     "mlir::arith::ArithDialect",
+    "mlir::math::MathDialect",
+    "mlir::func::FuncDialect",
   ];
 
   let constructor = "CreateExpandFloatOpsPass()";

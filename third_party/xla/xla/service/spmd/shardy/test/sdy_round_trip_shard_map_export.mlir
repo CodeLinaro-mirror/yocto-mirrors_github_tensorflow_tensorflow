@@ -44,7 +44,8 @@ func.func @manual_comp_using_another(%arg0: tensor<8x8xf32> {sdy.sharding = #sdy
   // CHECK-SAME: : (tensor<8x8xf32>) -> tensor<2x8xf32>
   // CHECK-NEXT: %[[SHMAP_0:.*]] = call @local_xla.sdy.manual_computation_body_0(%[[GLOBAL_TO_LOCAL_0]]) : (tensor<2x8xf32>) -> tensor<2x8xf32>
   // CHECK-NEXT: %[[LOCAL_TO_GLOBAL_0:.*]] = stablehlo.custom_call @local_xla.sdy.LocalToGlobalShape(%[[SHMAP_0]])
-  // CHECK-SAME:   {mhlo.frontend_attributes = {
+  // CHECK-SAME:   {has_side_effect = true
+  // CHECK-SAME:    mhlo.frontend_attributes = {
   // CHECK-SAME:      xla.sdy.manual_axes = "#sdy<manual_axes{\22a\22}>",
   // CHECK-SAME:      xla.sdy.out_shardings = "#sdy.sharding_per_value<[<@mesh_0, [{\22a\22}, {}]>]>"}}
   // CHECK-SAME: : (tensor<2x8xf32>) -> tensor<8x8xf32>
@@ -56,7 +57,8 @@ func.func @manual_comp_using_another(%arg0: tensor<8x8xf32> {sdy.sharding = #sdy
   // CHECK-SAME: (tensor<8x8xf32>) -> tensor<8x4xf32>
   // CHECK-NEXT: %[[SHMAP_1:.*]] = call @local_xla.sdy.manual_computation_body_1(%[[GLOBAL_TO_LOCAL_1]]) : (tensor<8x4xf32>) -> tensor<8x4xf32
   // CHECK-NEXT: %[[LOCAL_TO_GLOBAL_1:.*]] = stablehlo.custom_call @local_xla.sdy.LocalToGlobalShape(%[[SHMAP_1]])
-  // CHECK-SAME: {mhlo.frontend_attributes = {
+  // CHECK-SAME: {has_side_effect = true
+  // CHECK-SAME:  mhlo.frontend_attributes = {
   // CHECK-SAME:    xla.sdy.manual_axes = "#sdy<manual_axes{\22b\22}>",
   // CHECK-SAME:    xla.sdy.out_shardings = "#sdy.sharding_per_value<[<@mesh_0, [{}, {\22b\22}]>]>"}}
   // CHECK-SAME: (tensor<8x4xf32>) -> tensor<8x8xf32>
@@ -81,7 +83,8 @@ func.func @nested_shmaps(%arg0: tensor<4x8xf32> {sdy.sharding = #sdy.sharding<@m
   // CHECK-SAME: (tensor<4x8xf32>) -> tensor<2x8xf32>
   // CHECK-NEXT: %[[SHMAP:.*]] = call @local_xla.sdy.manual_computation_body_3(%[[GLOBAL_TO_LOCAL]]) : (tensor<2x8xf32>) -> tensor<2x8xf32>
   // CHECK-NEXT: %[[LOCAL_TO_GLOBAL:.*]] = stablehlo.custom_call @local_xla.sdy.LocalToGlobalShape(%[[SHMAP]])
-  // CHECK-SAME: {mhlo.frontend_attributes = {
+  // CHECK-SAME: {has_side_effect = true
+  // CHECK-SAME:  mhlo.frontend_attributes = {
   // CHECK-SAME:    xla.sdy.manual_axes = "#sdy<manual_axes{\22a\22}>",
   // CHECK-SAME:    xla.sdy.out_shardings = "#sdy.sharding_per_value<[<@mesh_1, [{\22a\22}, {}]>]>"}}
   // CHECK-SAME: (tensor<2x8xf32>) -> tensor<4x8xf32>
@@ -106,7 +109,8 @@ func.func @nested_shmaps_extra_op(%arg0: tensor<4x8xf32> {sdy.sharding = #sdy.sh
   // CHECK-SAME: (tensor<4x8xf32>) -> tensor<2x8xf32>
   // CHECK-NEXT: %[[SHMAP:.*]] = call @local_xla.sdy.manual_computation_body_5(%[[GLOBAL_TO_LOCAL]]) : (tensor<2x8xf32>) -> tensor<2x8xf32>
   // CHECK-NEXT: %[[LOCAL_TO_GLOBAL:.*]] = stablehlo.custom_call @local_xla.sdy.LocalToGlobalShape(%[[SHMAP]])
-  // CHECK-SAME: {mhlo.frontend_attributes = {
+  // CHECK-SAME: {has_side_effect = true
+  // CHECK-SAME:  mhlo.frontend_attributes = {
   // CHECK-SAME:    xla.sdy.manual_axes = "#sdy<manual_axes{\22a\22}>",
   // CHECK-SAME:    xla.sdy.out_shardings = "#sdy.sharding_per_value<[<@mesh_1, [{\22a\22}, {}]>]>"}}
   // CHECK-SAME: (tensor<2x8xf32>) -> tensor<4x8xf32>
@@ -126,7 +130,8 @@ func.func @nested_shmaps_extra_op(%arg0: tensor<4x8xf32> {sdy.sharding = #sdy.sh
 func.func @manual_computation_no_inputs() -> tensor<4xi64> {
   // CHECK-NEXT: %[[SHMAP:.*]] = call @local_xla.sdy.manual_computation_body_6() : () -> tensor<2xi64>
   // CHECK-NEXT: %[[LOCAL_TO_GLOBAL:.*]] = stablehlo.custom_call @local_xla.sdy.LocalToGlobalShape(%[[SHMAP]])
-  // CHECK-SAME: {mhlo.frontend_attributes = {
+  // CHECK-SAME: {has_side_effect = true
+  // CHECK-SAME:  mhlo.frontend_attributes = {
   // CHECK-SAME:    xla.sdy.manual_axes = "#sdy<manual_axes{\22b\22}>",
   // CHECK-SAME:    xla.sdy.out_shardings = "#sdy.sharding_per_value<[<@mesh_0, [{\22b\22}]>]>"}}
   // CHECK-SAME: (tensor<2xi64>) -> tensor<4xi64>
@@ -187,7 +192,8 @@ func.func @manual_computation_no_inputs_no_outputs() {
 // CHECK-SAME:   (tensor<2x8xf32>) -> tensor<2x4xf32>
 // CHECK-NEXT:   %[[SHMAP:.*]] = call @local_xla.sdy.manual_computation_body_2(%[[GLOBAL_TO_LOCAL]]) : (tensor<2x4xf32>) -> tensor<2x4xf32>
 // CHECK-NEXT:   stablehlo.custom_call @local_xla.sdy.LocalToGlobalShape(%[[SHMAP]])
-// CHECK-SAME:     {mhlo.frontend_attributes = {
+// CHECK-SAME:     {has_side_effect = true
+// CHECK-SAME:      mhlo.frontend_attributes = {
 // CHECK-SAME:        xla.sdy.manual_axes = "#sdy<manual_axes{\22b\22}>",
 // CHECK-SAME:        xla.sdy.out_shardings = "#sdy.sharding_per_value<[<@mesh_1, [{}, {\22b\22}]>]>"}}
 // CEHECK-SAME:  (tensor<2x4xf32>) -> tensor<2x8xf32>
@@ -204,7 +210,8 @@ func.func @manual_computation_no_inputs_no_outputs() {
 // CHECK-SAME:     (tensor<2x8xf32>) -> tensor<2x4xf32
 // CHECK-NEXT:   %[[SHMAP:.*]] = call @local_xla.sdy.manual_computation_body_4(%[[GLOBAL_TO_LOCAL]]) : (tensor<2x4xf32>) -> tensor<2x4xf32>
 // CHECK-NEXT:   %[[LOCAL_TO_GLOBAL:.*]] = stablehlo.custom_call @local_xla.sdy.LocalToGlobalShape(%[[SHMAP]])
-// CHECK-SAME:     {mhlo.frontend_attributes = {
+// CHECK-SAME:     {has_side_effect = true
+// CHECK-SAME:      mhlo.frontend_attributes = {
 // CHECK-SAME:        xla.sdy.manual_axes = "#sdy<manual_axes{\22b\22}>",
 // CHECK-SAME:        xla.sdy.out_shardings = "#sdy.sharding_per_value<[<@mesh_1, [{}, {\22b\22}]>]>"}}
 // CHECK-SAME:   (tensor<2x4xf32>) -> tensor<2x8xf32>

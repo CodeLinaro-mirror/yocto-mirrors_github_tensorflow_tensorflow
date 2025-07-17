@@ -124,10 +124,42 @@ absl::Status CanonicalizeTileStrides(SmallVector<int64_t>& tile_strides,
   return absl::OkStatus();
 }
 
+// Check if the offset is divisible by 16 bytes:
+//  - If the offset is a constant, we can check this directly.
+//  - If the offset is the result of an apply indexing op, we can check if the
+//    indexing map is divisible.
+bool IsOffsetDivisibilityGuaranteed(mlir::Value offset_val,
+                                    int64_t element_byte_size) {
+  const int64_t kByteDivisibilityFactor = 16;
+  int64_t divisor = kByteDivisibilityFactor /
+                    std::gcd(kByteDivisibilityFactor, element_byte_size);
+  if (auto const_op = offset_val.getDefiningOp<arith::ConstantIndexOp>()) {
+    return const_op.value() % divisor == 0;
+  }
+
+  if (auto apply_indexing =
+          offset_val.getDefiningOp<::xla::ApplyIndexingOp>()) {
+    mlir::AffineMap affine_map = apply_indexing.getIndexingMap().GetAffineMap();
+
+    // We expect a single result.
+    if (affine_map.getNumResults() != 1) {
+      return false;
+    }
+    return affine_map.getResult(0).isMultipleOf(divisor);
+  }
+
+  // TODO(manany): Should we also cover other operations like add, mul, etc?
+  // TODO(manany): Should we trace back beyond apply_indexing? The domain can be
+  // pruned if we trace back.
+
+  // Cannot guarantee divisibility. Assume not.
+  return false;
+}
+
 bool CanUseTMA(::xla::EmitterLocOpBuilder& builder, bool tma_enabled,
                const stream_executor::DeviceDescription& device_description,
                const ArrayRef<int64_t>& tile_shape,
-               const ArrayRef<int64_t>& tile_strides,
+               const ArrayRef<int64_t>& tile_strides, ValueRange offsets,
                const TypedValue<RankedTensorType>& tensor,
                const ArrayRef<int64_t>& minor_to_major_layout) {
   if (!tma_enabled) {
@@ -161,6 +193,12 @@ bool CanUseTMA(::xla::EmitterLocOpBuilder& builder, bool tma_enabled,
   // - The block size must be less than 256 in every dimension.
   // See source:
   // https://docs.nvidia.com/cuda/cuda-driver-api/group__CUDA__TENSOR__MEMORY.html
+  //
+  // Another undocumented limitation (informed by Nvidia in chat):
+  // - The address we load/store from (base + offset) must be divisible by 16.
+  // Since we already check that both the global strides and most minor tile
+  // dimension (in bytes) must be divisible by 16, it is sufficient to check
+  // that the offset in the minor dimension (in bytes) is divisible by 16.
   const uint64_t kMaxGlobalDim = pow(2, 32);
   const uint64_t kMaxGlobalStride = pow(2, 40) - 1;
   const uint64_t kByteDivisibilityFactor = 16;
@@ -169,20 +207,19 @@ bool CanUseTMA(::xla::EmitterLocOpBuilder& builder, bool tma_enabled,
   RankedTensorType tensor_type = tensor.getType();
   uint64_t element_byte_size = tensor_type.getElementTypeBitWidth() / 8;
   ArrayRef<int64_t> global_shape = tensor_type.getShape();
+  int64_t minor_dim_idx = minor_to_major_layout[0];
+
   // Validate global shape.
   if (llvm::any_of(global_shape, [&](uint64_t dim) {
         return dim == 0 || dim > kMaxGlobalDim;
       })) {
     return false;
   }
+
   // Validate tile shape.
-  if ((tile_shape[minor_to_major_layout[0]] * element_byte_size) %
+  if ((tile_shape[minor_dim_idx] * element_byte_size) %
           kByteDivisibilityFactor !=
       0) {
-    return false;
-  }
-  if (mlir::ShapedType::isDynamicShape(tile_strides) ||
-      tile_strides[minor_to_major_layout[0]] != 1) {
     return false;
   }
   if (llvm::any_of(tile_shape, [&](uint64_t dim) {
@@ -190,11 +227,16 @@ bool CanUseTMA(::xla::EmitterLocOpBuilder& builder, bool tma_enabled,
       })) {
     return false;
   }
+
+  // Validate minor dimension is contiguous.
+  if (mlir::ShapedType::isDynamicShape(tile_strides) ||
+      tile_strides[minor_dim_idx] != 1) {
+    return false;
+  }
   // Validate global strides.
   SmallVector<int64_t, 4> global_strides;
   if (tensor_type.getRank() >= 2) {
-    global_strides.push_back(global_shape[minor_to_major_layout[0]] *
-                             element_byte_size);
+    global_strides.push_back(global_shape[minor_dim_idx] * element_byte_size);
     if (global_strides[0] % kByteDivisibilityFactor != 0 ||
         global_strides[0] > kMaxGlobalStride) {
       return false;
@@ -206,6 +248,12 @@ bool CanUseTMA(::xla::EmitterLocOpBuilder& builder, bool tma_enabled,
         return false;
       }
     }
+  }
+
+  // Validate minor dimension offset.
+  if (!IsOffsetDivisibilityGuaranteed(offsets[minor_dim_idx],
+                                      element_byte_size)) {
+    return false;
   }
   return true;
 }
@@ -540,7 +588,8 @@ class RewriteExtract : public mlir::OpRewritePattern<ExtractOp> {
 
     auto offsets = op.getOffsetsAsValues(builder);
     if (CanUseTMA(builder, tma_enabled_, *device_description_, tile_shape,
-                  op.getStaticStrides(), op.getSrc(), op.getLayout())) {
+                  op.getStaticStrides(), offsets, op.getSrc(),
+                  op.getLayout())) {
       SmallVector<int64_t> strides = llvm::to_vector(op.getStaticStrides());
       if (auto result =
               CanonicalizeTileStrides(strides, tile_shape, original_shape);
@@ -637,7 +686,8 @@ class RewriteInsert : public mlir::OpRewritePattern<InsertOp> {
 
     auto offsets = op.getOffsetsAsValues(builder);
     if (CanUseTMA(builder, tma_enabled_, *device_description_, tile_shape,
-                  op.getStaticStrides(), op.getDst(), op.getLayout())) {
+                  op.getStaticStrides(), offsets, op.getDst(),
+                  op.getLayout())) {
       SmallVector<int64_t> strides = llvm::to_vector(op.getStaticStrides());
       if (auto result =
               CanonicalizeTileStrides(strides, tile_shape, original_shape);

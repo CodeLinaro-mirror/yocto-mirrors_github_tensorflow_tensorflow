@@ -149,7 +149,7 @@ Layout CreateDefaultLayoutForRank(int64_t num_dims) {
   }
 
   // A Layout proto corresponds to a single array, not a tuple.
-  CHECK(shape.IsArrayOrBuffer());
+  CHECK(shape.IsArray());
   return CreateDefaultLayoutForRank(shape.dimensions().size());
 }
 
@@ -340,7 +340,7 @@ Layout CreateDefaultLayoutForRank(int64_t num_dims) {
   if (shape.IsBuffer()) {
     return HasLayout(shape.buffer_shape());
   }
-  if (!shape.IsArray()) {
+  if (!shape.IsArrayExcludingBuffer()) {
     // Opaque, token types etc. ignore layout.
     return true;
   }
@@ -356,7 +356,7 @@ Layout CreateDefaultLayoutForRank(int64_t num_dims) {
   if (shape.IsBuffer()) {
     return HasAnyLayout(shape.buffer_shape());
   }
-  if (!shape.IsArray()) {
+  if (!shape.IsArrayExcludingBuffer()) {
     // Opaque, token types etc. ignore layout.
     return true;
   }

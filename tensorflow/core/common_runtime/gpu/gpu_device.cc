@@ -1397,16 +1397,21 @@ Status BaseGPUDeviceFactory::CreateDevices(
   if (gpu_manager == nullptr) {
     return OkStatus();
   }
-  // If there are no GPUs visible, do nothing.
-  if (gpu_manager->VisibleDeviceCount() <= 0) {
-    return OkStatus();
-  }
 
+  // NOTE: This has to be checked first because calling `VisibleDeviceCount()`
+  // may result in initializing the platform and holding onto it in memory. This
+  // is the case for `stream_executor::gpu::CudaPlatform::VisibleDeviceCount`.
   size_t num_gpus_to_use = INT_MAX;
   auto iter = options.config.device_count().find("GPU");
   if (iter != options.config.device_count().end()) {
     num_gpus_to_use = iter->second;
   }
+  // If there are no GPUs visible, do nothing. Only check for visible devices
+  // if we eventually have to use GPUs.
+  if (num_gpus_to_use > 0 && gpu_manager->VisibleDeviceCount() <= 0) {
+    return OkStatus();
+  }
+
   const auto& gpu_options = options.config.gpu_options();
   bool populate_pjrt_gpu_client_creation_info =
       gpu_options.experimental().populate_pjrt_gpu_client_creation_info();

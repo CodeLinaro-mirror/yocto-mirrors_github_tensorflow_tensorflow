@@ -29,6 +29,7 @@ limitations under the License.
 #include "mlir/IR/AffineMap.h"
 #include "mlir/Support/LLVM.h"
 #include "xla/hlo/analysis/indexing_map_serialization.h"
+#include "xla/service/gpu/model/experimental/tiling_space.h"
 
 namespace xla::gpu {
 namespace {
@@ -49,12 +50,10 @@ SmallVector<std::string> GetVarNames(int64_t num_vars, llvm::StringRef prefix) {
 }  // namespace
 
 ExperimentalSymbolicTile::ExperimentalSymbolicTile(
-    mlir::MLIRContext* mlir_context, int64_t num_tile_ids, int64_t num_rt_vars,
+    mlir::MLIRContext* mlir_context, const TilingSpace& tiling_space,
     ArrayRef<AffineExpr> offsets, ArrayRef<AffineExpr> sizes,
     ArrayRef<AffineExpr> strides, ArrayRef<AffineExpr> upper_bounds)
-    : mlir_context_(mlir_context),
-      num_tile_ids_(num_tile_ids),
-      num_rt_vars_(num_rt_vars) {
+    : mlir_context_(mlir_context), tiling_space_(&tiling_space) {
   dim_tiles_.reserve(offsets.size());
   for (auto [offset, size, stride, upper_bound] :
        llvm::zip(offsets, sizes, strides, upper_bounds)) {
@@ -63,17 +62,17 @@ ExperimentalSymbolicTile::ExperimentalSymbolicTile(
 }
 
 ExperimentalSymbolicTile::ExperimentalSymbolicTile(
-    mlir::MLIRContext* mlir_context, int64_t num_tile_ids, int64_t num_rt_vars,
+    mlir::MLIRContext* mlir_context, const TilingSpace& tiling_space,
     llvm::SmallVector<DimTile> dim_tiles)
     : mlir_context_(mlir_context),
-      num_tile_ids_(num_tile_ids),
-      num_rt_vars_(num_rt_vars),
+      tiling_space_(&tiling_space),
       dim_tiles_(std::move(dim_tiles)) {}
 
 std::string ExperimentalSymbolicTile::ToString() const {
-  auto tid_names = GetVarNames(num_tile_ids(), "tid_");
-  auto ts_names = GetVarNames(num_tile_ids(), "ts_");
-  auto rt_names = GetVarNames(num_rt_vars(), "rt_");
+  int64_t num_dimensions = tiling_space_->num_dimensions();
+  auto tid_names = GetVarNames(num_dimensions, "tid_");
+  auto ts_names = GetVarNames(num_dimensions, "ts_");
+  auto rt_names = GetVarNames(tiling_space_->num_rt_vars(), "rt_");
 
   std::string s;
   llvm::raw_string_ostream ss(s);

@@ -118,11 +118,8 @@ absl::StatusOr<se::KernelLoaderSpec> GetTopKKernelForKAndPlatform(
 template <typename T>
 absl::StatusOr<se::KernelLoaderSpec> GetTopKKernelForKAndPlatformAndN(
     size_t k, se::Platform::Id id, size_t n) {
-  // TODO(doak): Switch to uint32_t if we don't have an efficient
-  // implementation for uint16_t.
-  if (n < std::numeric_limits<uint16_t>::max()) {
-    return GetTopKKernelForKAndPlatform<T, uint16_t>(k, id);
-  }
+  // On the H100, using uint32_t for indices yields better overall performance
+  // than uint16_t.
   return GetTopKKernelForKAndPlatform<T, uint32_t>(k, id);
 }
 

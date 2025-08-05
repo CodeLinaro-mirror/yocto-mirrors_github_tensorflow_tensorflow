@@ -166,6 +166,8 @@ AffineExpr ParseAffineExpr(absl::string_view serialized_affine_expr,
 }
 
 bool ApproximateMatch(absl::string_view lhs, absl::string_view rhs) {
+  LOG(ERROR) << "lhs: " << lhs;
+  LOG(ERROR) << "rhs: " << rhs;
   size_t lhs_length = lhs.size();
   size_t rhs_length = rhs.size();
   size_t l = 0, r = 0;

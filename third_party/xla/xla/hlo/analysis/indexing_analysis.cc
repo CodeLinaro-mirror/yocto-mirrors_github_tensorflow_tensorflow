@@ -1495,6 +1495,49 @@ GroupedByOpIndexing ComputeGroupedOutputToInputIndexing(
   return grouped_indexing_maps;
 }
 
+HloInstructionIndexing ComputeOutputToInputAllGatherOpIndexing(
+    const HloAllGatherInstruction* instr, MLIRContext* ctx) {
+  // CHECK_EQ(instr->all_gather_dimension(), 0);
+  // if (instr->all_gather_dimension() != 0) {
+  //   return CreateUnknownIndexing(instr->operand_count());
+  // }
+
+  int64_t all_gather_dim = instr->all_gather_dimension();
+
+  auto output_rank = instr->shape().dimensions().size();
+
+  std::vector<AffineExpr> exprs;
+  exprs.reserve(output_rank);
+
+  int64_t all_gather_input_dim_size =
+      instr->operand(0)->shape().dimensions()[instr->all_gather_dimension()];
+
+  for (int64_t i = 0; i < output_rank; ++i) {
+    if (i == all_gather_dim) {
+      exprs.push_back(mlir::getAffineDimExpr(i, ctx) %
+                      all_gather_input_dim_size);
+    } else {
+      exprs.push_back(mlir::getAffineDimExpr(i, ctx));
+    }
+  }
+
+  IndexingMap indexing_map = IndexingMap::FromTensorSizes(
+      AffineMap::get(output_rank, /*symbolCount=*/0, exprs, ctx),
+      instr->shape().dimensions(), {});
+
+  AffineExpr replica_id_expr = mlir::getAffineDimExpr(all_gather_dim, ctx)
+                                   .floorDiv(all_gather_input_dim_size);
+
+  IndexingMap replica_id_map = IndexingMap::FromTensorSizes(
+      AffineMap::get(output_rank, /*symbolCount=*/0, replica_id_expr, ctx),
+      instr->shape().dimensions(), {});
+
+  OperandIndexing operand_indexing(indexing_map, {}, replica_id_map);
+  // LOG(ERROR) << "operand_indexing: " << operand_indexing;
+
+  return HloInstructionIndexing::FromOperandIndexing({operand_indexing});
+}
+
 HloInstructionIndexing ComputeOutputToInputIndexing(const HloInstruction* instr,
                                                     int output_id,
                                                     MLIRContext* ctx) {
@@ -1560,6 +1603,9 @@ HloInstructionIndexing ComputeOutputToInputIndexing(const HloInstruction* instr,
   }
   if (auto parameter = DynCast<HloParameterInstruction>(instr)) {
     return HloInstructionIndexing{};
+  }
+  if (auto all_gather = DynCast<HloAllGatherInstruction>(instr)) {
+    return ComputeOutputToInputAllGatherOpIndexing(all_gather, ctx);
   }
   LOG(ERROR) << "ComputeOutputToInputIndexing is not implemented for opcode "
              << instr->opcode();
@@ -1636,10 +1682,14 @@ IndexingMap ComputeEpilogueInputToOutputIndexing(
 std::string OperandIndexing::ToString() const {
   std::string result = absl::StrCat(xla::ToString(map_));
   if (!rt_vars_.empty()) {
-    absl::StrAppend(&result, "runtime variables:\n");
+    absl::StrAppend(&result, "\nruntime variables:\n");
     for (const auto& [id, rt_var] : llvm::enumerate(rt_vars_)) {
       absl::StrAppend(&result, "\nrt", id, ": ", rt_var.ToString());
     }
+  }
+  if (replica_id_map_.has_value()) {
+    absl::StrAppend(&result, "\nreplica id:\n",
+                    xla::ToString(*replica_id_map_));
   }
   return result;
 }
@@ -1713,7 +1763,22 @@ OperandIndexing ComposeOperandIndexing(const OperandIndexing& first,
     IndexingMap combined_map = ComposeIndexingMaps(first.map(), rt_var.map);
     combined_runtime.push_back(RuntimeVarIndexing{rt_var.hlo, combined_map});
   }
-  return OperandIndexing(map, combined_runtime);
+
+  std::optional<IndexingMap> replica_id_map;
+  if (first.replica_id_map().has_value()) {
+    replica_id_map = first.replica_id_map();
+    if (second.replica_id_map().has_value()) {
+      // TODO(shyshkov): Support chaining collective ops.
+      return OperandIndexing(IndexingMap::GetUndefined(), {});
+    }
+  }
+
+  if (second.replica_id_map().has_value()) {
+    replica_id_map =
+        ComposeIndexingMaps(first.map(), second.replica_id_map().value());
+  }
+
+  return OperandIndexing(map, combined_runtime, replica_id_map);
 }
 
 std::string RuntimeVarIndexing::ToString() const {

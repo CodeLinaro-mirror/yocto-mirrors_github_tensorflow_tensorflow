@@ -121,6 +121,7 @@ cc_library(
         "@highwayhash",
         "@highwayhash//:arch_specific",
         "@highwayhash//:hh_types",
+        "@llvm-project//llvm:Support",
         "@local_tsl//tsl/platform:fingerprint",
         "@local_tsl//tsl/platform:protobuf",
     ],
@@ -198,6 +199,7 @@ cc_library(
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/strings:str_format",
         "@com_google_absl//absl/types:span",
+        "@llvm-project//llvm:Support",
         "@local_tsl//tsl/platform:protobuf",
     ],
 )

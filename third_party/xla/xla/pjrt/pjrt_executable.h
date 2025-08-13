@@ -26,10 +26,15 @@ limitations under the License.
 #include <variant>
 #include <vector>
 
+#include "base/casts.h"
+#include "absl/container/flat_hash_map.h"
+#include "absl/container/flat_hash_set.h"
+#include "absl/log/log.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
 #include "absl/types/span.h"
+#include "third_party/protobuf/descriptor.h"
 #include "xla/client/executable_build_options.h"
 #include "xla/ffi/execution_context.h"
 #include "xla/hlo/ir/hlo_module.h"
@@ -98,6 +103,7 @@ struct CompileOptions {
   // Set multi_slice_config to trigger compilation for DCN connected multi
   // slice operation.
   const MultiSliceConfig* multi_slice_config = nullptr;
+  const std::string serialized_multi_slice_config = "";
 
   // Key-value string pairs, parsed in order to set miscellaneous options,
   // overriding if appropriate.
@@ -131,6 +137,11 @@ struct CompileOptions {
   // Deserialize the CompileOptionsProto into a CompileOptions.
   static absl::StatusOr<CompileOptions> FromProto(
       const CompileOptionsProto& proto);
+
+  explicit CompileOptions(const std::string& serialized_multi_slice_config)
+      : serialized_multi_slice_config(serialized_multi_slice_config) {}
+
+  explicit CompileOptions() : serialized_multi_slice_config("") {}
 };
 
 struct LoadOptions {

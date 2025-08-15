@@ -183,8 +183,7 @@ XlaJitCompiledCpuFunction::Compile(
             // library will be backed by the one in the executable which is
             // owned by XlaJitCompiledCpuFunction.
             /*obj_files=*/{}, /*symbols=*/{},
-            cpu_executable->thunks().thunk_sequence(),
-            cpu_executable->function_library(),
+            cpu_executable->thunks().thunk_sequence(), nullptr,
             /*hlo_profile_printer_data=*/nullptr));
 
     const std::optional<size_t> temp_allocation_index =

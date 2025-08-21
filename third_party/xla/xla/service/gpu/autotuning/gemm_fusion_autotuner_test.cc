@@ -1772,6 +1772,47 @@ TEST_F(GemmFusionAutotunerEnableTma,
   EXPECT_TRUE(RunAndCompare(std::move(module),
                             ErrorSpec{/*aabs=*/5e-3, /*arel=*/5e-3}));
 }
+
+TEST_F(GemmFusionAutotunerEnableTma,
+       TmaConfigsGeneratedAndRunCorrectlyForDotsOfBroadcasts) {
+  if (isRocm()) {
+    GTEST_SKIP() << "Not supported on ROCm.";
+  }
+
+  std::unique_ptr<VerifiedHloModule> module = ParseAndReturnVerifiedModule(R"(
+    ENTRY e {
+      p0 = f32[64] parameter(0)
+      p0b = f32[64,64] broadcast(p0), dimensions={0}
+      p1 = f32[64,64] parameter(1)
+      ROOT r = f32[64,64] dot(p0b, p1),
+        lhs_contracting_dims={1}, rhs_contracting_dims={0}
+    })")
+                                                  .value();
+
+  TF_ASSERT_OK_AND_ASSIGN(
+      const std::vector<TritonGemmConfig> hopper_configs,
+      GetPossibleMatmulAutotuneTritonConfigs(
+          *Cast<HloDotInstruction>(
+              module->entry_computation()->root_instruction()),
+          se::CudaComputeCapability(se::CudaComputeCapability::kHopper, 0),
+          GetToolkitVersion(), GetDebugOptionsForTest()));
+
+  int count_tma_stages_lte_2_allowed = 0;
+  bool all_tma_stages_gt_2_not_allowed = true;
+  for (const auto& config : hopper_configs) {
+    if (config.num_stages > 2 && config.is_tma_allowed) {
+      all_tma_stages_gt_2_not_allowed = false;
+    }
+    if (config.num_stages <= 2 && config.is_tma_allowed) {
+      count_tma_stages_lte_2_allowed++;
+    }
+  }
+  EXPECT_GT(count_tma_stages_lte_2_allowed, 0);
+  EXPECT_TRUE(all_tma_stages_gt_2_not_allowed);
+
+  EXPECT_TRUE(RunAndCompare(std::move(module),
+                            ErrorSpec{/*aabs=*/5e-3, /*arel=*/5e-3}));
+}
 }  // namespace
 }  // namespace gpu
 }  // namespace xla

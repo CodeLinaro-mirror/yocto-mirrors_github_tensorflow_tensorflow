@@ -865,7 +865,11 @@ xla_test(
     size = "small",
     srcs = ["profile_with_cuda_kernels_test.cc"],
     args = if_google(["--heap_check="]),  # There is a memory leak in CUPTI
-    backends = ["gpu"],
+    backends = [
+        "a100",
+        "h100",
+        "b200",
+    ],
     tags = [
         "cuda-only",
         "no_mac",

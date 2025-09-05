@@ -329,47 +329,44 @@ func.func @atomic_rmw_i4(%in: tensor<8xi4>, %i: index) -> (tensor<8xi4>) {
 // CHECK-LABEL: func.func @atomic_rmw_i4(
 // CHECK-SAME:    %[[VAL_0:.*]]: !llvm.ptr, %[[VAL_1:.*]]: index) {
 
-// CHECK-DAG:  %[[LC1_i4:.*]] = arith.constant 1 : i4
-// CHECK-DAG:  %[[C0:.*]] = arith.constant 0 : i64
-// CHECK-DAG:  %[[C1:.*]] = arith.constant 1 : i64
-// CHECK-DAG:  %[[LC3:.*]] = llvm.mlir.constant(3 : i64) : i64
-// CHECK-DAG:  %[[LCm1:.*]] = llvm.mlir.constant(-1 : i64) : i64
-// CHECK-DAG:  %[[LC8:.*]] = llvm.mlir.constant(8 : i32) : i32
-// CHECK-DAG:  %[[LC0:.*]] = llvm.mlir.constant(0 : i32) : i32
-// CHECK-DAG:  %[[LC4:.*]] = llvm.mlir.constant(4 : i32) : i32
-// CHECK-DAG:  %[[LCm1_i32:.*]] = llvm.mlir.constant(-1 : i32) : i32
-// CHECK-DAG:  %[[LC15:.*]] = llvm.mlir.constant(15 : i32) : i32
-// CHECK-DAG:  %[[LCTRUE:.*]] = llvm.mlir.constant(true) : i1
+// CHECK-DAG:   %c1_i4 = arith.constant 1 : i4
+// CHECK-DAG:   %c15_i64 = arith.constant 15 : i64
+// CHECK-DAG:   %c4_i8 = arith.constant 4 : i8
+// CHECK-DAG:   %c1_i64 = arith.constant 1 : i64
+// CHECK-DAG:   %[[C3_I64:.*]] = llvm.mlir.constant(3 : i64) : i64
+// CHECK-DAG:   %[[C_NEG1_I64:.*]] = llvm.mlir.constant(-1 : i64) : i64
+// CHECK-DAG:   %[[C8_I32:.*]] = llvm.mlir.constant(8 : i32) : i32
+// CHECK-DAG:   %[[C_NEG1_I32:.*]] = llvm.mlir.constant(-1 : i32) : i32
+// CHECK-DAG:   %[[C15_I32:.*]] = llvm.mlir.constant(15 : i32) : i32
+// CHECK-DAG:   %[[C_TRUE:.*]] = llvm.mlir.constant(true) : i1
 
-// CHECK:  %[[VAL_13:.*]] = arith.index_castui %[[VAL_1]] : index to i64
-// CHECK:  %[[VAL_14:.*]] = arith.andi %[[VAL_13]], %[[C1]] : i64
-// CHECK:  %[[VAL_15:.*]] = arith.cmpi eq, %[[VAL_14]], %[[C0]] : i64
-// CHECK:  %[[VAL_16:.*]] = arith.shrui %[[VAL_13]], %[[C1]] : i64
-// CHECK:  %[[VAL_17:.*]] = llvm.getelementptr inbounds %[[VAL_0]][0, %[[VAL_16]]]
-// CHECK-SAME:   : (!llvm.ptr, i64) -> !llvm.ptr, !llvm.array<4 x i8>
-
-// CHECK:  %[[VAL_18:.*]] = llvm.ptrtoint %[[VAL_17]] : !llvm.ptr to i64
-// CHECK:  %[[VAL_19:.*]] = llvm.and %[[VAL_18]], %[[LC3]] : i64
-// CHECK:  %[[VAL_20:.*]] = llvm.mul %[[VAL_19]], %[[LCm1]] : i64
-// CHECK:  %[[VAL_21:.*]] = llvm.getelementptr inbounds %[[VAL_17]][%[[VAL_20]]]
-// CHECK-SAME:   : (!llvm.ptr, i64) -> !llvm.ptr, i8
-
-// CHECK:  %[[VAL_22:.*]] = llvm.trunc %[[VAL_19]] : i64 to i32
-// CHECK:  %[[VAL_23:.*]] = llvm.mul %[[VAL_22]], %[[LC8]] : i32
-// CHECK:  %[[VAL_24:.*]] = llvm.select %[[VAL_15]], %[[LC0]], %[[LC4]]
-// CHECK:  %[[VAL_25:.*]] = llvm.add %[[VAL_23]], %[[VAL_24]] : i32
-// CHECK:  %[[VAL_26:.*]] = llvm.shl %[[LC15]], %[[VAL_25]] : i32
-// CHECK:  %[[VAL_27:.*]] = llvm.xor %[[LCm1_i32]], %[[VAL_26]] : i32
-// CHECK:  %[[LOAD_4BYTES:.*]] = llvm.load %[[VAL_21]] : !llvm.ptr -> i32
-// CHECK:  scf.while (%[[VAL_30:.*]] = %[[LOAD_4BYTES]]) : (i32) -> i32 {
-// CHECK:    %[[VAL_31:.*]] = llvm.lshr %[[VAL_30]], %[[VAL_25]] : i32
-// CHECK:    %[[VAL_32:.*]] = llvm.trunc %[[VAL_31]] : i32 to i4
-// CHECK:    %[[VAL_33:.*]] = arith.addi %[[VAL_32]], %[[LC1_i4]] : i4
-// CHECK:    %[[VAL_34:.*]] = llvm.zext %[[VAL_33]] : i4 to i32
-// CHECK:    %[[VAL_35:.*]] = llvm.and %[[VAL_30]], %[[VAL_27]] : i32
-// CHECK:    %[[VAL_36:.*]] = llvm.shl %[[VAL_34]], %[[VAL_25]] : i32
-// CHECK:    %[[VAL_37:.*]] = llvm.or %[[VAL_35]], %[[VAL_36]] : i32
-// CHECK:    llvm.cmpxchg
+// CHECK:   %[[ARG1_I64:.*]] = arith.index_castui %arg1 : index to i64
+// CHECK:   %[[AND_15:.*]] = arith.andi %[[ARG1_I64]], %c15_i64 : i64
+// CHECK:   %[[TRUNC_I8:.*]] = arith.trunci %[[AND_15]] : i64 to i8
+// CHECK:   %[[MUL_4:.*]] = arith.muli %[[TRUNC_I8]], %c4_i8 : i8
+// CHECK:   %[[SUB_4:.*]] = arith.subi %c4_i8, %[[MUL_4]] : i8
+// CHECK:   %[[SHR_1:.*]] = arith.shrui %[[ARG1_I64]], %c1_i64 : i64
+// CHECK:   %[[GEP_BASE:.*]] = llvm.getelementptr inbounds %arg0[0, %[[SHR_1]]] : (!llvm.ptr, i64) -> !llvm.ptr, !llvm.array<4 x i8>
+// CHECK:   %[[PTR_INT:.*]] = llvm.ptrtoint %[[GEP_BASE]] : !llvm.ptr to i64
+// CHECK:   %[[AND_3:.*]] = llvm.and %[[PTR_INT]], %[[C3_I64]] : i64
+// CHECK:   %[[MUL_NEG1:.*]] = llvm.mul %[[AND_3]], %[[C_NEG1_I64]] : i64
+// CHECK:   %[[GEP_OFFSET:.*]] = llvm.getelementptr inbounds %[[GEP_BASE]][%[[MUL_NEG1]]] : (!llvm.ptr, i64) -> !llvm.ptr, i8
+// CHECK:   %[[TRUNC_I32:.*]] = llvm.trunc %[[AND_3]] : i64 to i32
+// CHECK:   %[[MUL_8:.*]] = llvm.mul %[[TRUNC_I32]], %[[C8_I32]] : i32
+// CHECK:   %[[ZEXT_I32:.*]] = llvm.zext %[[SUB_4]] : i8 to i32
+// CHECK:   %[[ADD_SHIFT:.*]] = llvm.add %[[MUL_8]], %[[ZEXT_I32]] : i32
+// CHECK:   %[[SHL_15:.*]] = llvm.shl %[[C15_I32]], %[[ADD_SHIFT]] : i32
+// CHECK:   %[[XOR_NEG1:.*]] = llvm.xor %[[C_NEG1_I32]], %[[SHL_15]] : i32
+// CHECK:   %[[LOADED_I32:.*]] = llvm.load %[[GEP_OFFSET]] : !llvm.ptr -> i32
+// CHECK:   %[[WHILE_RES:.*]] = scf.while (%arg2 = %[[LOADED_I32]]) : (i32) -> i32 {
+// CHECK:     %[[LSHR:.*]] = llvm.lshr %arg2, %[[ADD_SHIFT]] : i32
+// CHECK:     %[[TRUNC_I4:.*]] = llvm.trunc %[[LSHR]] : i32 to i4
+// CHECK:     %[[ADDI_1:.*]] = arith.addi %[[TRUNC_I4]], %c1_i4 : i4
+// CHECK:     %[[ZEXT_I32_2:.*]] = llvm.zext %[[ADDI_1]] : i4 to i32
+// CHECK:     %[[AND_MASK:.*]] = llvm.and %arg2, %[[XOR_NEG1]] : i32
+// CHECK:     %[[SHL_NEW:.*]] = llvm.shl %[[ZEXT_I32_2]], %[[ADD_SHIFT]] : i32
+// CHECK:     %[[OR_NEW:.*]] = llvm.or %[[AND_MASK]], %[[SHL_NEW]] : i32
+// CHECK:     %[[CMPXCHG:.*]] = llvm.cmpxchg
 
 // -----
 
@@ -439,39 +436,88 @@ func.func @shared_i4() -> tensor<10xi4> {
 
 // -----
 
-func.func @i4_load_store(%arg: tensor<10xi4>, %i: index, %j: index)
-    -> tensor<10xi4> {
+func.func @i4_load(%arg: tensor<10xi4>, %i: index)
+    -> i4 {
   %v = tensor.extract %arg[%i] : tensor<10xi4>
-  %r = tensor.insert %v into %arg[%j] : tensor<10xi4>
+  return %v : i4
+}
+
+// CHECK-LABEL: @i4_load(
+// CHECK-SAME:  %[[ARG0:.*]]: !llvm.ptr, %[[ARG1:.*]]: index) -> i4 {
+// CHECK-DAG:   %[[C15_I64:.*]] = arith.constant 15 : i64
+// CHECK-DAG:   %[[C4_I8:.*]] = arith.constant 4 : i8
+// CHECK-DAG:   %[[C1_I64:.*]] = arith.constant 1 : i64
+// CHECK:       %[[IDX_I64:.*]] = arith.index_castui %[[ARG1]] : index to i64
+// CHECK:       %[[AND_15:.*]] = arith.andi %[[IDX_I64]], %[[C15_I64]] : i64
+// CHECK:       %[[TRUNC_I8:.*]] = arith.trunci %[[AND_15]] : i64 to i8
+// CHECK:       %[[MUL_4:.*]] = arith.muli %[[TRUNC_I8]], %[[C4_I8]] : i8
+// CHECK:       %[[SUB_4:.*]] = arith.subi %[[C4_I8]], %[[MUL_4]] : i8
+// CHECK:       %[[SHR_1:.*]] = arith.shrui %[[IDX_I64]], %[[C1_I64]] : i64
+// CHECK:       %[[GEP:.*]] = llvm.getelementptr inbounds %[[ARG0]][0, %[[SHR_1]]] : (!llvm.ptr, i64) -> !llvm.ptr, !llvm.array<5 x i8>
+// CHECK:       %[[LOAD:.*]] = llvm.load %[[GEP]] : !llvm.ptr -> i8
+// CHECK:       %[[SHR_4:.*]] = arith.shrui %[[LOAD]], %[[SUB_4]] : i8
+// CHECK:       %[[TRUNC_I4:.*]] = arith.trunci %[[SHR_4]] : i8 to i4
+// CHECK:       return %[[TRUNC_I4]] : i4
+// CHECK:     }
+
+// -----
+
+func.func @i4_store(%arg: tensor<10xi4>, %v: i4, %i: index)
+    -> tensor<10xi4> {
+  %r = tensor.insert %v into %arg[%i] : tensor<10xi4>
   return %r : tensor<10xi4>
 }
-// CHECK-LABEL: @i4_load_store
-// CHECK-DAG: %[[C4:.*]] = arith.constant 4 : i8
-// CHECK-DAG: %[[C15:.*]] = arith.constant 15 : i8
-// CHECK-DAG: %[[C_NEG16:.*]] = arith.constant -16 : i8
-// CHECK: llvm.getelementptr
-// CHECK-SAME: -> !llvm.ptr, !llvm.array<5 x i8>
-// CHECK: %[[VALUE_I8:.*]] = arith.extui {{.*}} : i4 to i8
-// CHECK: llvm.getelementptr
-// CHECK-SAME: -> !llvm.ptr, !llvm.array<10 x i8>
-// CHECK: %[[CURRENT_I32:.*]] = llvm.load
-// CHECK-SAME: !llvm.ptr -> i32
-// CHECK: scf.while (%[[INIT:.*]] = %[[CURRENT_I32]])
-// CHECK: %[[SHIFTED:.*]] = llvm.lshr %[[INIT]]
-// CHECK: %[[CURRENT:.*]] = llvm.trunc %[[SHIFTED]]
-// CHECK-DAG: %[[MASKED_VALUE_I8:.*]] = arith.andi %[[VALUE_I8]], %[[C15]] : i8
-// CHECK-DAG: %[[MASKED_CURRENT_LO:.*]] = arith.andi %[[CURRENT]], %[[C_NEG16]] : i8
-// CHECK: %[[NEW_LO:.*]] = arith.ori %[[MASKED_CURRENT_LO]], %[[MASKED_VALUE_I8]] : i8
-// CHECK-DAG: %[[VALUE_HI:.*]] = arith.shli %[[VALUE_I8]], %[[C4]] : i8
-// CHECK-DAG: %[[MASKED_CURRENT_HI:.*]] = arith.andi %[[CURRENT]], %[[C15]] : i8
-// CHECK: %[[NEW_HI:.*]] = arith.ori %[[MASKED_CURRENT_HI]], %[[VALUE_HI]] : i8
-// CHECK: %[[NEW_VALUE:.*]] = arith.select %{{.*}}, %[[NEW_LO]], %[[NEW_HI]] : i8
-// CHECK: %[[NEW_VALUE_I32:.*]] = llvm.zext %[[NEW_VALUE]]
-// CHECK-DAG: %[[NEW_VALUE_SHIFTED:.*]] = llvm.shl %[[NEW_VALUE_I32]]
-// CHECK-DAG: %[[MASKED_INIT:.*]] = llvm.and %[[INIT]]
-// CHECK: %[[NEW_INIT:.*]] = llvm.or %[[MASKED_INIT]], %[[NEW_VALUE_SHIFTED]]
-// CHECK: llvm.cmpxchg %{{.*}}, %[[INIT]], %[[NEW_INIT]] monotonic monotonic
-// CHECK: scf.condition
+
+// CHECK-LABEL: @i4_store(
+// CHECK-SAME:    %[[ARG0:.*]]: !llvm.ptr, %[[ARG1:.*]]: i4, %[[ARG2:.*]]: index) {
+// CHECK-DAG:   %c15_i64 = arith.constant 15 : i64
+// CHECK-DAG:   %c4_i8 = arith.constant 4 : i8
+// CHECK-DAG:   %c1_i64 = arith.constant 1 : i64
+// CHECK-DAG:   %c15_i8 = arith.constant 15 : i8
+// CHECK-DAG:   %c-1_i8 = arith.constant -1 : i8
+// CHECK-DAG:   %[[C3_I64:.*]] = llvm.mlir.constant(3 : i64) : i64
+// CHECK-DAG:   %[[C_NEG1_I64:.*]] = llvm.mlir.constant(-1 : i64) : i64
+// CHECK-DAG:   %[[C8_I32:.*]] = llvm.mlir.constant(8 : i32) : i32
+// CHECK-DAG:   %[[C_NEG1_I32:.*]] = llvm.mlir.constant(-1 : i32) : i32
+// CHECK-DAG:   %[[C255_I32:.*]] = llvm.mlir.constant(255 : i32) : i32
+// CHECK-DAG:   %[[C_TRUE:.*]] = llvm.mlir.constant(true) : i1
+// CHECK:       %[[CAST_TENSOR_I4:.*]] = builtin.unrealized_conversion_cast %[[ARG0]] : !llvm.ptr to tensor<10xi4>
+// CHECK:       %[[ARG2_I64:.*]] = arith.index_castui %[[ARG2]] : index to i64
+// CHECK:       %[[AND_15:.*]] = arith.andi %[[ARG2_I64]], %c15_i64 : i64
+// CHECK:       %[[TRUNC_I8:.*]] = arith.trunci %[[AND_15]] : i64 to i8
+// CHECK:       %[[MUL_4:.*]] = arith.muli %[[TRUNC_I8]], %c4_i8 : i8
+// CHECK:       %[[SUB_4:.*]] = arith.subi %c4_i8, %[[MUL_4]] : i8
+// CHECK:       %[[SHR_1:.*]] = arith.shrui %[[ARG2_I64]], %c1_i64 : i64
+// CHECK:       %[[CAST_TENSOR_I8:.*]] = builtin.unrealized_conversion_cast %[[CAST_TENSOR_I4]] : tensor<10xi4> to tensor<10xi8>
+// CHECK:       %[[ARG1_I8:.*]] = arith.extui %[[ARG1]] : i4 to i8
+// CHECK:       %[[SHL_15:.*]] = arith.shli %c15_i8, %[[SUB_4]] : i8
+// CHECK:       %[[XOR_NEG1:.*]] = arith.xori %[[SHL_15]], %c-1_i8 : i8
+// CHECK:       %[[SHL_VAL:.*]] = arith.shli %[[ARG1_I8]], %[[SUB_4]] : i8
+// CHECK:       %[[CAST_TO_PTR:.*]] = builtin.unrealized_conversion_cast %[[CAST_TENSOR_I8]] : tensor<10xi8> to !llvm.ptr
+// CHECK:       %[[GEP_BASE:.*]] = llvm.getelementptr inbounds %[[CAST_TO_PTR]][0, %[[SHR_1]]] : (!llvm.ptr, i64) -> !llvm.ptr, !llvm.array<10 x i8>
+// CHECK:       %[[PTR_INT:.*]] = llvm.ptrtoint %[[GEP_BASE]] : !llvm.ptr to i64
+// CHECK:       %[[AND_3:.*]] = llvm.and %[[PTR_INT]], %[[C3_I64]] : i64
+// CHECK:       %[[MUL_NEG1:.*]] = llvm.mul %[[AND_3]], %[[C_NEG1_I64]] : i64
+// CHECK:       %[[GEP_OFFSET:.*]] = llvm.getelementptr inbounds %[[GEP_BASE]][%[[MUL_NEG1]]] : (!llvm.ptr, i64) -> !llvm.ptr, i8
+// CHECK:       %[[TRUNC_I32:.*]] = llvm.trunc %[[AND_3]] : i64 to i32
+// CHECK:       %[[MUL_8:.*]] = llvm.mul %[[TRUNC_I32]], %[[C8_I32]] : i32
+// CHECK:       %[[SHL_255:.*]] = llvm.shl %[[C255_I32]], %[[MUL_8]] : i32
+// CHECK:       %[[XOR_NEG1_I32:.*]] = llvm.xor %[[C_NEG1_I32]], %[[SHL_255]] : i32
+// CHECK:       %[[LOADED_I32:.*]] = llvm.load %[[GEP_OFFSET]] : !llvm.ptr -> i32
+// CHECK:       %[[WHILE_RES:.*]] = scf.while (%arg3 = %[[LOADED_I32]]) : (i32) -> i32 {
+// CHECK:         %[[LSHR:.*]] = llvm.lshr %arg3, %[[MUL_8]] : i32
+// CHECK:         %[[TRUNC_I8_2:.*]] = llvm.trunc %[[LSHR]] : i32 to i8
+// CHECK:         %[[AND_MASK:.*]] = arith.andi %[[TRUNC_I8_2]], %[[XOR_NEG1]] : i8
+// CHECK:         %[[ORI:.*]] = arith.ori %[[AND_MASK]], %[[SHL_VAL]] : i8
+// CHECK:         %[[ZEXT_I32_2:.*]] = llvm.zext %[[ORI]] : i8 to i32
+// CHECK:         %[[AND_ARG3:.*]] = llvm.and %arg3, %[[XOR_NEG1_I32]] : i32
+// CHECK:         %[[SHL_NEW:.*]] = llvm.shl %[[ZEXT_I32_2]], %[[MUL_8]] : i32
+// CHECK:         %[[OR_NEW:.*]] = llvm.or %[[AND_ARG3]], %[[SHL_NEW]] : i32
+// CHECK:         %[[CMPXCHG:.*]] = llvm.cmpxchg %[[GEP_OFFSET]], %arg3, %[[OR_NEW]] monotonic monotonic : !llvm.ptr, i32
+// CHECK:         %[[EXTRACT0:.*]] = llvm.extractvalue %[[CMPXCHG]][0] : !llvm.struct<(i32, i1)>
+// CHECK:         %[[EXTRACT1:.*]] = llvm.extractvalue %[[CMPXCHG]][1] : !llvm.struct<(i32, i1)>
+// CHECK:         %[[XOR_TRUE:.*]] = llvm.xor %[[EXTRACT1]], %[[C_TRUE]] : i1
+// CHECK:         scf.condition(%[[XOR_TRUE]]) %[[EXTRACT0]] : i32
 
 // -----
 

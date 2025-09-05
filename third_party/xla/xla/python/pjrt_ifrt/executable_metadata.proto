@@ -65,4 +65,6 @@ message SerializedXlaExecutableMetadata {
   }
 
   repeated ParameterSpec parameter_specs = 6;
+
+  string computation_name = 7;
 }

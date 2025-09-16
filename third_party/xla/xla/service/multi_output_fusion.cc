@@ -87,20 +87,26 @@ absl::StatusOr<bool> MultiOutputFusion::Run(
 }
 
 namespace {
+
+std::shared_ptr<OriginalValue> GetOriginalValueOrPlaceholder(
+    HloInstruction* inst) {
+  if (inst->original_value()) {
+    return inst->original_value();
+  }
+  return std::make_shared<OriginalValue>(inst->shape());
+}
+
 void SetOriginalValue(HloInstruction* remaining, HloInstruction* fused,
-                      const Shape& remaining_shape, const Shape& fused_shape) {
-  auto remaining_ov = remaining->original_value();
-  auto fused_ov = fused->original_value();
-  if (remaining_ov == nullptr && fused_ov == nullptr) {
+                      std::shared_ptr<OriginalValue> remaining_ov,
+                      std::shared_ptr<OriginalValue> fused_ov) {
+  if (remaining_ov->is_synthetic_call() || fused_ov->is_synthetic_call() ||
+      (remaining_ov->IsEmpty() && fused_ov->IsEmpty())) {
+    // Usually synthetic calls should not be merged. But if somehow this happens
+    // we just ignore the original value since it's not clear how to merge them.
+    remaining->set_original_value(nullptr);
     return;
   }
 
-  if (!remaining_ov) {
-    remaining_ov = std::make_shared<OriginalValue>(remaining_shape);
-  }
-  if (!fused_ov) {
-    fused_ov = std::make_shared<OriginalValue>(fused_shape);
-  }
   std::vector<std::optional<OriginalArray>> new_leaves;
   for (const auto& [index, value] : remaining_ov->original_arrays()) {
     new_leaves.push_back(value);
@@ -112,6 +118,7 @@ void SetOriginalValue(HloInstruction* remaining, HloInstruction* fused,
   auto new_ov = std::make_shared<OriginalValue>(remaining->shape());
   int64_t leaf_index = 0;
   for (auto& [index, value] : new_ov->mutable_original_arrays()) {
+    CHECK_LT(leaf_index, new_leaves.size());
     value = new_leaves[leaf_index++];
   }
   remaining->set_original_value(new_ov);
@@ -122,14 +129,16 @@ HloInstruction* MultiOutputFusion::Fuse(HloInstruction* instr1,
                                         HloInstruction* instr2) {
   HloInstruction* remaining = instr1;
   HloInstruction* fused = instr2;
-  const Shape& remaining_shape = remaining->shape();
-  const Shape& fused_shape = fused->shape();
 
   // Make sure that if only one of the instructions is a fusion, or if only one
   // of the instructions is a multi-output fusion, it's what will be fused into.
   if (!remaining->IsMultiOutputFusion() && fused->IsMultiOutputFusion()) {
     std::swap(remaining, fused);
   }
+
+  auto remaining_ov = GetOriginalValueOrPlaceholder(remaining);
+  auto fused_ov = GetOriginalValueOrPlaceholder(fused);
+
   if (remaining->opcode() != HloOpcode::kFusion) {
     remaining = CreateFusion(remaining, fused);
   }
@@ -139,7 +148,7 @@ HloInstruction* MultiOutputFusion::Fuse(HloInstruction* instr1,
     remaining->FuseInstructionIntoMultiOutput(fused);
   }
 
-  SetOriginalValue(remaining, fused, remaining_shape, fused_shape);
+  SetOriginalValue(remaining, fused, remaining_ov, fused_ov);
   return remaining;
 }
 
@@ -148,6 +157,7 @@ HloInstruction* MultiOutputFusion::CreateFusion(HloInstruction* base,
   HloInstruction* input_fusion =
       computation()->AddInstruction(HloInstruction::CreateFusion(
           base->shape(), HloInstruction::FusionKind::kLoop, base));
+  input_fusion->set_original_value(base->original_value());
 
   // Update candidate_ and all_fusion_candidates_.
   int64_t index = candidates_.size();

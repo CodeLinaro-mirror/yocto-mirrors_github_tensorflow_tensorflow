@@ -16,6 +16,7 @@ mkl_repository depends on the following environment variables:
 """
 
 load("@rules_cc//cc:cc_library.bzl", "cc_library")
+load("//xla:xla.default.bzl", "xla_cc_test")
 
 _TF_MKL_ROOT = "TF_MKL_ROOT"
 
@@ -53,6 +54,24 @@ def onednn_cc_library(srcs = [], hdrs = [], deps = [], **kwargs):
         srcs = if_onednn(srcs),
         hdrs = if_onednn(hdrs),
         deps = if_onednn(deps),
+        **kwargs
+    )
+
+def onednn_cc_test(
+        srcs = [],
+        deps = [],
+        **kwargs):
+    """xla_cc_test rule with empty src/deps if not building with Graph API."""
+    xla_cc_test(
+        srcs = if_graph_api(srcs),
+        deps = if_graph_api(
+            if_true = deps,
+            if_false = ["@com_google_googletest//:gtest_main"],
+        ),
+        # If not building with Graph API, we don't have any tests linked.
+        fail_if_no_test_linked = False,
+        # If not building with Graph API, we don't have any tests defined either.
+        fail_if_no_test_selected = False,
         **kwargs
     )
 

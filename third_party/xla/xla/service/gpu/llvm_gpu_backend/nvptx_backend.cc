@@ -29,7 +29,6 @@ limitations under the License.
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_format.h"
-#include "third_party/gpus/cuda/include/cuda.h"
 #include "llvm/Analysis/CGSCCPassManager.h"
 #include "llvm/Analysis/LazyCallGraph.h"
 #include "llvm/Analysis/LoopAnalysisManager.h"
@@ -73,6 +72,12 @@ limitations under the License.
 #include "xla/xla.pb.h"
 #include "tsl/profiler/lib/scoped_annotation.h"
 #include "tsl/profiler/lib/traceme.h"
+
+#if defined(PLATFORM_GOOGLE)
+#include "third_party/gpus/cuda/include/cuda.h"
+#else
+#include "third_party/gpus/cuda/cuda_config.h"
+#endif
 
 namespace xla::gpu::nvptx {
 
@@ -149,8 +154,21 @@ std::unique_ptr<llvm::TargetMachine> NVPTXGetTargetMachine(
       stream_executor::GetAsmCompilerVersion(
           debug_options.xla_gpu_cuda_data_dir());
 
+#if defined(PLATFORM_GOOGLE)
   constexpr stream_executor::SemanticVersion kCompileTimeCudaVersion{
       CUDA_VERSION / 1000, (CUDA_VERSION / 10) % 100, CUDA_VERSION % 10};
+#else
+  std::array<unsigned, 3> components{};
+  std::vector<absl::string_view> str_split =
+      absl::StrSplit(TF_CUDA_VERSION, ".");
+  for (int i = 0; i < str_split.size(); ++i) {
+    unsigned number;
+    if (absl::SimpleAtoi(str_split[i], &number)) {
+      components[i] = number;
+    }
+  }
+  const stream_executor::SemanticVersion kCompileTimeCudaVersion{components};
+#endif
 
   auto highest_supported_cuda_version = [&] {
     if (runtime_cuda_version.ok()) {

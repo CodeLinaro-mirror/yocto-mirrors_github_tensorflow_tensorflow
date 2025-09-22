@@ -15,19 +15,13 @@ package(
 
 package_group(
     name = "friends",
-    includes = [
-        "//xla:friends",
-    ],
+    includes = ["//xla:friends"],
 )
 
 cc_library(
     name = "llvm_gpu_backend",
-    srcs = [
-        "gpu_backend_lib.cc",
-    ],
-    hdrs = [
-        "gpu_backend_lib.h",
-    ],
+    srcs = ["gpu_backend_lib.cc"],
+    hdrs = ["gpu_backend_lib.h"],
     deps = [
         ":load_ir_module",
         ":utils",
@@ -68,12 +62,8 @@ cc_library(
 
 cc_library(
     name = "ptx_version_util",
-    srcs = [
-        "ptx_version_util.cc",
-    ],
-    hdrs = [
-        "ptx_version_util.h",
-    ],
+    srcs = ["ptx_version_util.cc"],
+    hdrs = ["ptx_version_util.h"],
     deps = [
         "//xla/stream_executor:semantic_version",
         "@com_google_absl//absl/status:statusor",
@@ -82,16 +72,9 @@ cc_library(
 
 cc_library(
     name = "nvptx_backend",
-    srcs = [
-        "nvptx_backend.cc",
-    ],
-    hdrs = [
-        "nvptx_backend.h",
-    ],
-    tags = [
-        "cuda-only",
-        "gpu",
-    ],
+    srcs = ["nvptx_backend.cc"],
+    hdrs = ["nvptx_backend.h"],
+    tags = ["gpu"],
     deps = [
         ":llvm_gpu_backend",
         ":load_ir_module",
@@ -127,21 +110,16 @@ cc_library(
         "@llvm-project//llvm:Scalar",
         "@llvm-project//llvm:Support",
         "@llvm-project//llvm:Target",
-        "@local_config_cuda//cuda:cuda_headers",
         "@local_tsl//tsl/platform:path",
         "@local_tsl//tsl/profiler/lib:scoped_annotation",
         "@local_tsl//tsl/profiler/lib:traceme",
-    ],
+    ] + if_google(["@local_config_cuda//cuda:cuda_headers"]),
 )
 
 cc_library(
     name = "amdgpu_backend",
-    srcs = [
-        "amdgpu_backend.cc",
-    ],
-    hdrs = [
-        "amdgpu_backend.h",
-    ],
+    srcs = ["amdgpu_backend.cc"],
+    hdrs = ["amdgpu_backend.h"],
     local_defines = if_oss(["HAS_SUPPORT_FOR_LLD_AS_A_LIBRARY=1"]),
     deps = [
         ":llvm_gpu_backend",
@@ -254,9 +232,7 @@ xla_cc_test(
     name = "load_ir_module_test",
     size = "small",
     srcs = ["load_ir_module_test.cc"],
-    data = [
-        "tests_data/saxpy.ll",
-    ],
+    data = ["tests_data/saxpy.ll"],
     deps = [
         ":load_ir_module",
         "//xla/tests:xla_internal_test_main",

@@ -3414,16 +3414,52 @@ ENTRY e {
   }
 }
 
+TEST_P(TritonScaledDotGemmTest, FP8ScaledDotGetsFused) {
+  const ScaleDotTestParams& params = GetParam();
+  if (!GetCudaComputeCapability().IsAtLeastBlackwell()) {
+    GTEST_SKIP() << "Skipping test for pre-Blackwell GPUs.";
+  }
+  constexpr absl::string_view kHloTextTemplate = R"hlo(
+HloModule FP8ScaledDotGetsFused
+
+ENTRY e {
+  lhs = $lhs_type parameter(0)
+  lhs_scale = $lhs_scale_type parameter(1)
+  rhs = $rhs_type parameter(2)
+  rhs_scale = $rhs_scale_type parameter(3)
+  ROOT _ = $output_type{1,0} scaled-dot(lhs, lhs_scale, rhs, rhs_scale),
+    lhs_contracting_dims={1},
+    rhs_contracting_dims={0}
+}
+)hlo";
+
+  auto hlo_text = params.PrepareHloText(kHloTextTemplate);
+
+  TF_ASSERT_OK_AND_ASSIGN(std::unique_ptr<VerifiedHloModule> module,
+                          ParseAndReturnVerifiedModule(hlo_text));
+
+  auto debug_options = module->config().debug_options();
+  debug_options.set_xla_gpu_experimental_scaled_dot_with_triton(true);
+  debug_options.set_xla_gpu_autotune_level(4);
+  debug_options.set_xla_gpu_force_compilation_parallelism(1);
+  debug_options.add_xla_gpu_unsupported_generic_triton_emitter_features(
+      DebugOptions::GENERIC_TRITON_EMITTER_ENABLE_NESTED_GEMM);
+  module->mutable_config().set_debug_options(debug_options);
+
+  EXPECT_TRUE(RunAndCompare(std::move(module),
+                            ErrorSpec{/*aabs=*/1e-3, /*arel=*/1e-3}));
+}
+
 INSTANTIATE_TEST_SUITE_P(
     TritonScaledDotGemmTest, TritonScaledDotGemmTest,
     ::testing::Values(ScaleDotTestParams{"f8e4m3fn[128,128]",
                                          "f8e8m0fnu[128,4]",
                                          "f8e4m3fn[128,256]",
-                                         "f8e8m0fnu[4,256]", "f32[128,256]",
+                                         "f8e8m0fnu[4,256]", "bf16[128,256]",
                                          "f8E4M3FN"},
                       ScaleDotTestParams{"f8e5m2[128,128]", "f8e8m0fnu[128,4]",
                                          "f8e5m2[128,256]", "f8e8m0fnu[4,256]",
-                                         "f32[128,256]", "f8E5M2"}),
+                                         "bf16[128,256]", "f8E5M2"}),
     ScaleDotTestParams::ToString);
 
 }  // namespace gpu

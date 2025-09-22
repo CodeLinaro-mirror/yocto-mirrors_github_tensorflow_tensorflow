@@ -655,7 +655,8 @@ absl::Status GemmFusionAutotunerRewriterVisitor::HandleFusion(
   // Only autotune Triton, cuDNN, and custom kernel fusions.
   if (fusion_backend_config.kind() != kTritonGemmFusionKind &&
       fusion_backend_config.kind() != kCuDnnFusionKind &&
-      fusion_backend_config.kind() != kCustomFusionKind) {
+      fusion_backend_config.kind() != kCustomFusionKind &&
+      fusion_backend_config.kind() != kTritonScaledDotFusionKind) {
     return absl::OkStatus();
   }
 
@@ -893,13 +894,14 @@ absl::StatusOr<std::vector<BackendConfig>>
 GemmFusionAutotunerImpl::GenerateScaledDotConfigs(
     const HloFusionInstruction& fusion, const HloScaledDotInstruction* dot) {
   std::vector<BackendConfig> configs;
-  // Add triton configs.
-  TF_ASSIGN_OR_RETURN(std::vector<TritonGemmConfig> triton_configs,
-                      GenerateTritonConfigs(*dot));
-  configs.reserve(triton_configs.size());
-  for (TritonGemmConfig& config : triton_configs) {
-    configs.push_back(std::move(config));
-  }
+  // TODO(b/436988479): Remove this once we have a fix for the Triton rewrite to
+  // the regular dot.
+  configs.push_back(TritonGemmConfig(/*block_m=*/128, /*block_n=*/16,
+                                     /*block_k=*/128, /*split_k=*/1,
+                                     /*num_stages=*/1,
+                                     /*num_warps=*/4,
+                                     /*num_ctas=*/1,
+                                     /*is_tma_allowed=*/false));
   return configs;
 }
 

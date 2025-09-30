@@ -802,7 +802,9 @@ def tflite_combine_cc_tests(
             continue
 
         combined_test_srcs.update({s: True for s in r["srcs"]})
-        combined_test_deps.update({d: True for d in r["deps"]})
+
+        # A workaround to avoid duplicated deps in OSS.
+        combined_test_deps.update({d: True for d in r["deps"] if not d.endswith(":link_extra_lib")})
 
     if combined_test_srcs:
         cc_test(

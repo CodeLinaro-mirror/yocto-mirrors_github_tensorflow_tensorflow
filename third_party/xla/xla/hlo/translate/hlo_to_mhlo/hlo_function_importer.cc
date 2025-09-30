@@ -567,9 +567,16 @@ absl::StatusOr<Value> HloFunctionImporter::ImportInstructionsImpl(
   // Setup the input parameters.
   const int num_parameters = computation.num_parameters();
 
+  FuncOp func = llvm::dyn_cast<FuncOp>(builder->getBlock()->getParentOp());
   for (int i = 0; i < num_parameters; i++) {
     auto* hlo_parameter = computation.parameter_instruction(i);
     instruction_value_map_[hlo_parameter] = arguments[i];
+    if (hlo_parameter->original_value() && func) {
+      func.setArgAttr(
+          i, kMhloOriginalValueAttr,
+          builder_->getStringAttr(
+              "{" + hlo_parameter->original_value()->ToString() + "}"));
+    }
   }
 
   for (auto instruction : computation.MakeInstructionPostOrder()) {
@@ -715,6 +722,13 @@ absl::StatusOr<mlir::Operation*> HloFunctionImporter::ImportInstructionImpl(
     attributes.push_back(builder_->getNamedAttr(
         xla::kMhloSharding,
         ConvertSharding(instruction->sharding(), builder_)));
+  }
+
+  if (instruction->original_value()) {
+    attributes.push_back(builder_->getNamedAttr(
+        kMhloOriginalValueAttr,
+        builder_->getStringAttr(
+            "{" + instruction->original_value()->ToString() + "}")));
   }
 
   llvm::SmallVector<NamedAttribute, 4> frontend_attributes;

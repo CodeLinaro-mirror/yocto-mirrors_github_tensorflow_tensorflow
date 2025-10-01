@@ -1154,6 +1154,7 @@ cc_library(
         ":cuda_version_parser",
         ":cudnn_api_wrappers",
         ":tma_util",
+        "//xla:util",
         "//xla/backends/gpu/collectives:gpu_collectives",
         "//xla/core/collectives",
         "//xla/core/collectives:collectives_registry",
@@ -1190,6 +1191,7 @@ cc_library(
         "//xla/tsl/platform:errors",
         "//xla/tsl/platform:logging",
         "//xla/tsl/platform:macros",
+        "//xla/tsl/platform:status",
         "//xla/tsl/platform:statusor",
         "@com_google_absl//absl/algorithm:container",
         "@com_google_absl//absl/base",
@@ -1238,6 +1240,7 @@ xla_test(
         "//xla/tsl/platform:status_matchers",
         "//xla/tsl/platform:statusor",
         "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:status_matchers",
         "@com_google_googletest//:gtest_main",
     ],
 )

@@ -19,27 +19,38 @@ limitations under the License.
 #include <string>
 
 #include "xla/tsl/platform/logging.h"
-#include "xla/tsl/platform/test.h"
 #include "tsl/platform/path.h"
-#include "tsl/platform/platform.h"
+#include "tools/cpp/runfiles/runfiles.h"
 
 namespace tsl {
 
 std::string GetDataDependencyFilepath(const std::string& relative_path) {
-  // TODO(ddunleavy): replace this with `TensorFlowSrcRoot()` from `test.h`.
-  const char* srcdir = std::getenv("TEST_SRCDIR");
-  if (!srcdir) {
-    LOG(FATAL) << "Environment variable TEST_SRCDIR unset!";  // Crash OK
+  using bazel::tools::cpp::runfiles::Runfiles;
+  std::string error;
+  std::unique_ptr<Runfiles> runfiles(Runfiles::CreateForTest(&error));
+  if (runfiles == nullptr) {
+    LOG(FATAL) << "Could not initialize runfiles: " << error.c_str();
   }
 
-  const char* workspace = std::getenv("TEST_WORKSPACE");
-  if (!workspace) {
-    LOG(FATAL) << "Environment variable TEST_WORKSPACE unset!";  // Crash OK
+  std::string actual_relative_path;
+  if (relative_path.find("external/", 0) == 0) {
+    // This is a path from an external repo, remove "external/" for Rlocation
+    actual_relative_path = relative_path.substr(strlen("external/"));
+  } else {
+    // This is a path from the main repo, preappend TEST_WORKSPACE for Rlocation
+    const char* workspace = std::getenv("TEST_WORKSPACE");
+    if (!workspace) {
+      LOG(FATAL) << "Environment variable TEST_WORKSPACE unset!";  // Crash OK
+    }
+    actual_relative_path = io::JoinPath(workspace, relative_path);
   }
 
-  return kIsOpenSource
-             ? io::JoinPath(srcdir, workspace, relative_path)
-             : io::JoinPath(srcdir, workspace, "third_party", relative_path);
+  std::string full_path = runfiles->Rlocation(actual_relative_path);
+  if (full_path.empty()) {
+    LOG(FATAL) << "Could not find runfile " << actual_relative_path;
+  }
+
+  return full_path;
 }
 
 }  // namespace tsl

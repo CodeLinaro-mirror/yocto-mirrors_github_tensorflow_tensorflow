@@ -36,6 +36,7 @@ cc_library(
     deps = [
         "//xla/tsl/platform:debug_me_context",
         "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/strings:cord",
     ],
@@ -47,7 +48,10 @@ xla_cc_test(
     deps = [
         ":debug_me_context_util",
         "//xla/tsl/platform:debug_me_context",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/strings:cord",
         "@com_google_googletest//:gtest_main",
     ],
 )

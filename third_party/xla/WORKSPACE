@@ -9,10 +9,10 @@ load("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")
 # Details: https://github.com/google-ml-infra/rules_ml_toolchain
 http_archive(
     name = "rules_ml_toolchain",
-    sha256 = "d5aef14096f367bae6f2deb5946a31892b06badd660f8c30f6565a0f9a99185f",
-    strip_prefix = "rules_ml_toolchain-18ba88facf7f0d7203adbaccb982315936b1ac7a",
+    sha256 = "eb04544e297bc1387f37b1b38c8e75b0ca65fdd831f88adb23ab0c34d6ed4d53",
+    strip_prefix = "rules_ml_toolchain-3f998beb8b6eaaf98183bcf7adebb62d1c659b6c",
     urls = [
-        "https://github.com/google-ml-infra/rules_ml_toolchain/archive/18ba88facf7f0d7203adbaccb982315936b1ac7a.tar.gz",
+        "https://github.com/google-ml-infra/rules_ml_toolchain/archive/3f998beb8b6eaaf98183bcf7adebb62d1c659b6c.tar.gz",
     ],
 )
 

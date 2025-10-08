@@ -58,6 +58,7 @@ exports_files(
         "threadpool.cc",
         "threadpool.h",
         "env.h",
+        "xprof_loader.h",
     ],
     visibility = internal_visibility([
         "//tensorflow/core/platform:__subpackages__",
@@ -872,6 +873,17 @@ cc_library(
     name = "recordphase",
     textual_hdrs = ["recordphase.h"],
     deps = tf_platform_deps("recordphase") + ["@com_google_absl//absl/strings:string_view"],
+)
+
+cc_library(
+    name = "xprof_loader",
+    hdrs = ["xprof_loader.h"],
+    textual_hdrs = ["xprof_loader.h"],
+    deps = [
+        ":statusor",
+        "//xla/service:hlo_proto_cc",
+        "@com_google_absl//absl/status:statusor",
+    ] + tf_platform_deps("xprof_loader"),
 )
 
 cc_library(

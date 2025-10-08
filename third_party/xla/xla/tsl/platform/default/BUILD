@@ -669,3 +669,17 @@ cc_library(
         "@com_google_absl//absl/strings:string_view",
     ],
 )
+
+cc_library(
+    name = "xprof_loader",
+    srcs = ["xprof_loader.cc"],
+    hdrs = ["//xla/tsl/platform:xprof_loader.h"],
+    tags = [
+        "no_oss",
+    ],
+    deps = [
+        "//xla/service:hlo_proto_cc",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:statusor",
+    ],
+)

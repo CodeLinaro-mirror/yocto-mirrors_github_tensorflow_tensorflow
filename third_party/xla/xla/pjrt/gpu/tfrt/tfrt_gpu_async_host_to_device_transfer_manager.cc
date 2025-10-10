@@ -238,7 +238,7 @@ absl::Status TfrtGpuAsyncHostToDeviceTransferManager::TransferLiteralToBuffer(
     absl::Status status;
     {
       tsl::profiler::TraceMe traceme("BlockHostUntilDone");
-      status = stream->BlockHostUntilDone();
+      status = BlockHostUntilDoneWithHostCallback(stream);
     }
     VLOG(3) << "Finish transfer h2d for literal with shape "
             << literal.shape().ToString() << " on device "

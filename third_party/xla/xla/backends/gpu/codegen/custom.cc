@@ -762,7 +762,7 @@ absl::StatusOr<FusionEmissionResult> EmitCustomCall(
         "thunks");
   }
 
-  using Slices = std::vector<std::optional<CustomCallThunk::Slice>>;
+  using Slices = std::vector<std::optional<ShapedSlice>>;
 
   int64_t num_args = ShapeUtil::GetLeafCount(custom_call.shape());
   absl::c_for_each(custom_call.operands(), [&](auto* operand) {
@@ -830,7 +830,7 @@ absl::StatusOr<FusionEmissionResult> EmitCustomCall(
               arg_idx++, can_compute_indvar_on_host, while_op, indvar_idx,
               inlined_module));
 
-          operands.push_back(CustomCallThunk::Slice{slice, subshape});
+          operands.push_back(ShapedSlice{slice, subshape});
           arguments.push_back(slice);
           return absl::OkStatus();
         }));
@@ -858,7 +858,7 @@ absl::StatusOr<FusionEmissionResult> EmitCustomCall(
             arg_idx++, can_compute_indvar_on_host, while_op, indvar_idx,
             inlined_module));
 
-        results.push_back(CustomCallThunk::Slice{slice, subshape});
+        results.push_back(ShapedSlice{slice, subshape});
         arguments.push_back(slice);
         return absl::OkStatus();
       }));
@@ -941,9 +941,10 @@ absl::StatusOr<FusionEmissionResult> EmitCustomCall(
       TF_ASSIGN_OR_RETURN(attributes, xla::ffi::BuildAttributesMap(dict));
     }
     return CustomCallThunk::Create(
-        thunk_info, call_target_name, registration->bundle, std::move(ops),
-        std::move(res), std::move(attributes),
-        called_computations.empty() ? nullptr : called_computations[0]);
+        thunk_info, call_target_name, std::move(ops), std::move(res),
+        std::move(attributes),
+        called_computations.empty() ? nullptr : called_computations[0],
+        ir_emitter_context.platform_name());
   };
 
   auto legacy_thunk =
@@ -953,9 +954,10 @@ absl::StatusOr<FusionEmissionResult> EmitCustomCall(
         backend_config.ok()
             ? backend_config->custom_call_backend_config().opaque()
             : custom_call.raw_backend_config_string();
-    return CustomCallThunk::Create(
-        thunk_info, call_target_name, std::move(custom_call_target),
-        std::move(ops), std::move(res), std::move(opaque));
+    return CustomCallThunk::Create(thunk_info, call_target_name, std::move(ops),
+                                   std::move(res), std::move(opaque),
+                                   custom_call.api_version(),
+                                   ir_emitter_context.platform_name());
   };
 
   std::vector<std::unique_ptr<BufferAllocation>> fake_allocations(num_args);
@@ -984,8 +986,7 @@ absl::StatusOr<FusionEmissionResult> EmitCustomCall(
                 fake_allocations[fake_arg_idx].get(), 0, operand_byte_size);
 
             fake_arg_idx++;
-            fake_operands.push_back(
-                CustomCallThunk::Slice{fake_slice, subshape});
+            fake_operands.push_back(ShapedSlice{fake_slice, subshape});
             return absl::OkStatus();
           }));
     }
@@ -1010,7 +1011,7 @@ absl::StatusOr<FusionEmissionResult> EmitCustomCall(
               fake_allocations[fake_arg_idx].get(), 0, result_byte_size);
 
           fake_arg_idx++;
-          fake_results.push_back(CustomCallThunk::Slice{fake_slice, subshape});
+          fake_results.push_back(ShapedSlice{fake_slice, subshape});
           return absl::OkStatus();
         }));
 

@@ -2220,7 +2220,6 @@ xla_test(
     srcs = ["all_reduce_test.cc"],
     backend_tags = {
         "gpu": [
-            "multi_gpu_h100",
             "multi_gpu",
             "xla_amdgpu_any",
             "no_oss",

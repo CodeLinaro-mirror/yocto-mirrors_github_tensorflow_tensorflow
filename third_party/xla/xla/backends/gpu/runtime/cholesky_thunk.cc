@@ -30,6 +30,7 @@ limitations under the License.
 #include "xla/stream_executor/blas.h"
 #include "xla/stream_executor/device_memory.h"
 #include "xla/stream_executor/gpu_solver_context.h"
+#include "xla/stream_executor/platform/platform_object_registry.h"
 #include "xla/stream_executor/stream.h"
 #include "xla/tsl/platform/errors.h"
 #include "xla/util.h"
@@ -171,5 +172,52 @@ absl::Status CholeskyThunk::ExecuteOnStream(const ExecuteParams& params) {
   auto local_context = context.value().get();
   return RunCholesky(type_, &cholesky_params, params.stream, local_context);
 }
+
+absl::StatusOr<ThunkProto> CholeskyThunk::ToProto() const {
+  ThunkProto proto;
+  *proto.mutable_thunk_info() = thunk_info().ToProto();
+
+  CholeskyThunkProto* cholesky_thunk_proto = proto.mutable_cholesky_thunk();
+
+  auto options = cholesky_thunk_proto->mutable_options();
+  options->set_lower(uplo_ == se::blas::UpperLower::kLower);
+
+  TF_ASSIGN_OR_RETURN(*cholesky_thunk_proto->mutable_a_buffer(),
+                      a_buffer_.ToProto());
+  TF_ASSIGN_OR_RETURN(*cholesky_thunk_proto->mutable_workspace_buffer(),
+                      workspace_buffer_.ToProto());
+  TF_ASSIGN_OR_RETURN(*cholesky_thunk_proto->mutable_info_buffer(),
+                      info_buffer_.ToProto());
+  cholesky_thunk_proto->set_type(type_);
+  cholesky_thunk_proto->set_batch_size(batch_size_);
+  cholesky_thunk_proto->set_n(n_);
+  return proto;
+}
+
+absl::StatusOr<std::unique_ptr<CholeskyThunk>> CholeskyThunk::FromProto(
+    ThunkInfo thunk_info, const CholeskyThunkProto& proto,
+    absl::Span<const BufferAllocation> allocations,
+    stream_executor::Platform* platform) {
+  TF_ASSIGN_OR_RETURN(
+      BufferAllocation::Slice a_buffer,
+      BufferAllocation::Slice::FromProto(proto.a_buffer(), allocations));
+  TF_ASSIGN_OR_RETURN(BufferAllocation::Slice workspace_buffer,
+                      BufferAllocation::Slice::FromProto(
+                          proto.workspace_buffer(), allocations));
+  TF_ASSIGN_OR_RETURN(
+      BufferAllocation::Slice info_buffer,
+      BufferAllocation::Slice::FromProto(proto.info_buffer(), allocations));
+  TF_ASSIGN_OR_RETURN(
+      std::function<
+          absl::StatusOr<std::unique_ptr<stream_executor::GpuSolverContext>>()>
+          solver_creator,
+      stream_executor::PlatformObjectRegistry::GetGlobalRegistry()
+          .FindObject<stream_executor::GpuSolverContextFactory>(
+              platform->id()));
+  return std::make_unique<CholeskyThunk>(
+      thunk_info, proto.options(), a_buffer, workspace_buffer, info_buffer,
+      proto.type(), proto.batch_size(), proto.n(), solver_creator);
+}
+
 }  // namespace gpu
 }  // namespace xla

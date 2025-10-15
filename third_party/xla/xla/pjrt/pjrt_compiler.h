@@ -32,6 +32,7 @@ limitations under the License.
 #include "mlir/IR/BuiltinOps.h"
 #include "xla/hlo/builder/xla_computation.h"
 #include "xla/pjrt/pjrt_device_description.h"
+#include "xla/pjrt/pjrt_device_dimensions.h"
 #include "xla/pjrt/pjrt_executable.h"
 #include "xla/pjrt/proto/pjrt_partial_program.pb.h"
 #include "xla/pjrt/proto/topology_description.pb.h"
@@ -172,6 +173,12 @@ class PjRtTopologyDescription {
 
   virtual absl::StatusOr<PjRtTopologyDescriptionProto> ToProto() const {
     return absl::UnimplementedError("ToProto is unsupported.");
+  }
+
+  virtual absl::StatusOr<std::unique_ptr<PjRtTopologyDescription>> Subslice(
+      PjRtDeviceDimensions chips_per_host_bounds,
+      PjRtDeviceDimensions host_bounds) const {
+    return absl::UnimplementedError("Subslice is not supported.");
   }
 };
 

@@ -370,6 +370,31 @@ cc_library(
 )
 
 cc_library(
+    name = "pjrt_device_dimensions",
+    srcs = ["pjrt_device_dimensions.cc"],
+    hdrs = ["pjrt_device_dimensions.h"],
+    visibility = internal_visibility(["//xla:friends"]),
+    deps = [
+        "//xla/pjrt/proto:pjrt_device_dimensions_proto_cc",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:statusor",
+        "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/strings:str_format",
+    ],
+)
+
+xla_cc_test(
+    name = "pjrt_device_dimensions_test",
+    srcs = ["pjrt_device_dimensions_test.cc"],
+    deps = [
+        ":pjrt_device_dimensions",
+        "//xla/pjrt/proto:pjrt_device_dimensions_proto_cc",
+        "@com_google_absl//absl/container:flat_hash_set",
+        "@com_google_googletest//:gtest_main",
+    ],
+)
+
+cc_library(
     name = "pjrt_executable",
     srcs = ["pjrt_executable.cc"],
     hdrs = ["pjrt_executable.h"],
@@ -447,6 +472,7 @@ cc_library(
     visibility = internal_visibility([":friends"]),
     deps = [
         ":pjrt_device_description",
+        ":pjrt_device_dimensions",
         ":pjrt_executable",
         "//xla/hlo/builder:xla_computation",
         "//xla/pjrt/proto:pjrt_partial_program_proto_cc",

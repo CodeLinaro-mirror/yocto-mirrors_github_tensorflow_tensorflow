@@ -18,15 +18,13 @@ limitations under the License.
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <stdexcept>
 #include <string>
 
-#include "absl/log/check.h"
 #include "absl/log/log.h"
 #include "nanobind/nanobind.h"
 #include "nanobind/stl/string.h"  // IWYU pragma: keep
-#include "tsl/platform/env.h"
-#include "tsl/platform/logging.h"
-#include "tsl/platform/status.h"
+#include "xla/tsl/platform/env.h"
 #include "tsl/profiler/protobuf/xplane.pb.h"
 
 namespace tensorflow::profiler::python {
@@ -83,9 +81,15 @@ ProfileEvent::ProfileEvent(const XEvent* event, int64_t line_timestamp_ns,
       plane_(plane),
       line_timestamp_ns_(line_timestamp_ns),
       xspace_(xspace) {
-  CHECK_NOTNULL(event_);
-  CHECK_NOTNULL(plane_);
-  CHECK_NOTNULL(xspace_);
+  if (event_ == nullptr) {
+    throw std::runtime_error("event_ must not be null");
+  }
+  if (plane_ == nullptr) {
+    throw std::runtime_error("plane_ must not be null");
+  }
+  if (xspace_ == nullptr) {
+    throw std::runtime_error("xspace_ must not be null");
+  }
 }
 
 double ProfileEvent::start_ns() const {
@@ -120,9 +124,15 @@ VisitorIterator<nb::tuple, XStat> ProfileEvent::stats_end() {
 ProfileLine::ProfileLine(const XLine* line, const XPlane* plane,
                          std::shared_ptr<const XSpace> xspace)
     : line_(line), plane_(plane), xspace_(xspace) {
-  CHECK_NOTNULL(line_);
-  CHECK_NOTNULL(plane_);
-  CHECK_NOTNULL(xspace_);
+  if (line_ == nullptr) {
+    throw std::runtime_error("line_ must not be null");
+  }
+  if (plane_ == nullptr) {
+    throw std::runtime_error("plane_ must not be null");
+  }
+  if (xspace_ == nullptr) {
+    throw std::runtime_error("xspace_ must not be null");
+  }
 }
 
 const std::string& ProfileLine::name() const { return line_->name(); }
@@ -146,8 +156,12 @@ VisitorIterator<ProfileEvent, XEvent> ProfileLine::events_end() {
 ProfilePlane::ProfilePlane(const XPlane* plane,
                            std::shared_ptr<const XSpace> xspace)
     : plane_(plane), xspace_(xspace) {
-  CHECK_NOTNULL(plane_);
-  CHECK_NOTNULL(xspace_);
+  if (plane_ == nullptr) {
+    throw std::runtime_error("plane_ must not be null");
+  }
+  if (xspace_ == nullptr) {
+    throw std::runtime_error("xspace_ must not be null");
+  }
 }
 
 const std::string& ProfilePlane::name() const { return plane_->name(); }
@@ -186,8 +200,11 @@ VisitorIterator<nb::tuple, XStat> ProfilePlane::stats_end() {
 /*static*/ ProfileData ProfileData::from_file(
     const std::string& proto_file_path) {
   std::string serialized_xspace;
-  TF_CHECK_OK(tsl::ReadFileToString(tsl::Env::Default(), proto_file_path,
-                                    &serialized_xspace));
+  absl::Status status = tsl::ReadFileToString(
+      tsl::Env::Default(), proto_file_path, &serialized_xspace);
+  if (!status.ok()) {
+    throw std::runtime_error(status.message().data());
+  }
   return ProfileData(serialized_xspace.c_str(), serialized_xspace.size());
 }
 
@@ -200,12 +217,16 @@ VisitorIterator<nb::tuple, XStat> ProfilePlane::stats_end() {
 
 ProfileData::ProfileData(const char* serialized_xspace_ptr,
                          size_t serialized_xspace_size) {
-  CHECK_NOTNULL(serialized_xspace_ptr);
+  if (serialized_xspace_ptr == nullptr) {
+    throw std::runtime_error("serialized_xspace_ptr must not be null");
+  }
 
   if (!xspace_) {
     xspace_ = std::make_shared<XSpace>();
   }
-  CHECK(xspace_->ParseFromArray(serialized_xspace_ptr, serialized_xspace_size));
+  if (!xspace_->ParseFromArray(serialized_xspace_ptr, serialized_xspace_size)) {
+    throw std::runtime_error("Failed to parse XSpace from array");
+  }
 }
 
 /*explicit*/ ProfileData::ProfileData(std::shared_ptr<XSpace> xspace_ptr) {
@@ -216,8 +237,10 @@ ProfileData::ProfileData(const char* serialized_xspace_ptr,
   if (!xspace_) {
     xspace_ = std::make_shared<XSpace>();
   }
-  CHECK(xspace_->ParseFromArray(serialized_xspace.data(),
-                                serialized_xspace.size()));
+  if (!xspace_->ParseFromArray(serialized_xspace.data(),
+                               serialized_xspace.size())) {
+    throw std::runtime_error("Failed to parse XSpace from array");
+  }
 }
 
 VisitorIterator<ProfilePlane, XPlane> ProfileData::planes_begin() {

@@ -22,7 +22,8 @@ limitations under the License.
 #include "absl/strings/str_format.h"
 #include "absl/strings/string_view.h"
 
-namespace xla::cpu {
+namespace xla {
+namespace cpu {
 
 // `BufferAllocationInfo` stores information about buffer allocations required
 // by an XLA:CPU executable at run time. It corresponds to a `BufferAllocation`
@@ -113,7 +114,8 @@ class BufferAllocationInfo {
   static BufferAllocationInfo InOutParameter(uint64_t size,
                                              int32_t entry_param_number,
                                              int32_t result_number) {
-    return BufferAllocationInfo(Kind::kParameter, size, entry_param_number);
+    return BufferAllocationInfo(Kind::kParameter, size, entry_param_number,
+                                result_number);
   }
 
   static BufferAllocationInfo Result(uint64_t size, int32_t result_number) {
@@ -160,15 +162,15 @@ class BufferAllocationInfo {
         result_number_(result_number) {}
 
   static uint64_t Pack(Kind kind, uint64_t size) {
-    return (static_cast<uint64_t>(size) << 2) | static_cast<uint64_t>(kind);
+    return (static_cast<uint64_t>(size) << 4) | static_cast<uint64_t>(kind);
   }
 
   static inline constexpr Kind UnpackKind(uint64_t packed) {
-    return static_cast<Kind>((packed << 62) >> 62);
+    return static_cast<Kind>((packed << 60) >> 60);
   }
 
   static inline constexpr uint64_t UnpackSize(uint64_t packed) {
-    return packed >> 2;
+    return packed >> 4;
   }
 
   static absl::string_view ToString(Kind kind) {
@@ -186,12 +188,20 @@ class BufferAllocationInfo {
     }
   }
 
-  Kind kind_ : 2;
-  uint64_t size_ : 62;
+  Kind kind_ : 4;
+  uint64_t size_ : 60;
   int32_t entry_param_number_ = -1;
   int32_t result_number_ = -1;
 };
 
-}  // namespace xla::cpu
+}  // namespace cpu
+
+// TODO(ezhulenev): This is a temporary hack to keep `tfcompile` code working.
+namespace cpu_function_runtime {
+using BufferInfo = ::xla::cpu::BufferAllocationInfo;
+using EncodedBufferInfo = ::xla::cpu::BufferAllocationInfo::Encoded;
+}  // namespace cpu_function_runtime
+
+}  // namespace xla
 
 #endif  // XLA_BACKENDS_CPU_BUFFER_ALLOCATION_INFO_H_

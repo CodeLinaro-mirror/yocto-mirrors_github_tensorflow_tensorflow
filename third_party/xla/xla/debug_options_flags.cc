@@ -211,6 +211,7 @@ DebugOptions DefaultDebugOptionsIgnoringFlags() {
 #endif
   opts.set_xla_cpu_use_fusion_emitters(true);
   opts.set_xla_cpu_use_xnnpack(true);
+  opts.set_xla_cpu_use_ynnpack("");
   opts.set_xla_cpu_experimental_xnn_graph_fusion_mode(
       DebugOptions::XNN_GRAPH_FUSION_MODE_DISABLED);
   opts.set_xla_cpu_parallel_codegen_split_count(32);
@@ -1092,6 +1093,11 @@ void MakeDebugOptionsFlags(std::vector<tsl::Flag>* flag_list,
                 bool_setter_for(&DebugOptions::set_xla_cpu_use_xnnpack),
                 debug_options->xla_cpu_use_xnnpack(),
                 "Use XNNPACK for supported operations."));
+  flag_list->push_back(
+      tsl::Flag("xla_cpu_use_ynnpack",
+                string_setter_for(&DebugOptions::set_xla_cpu_use_ynnpack),
+                debug_options->xla_cpu_use_ynnpack(),
+                "Use YNNPACK for supported operations."));
   flag_list->push_back(tsl::Flag(
       "xla_cpu_experimental_xnn_fusion_type",
       SetterForRepeatedEnum<DebugOptions::LibraryFusionType>(

@@ -259,6 +259,10 @@ message DebugOptions {
   // When true, XLA:CPU uses XNNPACK to execute supported operations.
   optional bool xla_cpu_use_xnnpack = 359;
 
+  // A string specifying the usage of YNNPACK in XLA:CPU.
+  // The current format: "dot,reduce,graph" where each part is optional.
+  optional string xla_cpu_use_ynnpack = 422;
+
   // Enabling this will enable optimizations that ignore the possibility of NaN.
   optional bool xla_enable_fast_math = 335;
 
@@ -1361,7 +1365,7 @@ message DebugOptions {
   // Note: when adding a new flag, please add it to one of the hardware-specific
   // or hardware-agnostic sections at the top of this proto message.
 
-  // Next id: 422
+  // Next id: 423
 
   // Extra options to pass to the compilation backend (e.g. LLVM); specific
   // interpretation of these values is left to the backend.

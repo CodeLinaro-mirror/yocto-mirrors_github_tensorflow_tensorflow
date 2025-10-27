@@ -618,35 +618,25 @@ absl::Status CpuCompiler::RunHloPassesThroughLayoutAssn(
   // Dots should be wrapped in an `__xnn_fusion` fusion region and processed in
   // `XnnFusionThunk`.
   bool xnnpack_enabled = module->config().debug_options().xla_cpu_use_xnnpack();
-  auto call_library_for_dot = [&](const HloInstruction& instr) {
-    if (!xnnpack_enabled) return false;
-    DotImplementationStrategy strategy = GetDotImplementationStrategy(
-        module->config(), instr, *target_machine_features,
-        /*allow_runtime_calls=*/true);
-    return strategy == DotImplementationStrategy::kEigen;
-  };
-  HloPredicate upcaster_filter = [&](const HloInstruction* instr) {
-    if (instr->opcode() != HloOpcode::kDot) {
-      return true;
-    }
-    if (!call_library_for_dot(*instr)) {
-      return true;
-    }
-
+  auto library_supports_dot = [&](const HloInstruction& instr) {
 #ifdef XLA_YNNPACK
     if (absl::c_linear_search(
             module->config()
                 .debug_options()
                 .xla_cpu_experimental_ynn_fusion_type(),
             DebugOptions::LIBRARY_FUSION_TYPE_INDIVIDUAL_DOT)) {
-      if (IsDotSupportedByYnn(instr->dot_dimension_numbers(),
-                              instr->operand(0)->shape(),
-                              instr->operand(1)->shape(), instr->shape())
+      if (IsDotSupportedByYnn(instr.dot_dimension_numbers(),
+                              instr.operand(0)->shape(),
+                              instr.operand(1)->shape(), instr.shape())
               .value_or(false)) {
-        return false;
+        return true;
       }
     }
 #endif  // XLA_YNNPACK
+
+    if (!xnnpack_enabled) {
+      return false;
+    }
 
     auto xnn_graph_fusion_mode =
         module->config()
@@ -658,16 +648,22 @@ absl::Status CpuCompiler::RunHloPassesThroughLayoutAssn(
               .debug_options()
               .xla_cpu_experimental_xnn_graph_fusion_mode() !=
           DebugOptions::XNN_GRAPH_FUSION_MODE_BYPASS_COST_MODEL;
-      if (IsDotSupportedByXnn(instr->dot_dimension_numbers(),
-                              instr->operand(0)->shape(),
-                              instr->operand(1)->shape(), instr->shape(),
+      if (IsDotSupportedByXnn(instr.dot_dimension_numbers(),
+                              instr.operand(0)->shape(),
+                              instr.operand(1)->shape(), instr.shape(),
                               target_machine_features, use_cost_model)
               .value_or(false)) {
-        return false;
+        return true;
       }
     }
+    return false;
+  };
 
-    return true;
+  HloPredicate upcaster_filter = [&](const HloInstruction* instr) {
+    if (instr->opcode() != HloOpcode::kDot) {
+      return true;
+    }
+    return !library_supports_dot(*instr);
   };
 
   // xla::cpu::GetDotImplementationStrategy (used by call_library_for_dot)
@@ -731,8 +727,7 @@ absl::Status CpuCompiler::RunHloPassesThroughLayoutAssn(
   // Convert BF16 and F8 operations to F32 and F16 respectively so that the CPU
   // backend can support BF16/F8 operations without directly implementing a
   // BF16/F8 lowering for most ops.
-  CpuFloatSupport bf16_support(BF16, call_library_for_dot,
-                               target_machine_features);
+  CpuFloatSupport bf16_support(BF16, library_supports_dot);
 #ifdef XLA_ONEDNN
   OneDnnFloatSupport onednn_bf16_support(BF16);
   if (use_onednn_custom_call) {

@@ -962,16 +962,16 @@ message StatisticsViz {
 // A mesh is a list of axes and an optional list of device IDs specifying
 // the device ordering.
 //
-// If the list of axes is empty, the mesh has an implicit unnamed axis of
-// size 1. In this case, if a device ID list is not provided, the implicit
-// device ID list is [0]; if a device ID list is provided, it must
-// contains a single integer of any non-negative value. We call this
-// maximal-sharding case.
+// If the list of axes is empty
+//  - If the `device_ids` is not provided, it is an empty mesh.
+//  - If the `device_ids` is provided, it must be a single non-negative
+//    integer, we call it a **maximal-sharding mesh**.
 //
-// For all non-maximal-sharding cases, if a device ID list is specified,
-// the product of the axis sizes should match the number of devices. If a
-// device ID list is not specified, the implicit device ID list is
-// iota(product(axes)). For simplicity, we also disallow specifying a
+// If the list of axes is provided, it is not a maximal-sharding mesh even if
+// the total size of axes is 1. For all non-maximal-sharding cases, if a device
+// ID list is specified, the product of the axis sizes should match the number
+// of devices. If a device ID list is not specified, the implicit device ID
+// list is iota(product(axes)). For simplicity, we also disallow specifying a
 // device ID list that is the same as iota(product(axes)); in this case, a
 // device ID list shouldn't be specified.
 //

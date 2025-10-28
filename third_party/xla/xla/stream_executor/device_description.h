@@ -38,7 +38,7 @@ namespace stream_executor {
 class GpuComputeCapability {
  public:
   GpuComputeCapability() = default;
-  GpuComputeCapability(const CudaComputeCapability& compute_capability)
+  explicit GpuComputeCapability(const CudaComputeCapability& compute_capability)
       : compute_capability_(compute_capability) {}
   explicit GpuComputeCapability(const RocmComputeCapability& compute_capability)
       : compute_capability_(compute_capability) {}
@@ -76,6 +76,21 @@ class GpuComputeCapability {
       return ptr->ToString();
     }
     return rocm_compute_capability()->ToString();
+  }
+
+  GpuComputeCapabilityProto ToProto() const;
+
+  static absl::StatusOr<GpuComputeCapability> FromProto(
+      const GpuComputeCapabilityProto& proto);
+
+  friend bool operator==(const GpuComputeCapability& lhs,
+                         const GpuComputeCapability& rhs) {
+    return lhs.compute_capability_ == rhs.compute_capability_;
+  }
+
+  friend bool operator!=(const GpuComputeCapability& lhs,
+                         const GpuComputeCapability& rhs) {
+    return !(lhs == rhs);
   }
 
  private:

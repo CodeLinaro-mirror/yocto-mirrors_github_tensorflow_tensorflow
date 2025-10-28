@@ -29,6 +29,7 @@ limitations under the License.
 #include "xla/backends/cpu/codegen/target_machine_features.h"
 #include "xla/backends/cpu/transforms/library_matcher.h"
 #include "xla/backends/cpu/transforms/xnn_matcher.h"
+#include "xla/backends/cpu/transforms/ynn_matcher.h"
 #include "xla/hlo/ir/hlo_instruction.h"
 #include "xla/hlo/ir/hlo_instructions.h"
 #include "xla/hlo/ir/hlo_opcode.h"
@@ -50,8 +51,10 @@ enum class FusionDirection {
 struct LibraryRewriterOptions {
   bool use_onednn = false;
   bool use_xnnpack = false;
+  bool use_ynnpack = false;
   const tsl::protobuf::RepeatedField<int>* onednn_fusion_types = nullptr;
   const tsl::protobuf::RepeatedField<int>* xnn_fusion_types = nullptr;
+  const tsl::protobuf::RepeatedField<int>* ynn_fusion_types = nullptr;
 };
 
 // Rewrites suitable Dot operations into library fusions.
@@ -73,6 +76,11 @@ class LibraryRewriter : public HloModulePass {
         !options_.xnn_fusion_types->empty()) {
       libs_.push_back(std::make_unique<XnnMatcher>(target_machine_features_,
                                                    options_.xnn_fusion_types));
+    }
+    if (options_.use_ynnpack && options_.ynn_fusion_types != nullptr &&
+        !options_.ynn_fusion_types->empty()) {
+      libs_.push_back(std::make_unique<YnnMatcher>(target_machine_features_,
+                                                   options_.ynn_fusion_types));
     }
     for (std::unique_ptr<LibraryMatcher>& lib : libs_) {
       supported_ops_.merge(lib->SupportedOps());

@@ -2175,6 +2175,7 @@ cc_library(
         "//xla/service:compiler",
         "//xla/service:executable",
         "//xla/service:hlo_module_config",
+        "//xla/service/llvm_ir:llvm_command_line_options",
         "//xla/tsl/platform:errors",
         "//xla/tsl/platform:statusor",
         "@com_google_absl//absl/log",

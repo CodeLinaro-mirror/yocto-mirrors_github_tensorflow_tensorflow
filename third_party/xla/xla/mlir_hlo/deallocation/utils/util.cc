@@ -23,7 +23,8 @@ namespace deallocation {
 SmallVector<RegionEdge> getSuccessorRegions(RegionBranchOpInterface op,
                                             RegionBranchPoint point) {
   SmallVector<RegionEdge> edges;
-  if (Region* region = point.getRegionOrNull()) {
+  if (Region* region =
+          point.getTerminatorPredecessorOrNull()->getParentRegion()) {
     if (region->empty()) {
       return edges;
     }
@@ -35,7 +36,7 @@ SmallVector<RegionEdge> getSuccessorRegions(RegionBranchOpInterface op,
   for (const auto& successor : successors) {
     auto& edge = edges.emplace_back();
     edge.predecessorRegionPoint = point;
-    auto* region = point.getRegionOrNull();
+    auto* region = point.getTerminatorPredecessorOrNull()->getParentRegion();
     edge.predecessorOp =
         region ? region->front().getTerminator() : op.getOperation();
     edge.predecessorOperandIndex = edge.predecessorOp->getNumOperands() -
@@ -46,7 +47,9 @@ SmallVector<RegionEdge> getSuccessorRegions(RegionBranchOpInterface op,
       edge.successorOpOrRegion = op.getOperation();
       edge.successorValueIndex = 0;
     } else {
-      edge.successorRegionPoint = successor.getSuccessor();
+      edge.successorRegionPoint =
+          RegionBranchPoint(cast<RegionBranchTerminatorOpInterface>(
+              successor.getSuccessor()->front().getTerminator()));
       edge.successorOpOrRegion = successor.getSuccessor();
       edge.successorValueIndex = llvm::isa<scf::ForOp>(op) ? 1 : 0;
     }
@@ -68,7 +71,8 @@ SmallVector<RegionEdge> getPredecessorRegions(RegionBranchOpInterface op,
   };
   checkPredecessor(point.parent());
   for (Region& region : op->getRegions()) {
-    checkPredecessor(region);
+    checkPredecessor(RegionBranchPoint(cast<RegionBranchTerminatorOpInterface>(
+        region.front().getTerminator())));
   }
   return result;
 }

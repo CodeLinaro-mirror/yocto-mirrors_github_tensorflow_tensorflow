@@ -45,6 +45,16 @@ namespace xla {
 // size 2 and "model" axis of size 3.
 class Mesh {
  public:
+  explicit Mesh(absl::Span<const int64_t> axes_sizes,
+                absl::Span<const std::string> axes_names)
+      : Mesh(TileAssignment(axes_sizes), axes_names) {}
+
+  explicit Mesh(Array<int64_t> device_assignment,
+                absl::Span<const std::string> axes_names)
+      : Mesh(TileAssignment(std::make_shared<Array<int64_t>>(
+                 std::move(device_assignment))),
+             axes_names) {}
+
   explicit Mesh(TileAssignment device_assignment,
                 absl::Span<const std::string> axes_names)
       : device_assignment_(std::move(device_assignment)),

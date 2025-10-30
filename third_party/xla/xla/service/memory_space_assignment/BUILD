@@ -1,6 +1,7 @@
 # Description:
 #   Memory Space Assignment service implementation.
 
+# copybara:uncomment load("//third_party/protobuf/bazel:py_proto_library.bzl", "py_proto_library")
 load(
     "//xla:xla.default.bzl",
     "xla_cc_test",
@@ -30,6 +31,13 @@ tf_proto_library(
     srcs = ["memory_space_assignment.proto"],
     make_default_target_header_only = True,
 )
+
+# copybara:uncomment_begin(google-only)
+# py_proto_library(
+#     name = "memory_space_assignment_proto_py_pb2",
+#     deps = [":memory_space_assignment_proto"],
+# )
+# copybara:uncomment_end
 
 cc_library(
     name = "memory_space_assignment",

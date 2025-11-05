@@ -33,6 +33,7 @@ limitations under the License.
 #include "llvm/ADT/STLExtras.h"
 #include "xla/array.h"
 #include "xla/hlo/ir/tile_assignment.h"
+#include "xla/tsl/platform/errors.h"
 #include "xla/xla_data.pb.h"
 
 namespace xla {
@@ -249,7 +250,7 @@ bool AxisRef::Overlaps(const AxisRef& other) const {
          other_sub_axis.pre_size < this_sub_axis.next_pre_size();
 }
 
-bool ValidateSpanOfAxes(absl::Span<const AxisRef> axes) {
+bool AxesCanCoexistWithoutOverlap(absl::Span<const AxisRef> axes) {
   for (int64_t i = 0; i < axes.size() - 1; ++i) {
     for (int64_t j = i + 1; j < axes.size(); ++j) {
       if (!axes[i].CanCoexist(axes[j]) || axes[i].Overlaps(axes[j])) {
@@ -258,6 +259,17 @@ bool ValidateSpanOfAxes(absl::Span<const AxisRef> axes) {
     }
   }
   return true;
+}
+
+absl::Status ValidateSpanOfAxes(absl::Span<const AxisRef> axes,
+                                const Mesh& mesh) {
+  for (const AxisRef& axis : axes) {
+    TF_RETURN_IF_ERROR(axis.Validate(mesh));
+  }
+  if (!AxesCanCoexistWithoutOverlap(axes)) {
+    return absl::InvalidArgumentError("Axes cannot coexist or axes overlap.");
+  }
+  return absl::OkStatus();
 }
 
 }  // namespace xla

@@ -101,6 +101,7 @@ cc_library(
         ":polynomial_approximations",
         "//xla:util",
         "//xla:xla_proto_cc",
+        "//xla/backends/cpu:target_machine_options",
         "//xla/codegen:intrinsic_lib",
         "//xla/codegen/intrinsic",
         "//xla/codegen/intrinsic:intrinsic_compiler_lib",
@@ -144,7 +145,9 @@ xla_cc_test(
     deps = [
         ":ir_compiler",
         ":kernel_api_ir_builder",
+        "//xla:debug_options_flags",
         "//xla:util",
+        "//xla/backends/cpu:target_machine_options",
         "//xla/service/cpu:backend_config_proto_cc",
         "//xla/service/cpu:cpu_compiler_pure",
         "//xla/service/cpu:test_header_helper",

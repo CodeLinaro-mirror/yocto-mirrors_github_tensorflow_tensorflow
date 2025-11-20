@@ -1388,9 +1388,9 @@ class TPUEmbeddingV2(tpu_embedding_base.TPUEmbeddingBase):
   ) -> Tuple[Any, Any]:
     """Computes the max_ids/unique ids settings from the input features."""
     copy_feature_config = _clone_feature_config(feature_config)
-    table_config = []
-    for feature in nest.flatten(copy_feature_config):
-      table_config.append(feature.table)
+    table_config = list(
+        {feature.table for feature in nest.flatten(copy_feature_config)}
+    )
 
     for table in table_config:
       if table.optimizer is None:

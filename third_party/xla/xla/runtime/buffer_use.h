@@ -118,14 +118,19 @@ class BufferUse {
            static_cast<uint32_t>(ContentValidity::kDefinedOnOutput);
   }
 
+  template <typename H>
+  friend H AbslHashValue(H h, const BufferUse& use) {
+    return H::combine(std::move(h), use.slice_, use.access_);
+  }
+
   // ReadWriteSet tracks a set of read and write buffer slices.
   class ReadWriteSet {
    public:
     ReadWriteSet();
 
     void Add(BufferUse use);
-    void AddRead(BufferAllocation::Slice slice);
-    void AddWrite(BufferAllocation::Slice slice);
+    void AddRead(const BufferUse& use);
+    void AddWrite(const BufferUse& use);
 
     void AddAll(absl::Span<const BufferUse> uses);
 
@@ -135,8 +140,8 @@ class BufferUse {
     bool HasConflicts(const ReadWriteSet& other);
 
    private:
-    absl::flat_hash_set<BufferAllocation::Slice> read_;
-    absl::flat_hash_set<BufferAllocation::Slice> write_;
+    absl::flat_hash_set<BufferUse> read_;
+    absl::flat_hash_set<BufferUse> write_;
   };
 
   bool operator==(const BufferUse& other) const {
@@ -149,11 +154,6 @@ class BufferUse {
   const BufferAllocation::Slice& slice() const { return slice_; }
   MemoryAccess access() const { return access_; }
   ContentValidity content_validity() const { return content_validity_; }
-
-  template <typename H>
-  friend H AbslHashValue(H h, const BufferUse& use) {
-    return H::combine(std::move(h), use.slice_, use.access_);
-  }
 
   template <typename Sink>
   friend void AbslStringify(Sink& sink, const BufferUse& use) {

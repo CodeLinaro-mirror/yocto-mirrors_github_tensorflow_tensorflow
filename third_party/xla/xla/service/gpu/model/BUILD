@@ -826,6 +826,8 @@ xla_test(
         "//xla/service:hlo_runner",
         "//xla/service:platform_util",
         "//xla/stream_executor:device_description",
+        "//xla/tsl/platform:env",
+        "//xla/tsl/platform:status",
         "//xla/tsl/util:command_line_flags",
         "@com_google_absl//absl/log",
         "@com_google_absl//absl/strings",

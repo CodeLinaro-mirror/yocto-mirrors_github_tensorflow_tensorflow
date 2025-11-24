@@ -1526,7 +1526,7 @@ TEST_F(GemmFusionTest, ScaledDotIsFused) {
     CHECK:   ROOT %[[FUSION:.*]] = bf16[4,4]{1,0} fusion(
     CHECK:     kind=kCustom,
     CHECK:     calls=%[[FUSION_DOT]]
-    CHECK:     {"kind":"__triton_scaled_dot_fusion"}
+    CHECK:     {"kind":"__triton_nested_gemm_fusion"}
   )";
   MatchHloModule(*module, kExpectedHloText);
 }

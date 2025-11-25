@@ -316,7 +316,7 @@ class PjRtLoadedExecutable final
       absl::Span<ArrayRef> args, const ExecuteOptions& options,
       std::optional<DeviceListRef> devices) override;
 
-  const DeviceListRef& devices() const override { return devices_; }
+  std::optional<DeviceListRef> devices() const override { return devices_; }
 
   absl::Span<Device* const> addressable_devices() const override {
     DCHECK(this);
@@ -347,7 +347,8 @@ class PjRtLoadedExecutable final
   PjRtLoadedExecutable(
       PjRtClient* client,
       std::shared_ptr<xla::PjRtLoadedExecutable> pjrt_loaded_executable,
-      DeviceListRef devices, std::vector<Device*> addressable_devices,
+      std::optional<DeviceListRef> devices,
+      std::vector<Device*> addressable_devices,
       std::vector<tsl::RCReference<LoadedHostCallback>>
           all_loaded_host_callbacks,
       std::vector<PjRtHostSendAndRecvLoadedHostCallback*>
@@ -359,9 +360,9 @@ class PjRtLoadedExecutable final
 
   PjRtClient* client_;
   std::shared_ptr<xla::PjRtLoadedExecutable> pjrt_loaded_executable_;
-  // Devices that `pjrt_loaded_executable_` runs on. Empty if the executable is
-  // portable.
-  DeviceListRef devices_;
+  // Devices that `pjrt_loaded_executable_` runs on. `std::nullopt` if the
+  // executable is portable.
+  std::optional<DeviceListRef> devices_;
   std::vector<Device*> addressable_devices_;
   std::shared_ptr<std::vector<tsl::RCReference<LoadedHostCallback>>>
       all_loaded_host_callbacks_;

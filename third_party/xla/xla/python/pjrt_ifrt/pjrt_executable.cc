@@ -627,8 +627,17 @@ absl::StatusOr<LoadedExecutableRef> PjRtLoadedExecutable::CreateInternal(
     addressable_devices.push_back(ifrt_device);
   }
 
+  std::optional<DeviceListRef> devices;
+  TF_ASSIGN_OR_RETURN(xla::CompileOptions compile_options,
+                      pjrt_loaded_executable->GetCompileOptions());
+  if (compile_options.compile_portable_executable) {
+    devices = std::nullopt;
+  } else {
+    devices = std::move(executable_devices);
+  }
+
   return LoadedExecutableRef(new PjRtLoadedExecutable(
-      client, std::move(pjrt_loaded_executable), std::move(executable_devices),
+      client, std::move(pjrt_loaded_executable), std::move(devices),
       std::move(addressable_devices), std::move(loaded_host_callbacks),
       std::move(host_send_and_recv_callbacks), std::move(output_dtypes),
       std::move(output_shapes), std::move(output_shardings),
@@ -638,7 +647,8 @@ absl::StatusOr<LoadedExecutableRef> PjRtLoadedExecutable::CreateInternal(
 PjRtLoadedExecutable::PjRtLoadedExecutable(
     PjRtClient* client,
     std::shared_ptr<xla::PjRtLoadedExecutable> pjrt_loaded_executable,
-    DeviceListRef devices, std::vector<Device*> addressable_devices,
+    std::optional<DeviceListRef> devices,
+    std::vector<Device*> addressable_devices,
     std::vector<tsl::RCReference<LoadedHostCallback>> all_loaded_host_callbacks,
     std::vector<PjRtHostSendAndRecvLoadedHostCallback*>
         host_send_recv_callbacks,
@@ -686,7 +696,7 @@ PjRtLoadedExecutable::Execute(absl::Span<ArrayRef> args,
     portable_execution_device =
         static_cast<PjRtDevice*>((*devices)->devices().front());
   } else {
-    if (devices_->devices().empty()) {
+    if (!devices_.has_value()) {
       return InvalidArgument("No devices provided for portable executable");
     }
     num_computations = addressable_devices_.size();
@@ -883,7 +893,7 @@ PjRtLoadedExecutable::Execute(absl::Span<ArrayRef> args,
           TF_ASSIGN_OR_RETURN(layout,
                               client_->GetDefaultPjRtLayout(
                                   output_dtypes_[i], output_shapes_[i].dims(),
-                                  devices_->devices().front(),
+                                  addressable_devices_.front(),
                                   output_shardings_[i]->memory_kind()));
         }
         layouts.push_back(std::move(layout));

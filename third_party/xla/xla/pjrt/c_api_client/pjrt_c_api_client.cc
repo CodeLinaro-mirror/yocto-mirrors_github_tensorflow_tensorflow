@@ -39,7 +39,6 @@ limitations under the License.
 #include "absl/strings/string_view.h"
 #include "absl/synchronization/mutex.h"
 #include "absl/types/span.h"
-#include "llvm/ADT/STLExtras.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "mlir/IR/OwningOpRef.h"
 #include "mlir/Pass/PassManager.h"
@@ -84,7 +83,6 @@ limitations under the License.
 #include "xla/shape_util.h"
 #include "xla/tsl/framework/allocator.h"
 #include "xla/tsl/platform/errors.h"
-#include "xla/tsl/platform/status.h"
 #include "xla/tsl/platform/statusor.h"
 #include "xla/tsl/protobuf/coordination_service.pb.h"
 #include "xla/util.h"
@@ -1286,7 +1284,7 @@ class PjRtCApiAsyncHostToDeviceTransferManager
     };
     absl::StatusOr<std::vector<PJRT_NamedValue>> result =
         pjrt::ConvertToPjRtNamedValueList(pjrt_metadata);
-    TF_CHECK_OK(result.status());
+    CHECK_OK(result.status());
     std::vector<PJRT_NamedValue> c_metadata = result.value();
     args.transfer_metadata = c_metadata.data();
     args.num_metadata = c_metadata.size();
@@ -1891,7 +1889,7 @@ PjRtCApiExecutable::GetOutputLayouts() const {
                                   serialize_args.serialized_bytes_size);
     absl::StatusOr<std::shared_ptr<const PjRtLayout>> pjrt_layout =
         PjRtLayout::Deserialize(serialized_layout);
-    TF_CHECK_OK(pjrt_layout.status());
+    CHECK_OK(pjrt_layout.status());
     layouts.push_back(*std::move(pjrt_layout));
   }
   return layouts;
@@ -2753,7 +2751,7 @@ std::shared_ptr<const PjRtLayout> PjRtCApiBuffer::layout() const {
                                       serialize_args.serialized_bytes_size);
         absl::StatusOr<std::shared_ptr<const PjRtLayout>> pjrt_layout =
             PjRtLayout::Deserialize(serialized_layout);
-        TF_CHECK_OK(pjrt_layout.status());
+        CHECK_OK(pjrt_layout.status());
         layout_ = *std::move(pjrt_layout);
       }
     }

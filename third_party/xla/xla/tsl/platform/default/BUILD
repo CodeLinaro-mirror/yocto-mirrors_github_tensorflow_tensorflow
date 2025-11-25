@@ -150,6 +150,7 @@ cc_library(
         "nobuilder",
     ],
     deps = [
+        "//third_party/protobuf/io",
         "//xla/tsl/concurrency:executor",
         "//xla/tsl/platform:env_time",
         "//xla/tsl/platform:errors",
@@ -164,6 +165,7 @@ cc_library(
         "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/base:nullability",
         "@com_google_absl//absl/functional:any_invocable",
+        "@com_google_absl//absl/log",
         "@com_google_absl//absl/log:check",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/strings",

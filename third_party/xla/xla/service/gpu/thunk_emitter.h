@@ -72,7 +72,7 @@ namespace gpu {
 //    within a kernel function using FusedIrEmitter.  (FusedIrEmitter is not
 //    really an IrEmitter, but is more an "IR generator generator".)
 //
-class ThunkEmitter : public IrEmitter {
+class ThunkEmitter {
  public:
   absl::string_view platform_name() const {
     return ir_emitter_context_->platform_name();
@@ -190,10 +190,6 @@ class ThunkEmitter : public IrEmitter {
   absl::Status EmitHloInstruction(const HloInstruction* instr);
 
   absl::Status EmitCollectiveGroupStartThunk(const HloInstruction* instr);
-
-  absl::Status EmitTargetElementLoop(
-      const HloInstruction& hlo,
-      const llvm_ir::ElementGenerator& body_emitter) override;
 
   // Add a owning Thunk object to the thunk sequence.
   void AddThunkToThunkSequence(std::unique_ptr<Thunk> thunk) {
@@ -320,10 +316,6 @@ class ThunkEmitter : public IrEmitter {
   //   ```
   absl::Status EmitSliceToDynamic(const HloCustomCallInstruction* instr);
 
-  absl::StatusOr<std::vector<llvm_ir::IrArray>> BuildKernelThunkForNonFusionOp(
-      llvm::Module* llvm_module, const HloInstruction* instr,
-      const LaunchDimensions& launch_dimensions);
-
   // Returns a WhileThunk that invokes thunk sequences for 'condition' and
   // 'body' sub-computations of while instruction.
   absl::StatusOr<std::unique_ptr<Thunk>> BuildWhileThunk(
@@ -343,6 +335,7 @@ class ThunkEmitter : public IrEmitter {
   GetInstructionToHostExecuteAsyncEvents() {
     return ir_emitter_context_->instruction_to_host_execute_async_events();
   }
+  IrEmitterContext* ir_emitter_context_;
 
   // The thunk sequence this IrEmitter generates for the input computation.
   ThunkSequence thunk_sequence_;

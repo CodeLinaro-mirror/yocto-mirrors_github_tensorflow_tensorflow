@@ -300,6 +300,13 @@ absl::Status GpuHloCostAnalysis::HandleCustomCall(
     current_properties_[kFlopsKey] =
         GetDotFlops(custom_call->operand(0)->shape(), output_shape,
                     gemm_config.dot_dimension_numbers());
+    // cublas custom-calls return a tuple (real_output, temp_bytes).  Count
+    // just the real_output in output bytes accessed.
+    int64_t output_size = options_.shape_size(output_shape);
+    current_properties_[kBytesAccessedKey] -=
+        current_properties_.output_bytes_accessed();
+    current_properties_[kBytesAccessedKey] += output_size;
+    current_properties_.set_output_bytes_accessed(output_size);
     return absl::OkStatus();
   }
 

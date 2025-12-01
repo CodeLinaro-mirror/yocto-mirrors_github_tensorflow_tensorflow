@@ -179,16 +179,27 @@ CollectiveOpsE2ETestBase::ExecuteReplicated(
 
 absl::StatusOr<CollectiveOpsE2ETestBase::ExecutionResult>
 CollectiveOpsE2ETestBase::ExecuteReplicated(std::unique_ptr<HloModule> module) {
-  std::vector<std::vector<Literal*>> arguments(module->config().replica_count(),
-                                               std::vector<Literal*>());
-  return ExecuteReplicated(std::move(module), arguments,
+  return ExecuteReplicated(std::move(module),
+                           /*arguments=*/std::vector<Literal*>(),
                            /*run_hlo_passes=*/true);
 }
 
 absl::StatusOr<CollectiveOpsE2ETestBase::ExecutionResult>
 CollectiveOpsE2ETestBase::ExecuteReplicated(
+    std::unique_ptr<HloModule> module, const std::vector<Literal*>& arguments,
+    bool run_hlo_passes) {
+  std::vector<std::vector<Literal*>> replica_arguments(
+      module->config().replica_count(), arguments);
+
+  return ExecuteReplicated(std::move(module),
+                           /*arguments=*/replica_arguments,
+                           /*run_hlo_passes=*/run_hlo_passes);
+}
+
+absl::StatusOr<CollectiveOpsE2ETestBase::ExecutionResult>
+CollectiveOpsE2ETestBase::ExecuteReplicated(
     std::unique_ptr<HloModule> module,
-    const std::vector<std::vector<Literal*>> arguments, bool run_hlo_passes) {
+    const std::vector<std::vector<Literal*>>& arguments, bool run_hlo_passes) {
   int64_t num_replicas = module->config().replica_count();
   int64_t num_partitions = module->config().num_partitions();
 

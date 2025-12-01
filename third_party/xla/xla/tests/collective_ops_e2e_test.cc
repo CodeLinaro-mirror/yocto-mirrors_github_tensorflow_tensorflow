@@ -13,11 +13,9 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
 
-#include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstdint>
-#include <functional>
 #include <memory>
 #include <string>
 #include <tuple>
@@ -44,7 +42,6 @@ limitations under the License.
 #include "xla/hlo/ir/hlo_instructions.h"
 #include "xla/hlo/ir/hlo_module.h"
 #include "xla/hlo/ir/hlo_opcode.h"
-#include "xla/hlo/ir/hlo_sharding.h"
 #include "xla/hlo/parser/hlo_parser.h"
 #include "xla/hlo/testlib/pattern_matcher_gmock.h"
 #include "xla/hlo/testlib/verified_hlo_module.h"
@@ -67,7 +64,6 @@ limitations under the License.
 #include "xla/tsl/platform/test.h"
 #include "xla/types.h"
 #include "xla/xla_data.pb.h"
-#include "tsl/platform/regexp.h"
 
 namespace xla {
 namespace {
@@ -568,9 +564,8 @@ TEST_P(AsyncCollectiveOps, AsyncAllToAllWithSplitDim) {
   TF_ASSERT_OK_AND_ASSIGN(
       auto module, ParseAndReturnVerifiedModule(kModuleStr, kNumReplicas));
 
-  TF_ASSERT_OK_AND_ASSIGN(
-      ExecutionResult execution_result,
-      ExecuteReplicated(std::move(module), /*arguments=*/{{}, {}}));
+  TF_ASSERT_OK_AND_ASSIGN(ExecutionResult execution_result,
+                          ExecuteReplicated(std::move(module)));
 
   const HloModule* hlo_module = execution_result.optimized_module;
   HloInstruction* a2a_start =
@@ -609,20 +604,16 @@ TEST_F(CollectiveOpsTestE2E, AsyncAllToAllMemCpyWithSplitDim) {
   config.set_debug_options(debug_options);
   TF_ASSERT_OK_AND_ASSIGN(auto module,
                           ParseAndReturnVerifiedModule(kModuleStr, config));
+  TF_ASSERT_OK_AND_ASSIGN(ExecutionResult execution_result,
+                          ExecuteReplicated(std::move(module)));
 
-  TF_ASSERT_OK_AND_ASSIGN(
-      auto executable, hlo_runner_->CreateExecutable(std::move(module),
-                                                     /*run_hlo_passes=*/true));
-  TF_ASSERT_OK_AND_ASSIGN(const HloModule* const executable_module,
-                          hlo_runner_->HloModuleFromWrapped(executable.get()));
-
+  const HloModule* executable_module = execution_result.optimized_module;
   // Verify that the all-to-all is not decomposed into a tuple all-to-all.
   const HloInstruction* all_to_all =
       FindInstruction(executable_module, HloOpcode::kAllToAll);
   EXPECT_THAT(all_to_all, op::Shape("u32[2, 2]"));
 
-  TF_ASSERT_OK_AND_ASSIGN(std::vector<Literal> results,
-                          ExecuteReplicated(executable.get(), kNumReplicas));
+  const std::vector<Literal>& results = execution_result.results;
   ASSERT_EQ(results.size(), kNumReplicas);
   LiteralTestUtil::ExpectR1Equal<uint32_t>({10, 15, 11, 16}, results[0]);
   LiteralTestUtil::ExpectR1Equal<uint32_t>({20, 25, 21, 26}, results[1]);
@@ -1012,10 +1003,9 @@ TEST_P(AsyncCollectiveOps, MatmulReplicated) {
   for (int i = 0; i < fake_arguments.size(); i++) {
     fake_ptrs[i] = &fake_arguments[i];
   }
-  TF_ASSERT_OK_AND_ASSIGN(
-      std::vector<Literal> results,
-      ExecuteReplicated(std::move(module), fake_ptrs, kNumReplicas, &assn,
-                        /*run_hlo_passes=*/true, /*use_threads=*/true));
+  TF_ASSERT_OK_AND_ASSIGN(ExecutionResult execution_result,
+                          ExecuteReplicated(std::move(module), fake_ptrs));
+  const std::vector<Literal>& results = execution_result.results;
   ASSERT_EQ(results.size(), kNumReplicas);
 
   TF_ASSERT_OK_AND_ASSIGN(
@@ -1289,447 +1279,6 @@ TEST_F(CollectiveOpsTestE2E, HostMemoryOffloadingWithDonation) {
       << "of aliased parameter 0 at index {} (f32[128,128])" << error_message;
 }
 
-// E2E tests comparing the results of sharded and unsharded execution.
-class CollectiveOpsTestE2EShardedUnsharded : public CollectiveOpsTestE2E {
- public:
-  void CollectiveOpsCompareShardedUnsharded(
-      const std::string& hlo_text, const int64_t num_partitions = 2,
-      bool enable_enzyme_comms_opt = false) {
-    const int64_t num_replicas = 1;
-    if (hlo_runner_->device_count() < num_replicas * num_partitions) {
-      GTEST_SKIP() << "Test requires at least " << num_replicas * num_partitions
-                   << " devices (" << hlo_runner_->device_count()
-                   << " available)";
-    }
-
-    TF_ASSERT_OK_AND_ASSIGN(std::vector<Literal> ref_results,
-                            ExecuteUnsharded(hlo_text));
-    ASSERT_EQ(ref_results.size(), 1);
-
-    TF_ASSERT_OK_AND_ASSIGN(
-        std::vector<Literal> results,
-        ExecuteSharded(hlo_text, num_partitions, enable_enzyme_comms_opt));
-    ASSERT_EQ(results.size(), num_partitions);
-
-    ErrorSpec error_spec{1e-4, 1e-4};
-    CompareShardedUnsharded(hlo_text, num_partitions, ref_results, results,
-                            error_spec);
-  }
-
- private:
-  // Execute the unsharded case.
-  absl::StatusOr<std::vector<Literal>> ExecuteUnsharded(
-      const std::string& hlo_text) {
-    // Create the unsharded reference case by removing the sharding metadata
-    // from the HLO string.
-    std::string hlo_text_ref = hlo_text;
-    RE2::GlobalReplace(&hlo_text_ref, R"(, sharding=\{devices=\[[0-9,]*\].*\})",
-                       "");
-    RE2::GlobalReplace(&hlo_text_ref, R"(, sharding=\{replicated\})", "");
-
-    HloModuleConfig ref_config = GetModuleConfigForTest();
-    DebugOptions ref_opts = GetDebugOptionsForTest();
-    ref_opts.set_xla_gpu_enable_triton_gemm(false);
-    ref_config.set_debug_options(ref_opts);
-    ref_config.set_num_partitions(1);
-    TF_ASSIGN_OR_RETURN(std::unique_ptr<VerifiedHloModule> ref_module,
-                        ParseAndReturnVerifiedModule(hlo_text_ref, ref_config));
-    const int64_t num_params =
-        ref_module->entry_computation()->num_parameters();
-
-    auto fake_args = xla::MakeFakeArguments(ref_module.get()).value();
-    std::vector<Literal*> ref_fake_ptrs(num_params);
-    for (int i = 0; i < num_params; ++i) {
-      ref_fake_ptrs[i] = &fake_args[i];
-    }
-
-    DeviceAssignment ref_assn(/*replica_count=*/1,
-                              /*computation_count=*/1);
-    ref_assn(0, 0) = 0;
-    return ExecuteReplicated(std::move(ref_module), ref_fake_ptrs,
-                             /*num_replicas=*/1, &ref_assn,
-                             /*run_hlo_passes=*/true,
-                             /*use_threads=*/true);
-  }
-
-  // Execute the sharded case.
-  absl::StatusOr<std::vector<Literal>> ExecuteSharded(
-      const std::string& hlo_text, int64_t num_partitions,
-      bool enable_enzyme_comms_opt = false) {
-    HloModuleConfig config = GetModuleConfigForTest();
-    DebugOptions opts = GetDebugOptionsForTest();
-    opts.set_xla_gpu_enable_triton_gemm(false);
-    config.set_debug_options(opts);
-    config.set_num_partitions(num_partitions);
-    if (enable_enzyme_comms_opt) {
-      config.mutable_debug_options().set_xla_enable_enzyme_comms_opt(true);
-    }
-    TF_ASSIGN_OR_RETURN(std::unique_ptr<VerifiedHloModule> module,
-                        ParseAndReturnVerifiedModule(hlo_text, config));
-    const int64_t num_params = module->entry_computation()->num_parameters();
-
-    std::vector<std::vector<int64_t>> param_dims(num_params);
-    std::vector<std::vector<int64_t>> param_dims_per_shard(num_params);
-    std::vector<std::vector<int64_t>> param_sharded_dims(num_params);
-    for (int i = 0; i < num_params; ++i) {
-      auto dimensions = module->entry_computation()
-                            ->parameter_instruction(i)
-                            ->shape()
-                            .dimensions();
-      param_dims[i] = std::vector(dimensions.begin(), dimensions.end());
-      param_dims_per_shard[i] = param_dims[i];
-      HloSharding parameter_sharding =
-          module->entry_computation()->parameter_instruction(i)->sharding();
-      EvaluateShardedDims(param_dims_per_shard[i], param_sharded_dims[i],
-                          parameter_sharding);
-    }
-
-    // Slice the tiled inputs to match the prescribed sharding.
-    auto fake_args = xla::MakeFakeArguments(module.get()).value();
-    std::vector<std::vector<Literal>> fake_args_sliced(num_params);
-    std::vector<std::vector<Literal*>> fake_ptrs(num_partitions);
-    for (int k = 0; k < num_params; ++k) {
-      if (!param_sharded_dims[k].empty()) {
-        std::vector<int64_t> lower(param_dims_per_shard[k].size(), 0);
-        std::vector<int64_t> upper(param_dims_per_shard[k].begin(),
-                                   param_dims_per_shard[k].end());
-        for (int i = 0; i < num_partitions; ++i) {
-          fake_args_sliced[k].push_back(fake_args[k].Slice(lower, upper));
-          for (int m = param_sharded_dims[k].size() - 1; m >= 0; --m) {
-            if (upper[param_sharded_dims[k][m]] <
-                param_dims[k][param_sharded_dims[k][m]]) {
-              upper[param_sharded_dims[k][m]] +=
-                  param_dims_per_shard[k][param_sharded_dims[k][m]];
-              break;
-            }
-            upper[param_sharded_dims[k][m]] =
-                param_dims_per_shard[k][param_sharded_dims[k][m]];
-          }
-          std::transform(upper.begin(), upper.end(),
-                         param_dims_per_shard[k].begin(), lower.begin(),
-                         std::minus<int64_t>());
-        }
-      } else {
-        fake_args_sliced[k].push_back(fake_args[k].Clone());
-      }
-    }
-    for (int k = 0; k < num_params; ++k) {
-      for (int i = 0; i < num_partitions; ++i) {
-        if (!param_sharded_dims[k].empty()) {
-          fake_ptrs[i].push_back(&fake_args_sliced[k][i]);
-        } else {
-          fake_ptrs[i].push_back(&fake_args_sliced[k][0]);
-        }
-      }
-    }
-
-    DeviceAssignment assn(/*replica_count=*/1,
-                          /*computation_count=*/num_partitions);
-    for (int64_t i = 0; i < num_partitions; ++i) {
-      assn(0, i) = i;
-    }
-    return ExecuteReplicated(std::move(module), fake_ptrs, &assn,
-                             num_partitions,
-                             /*run_hlo_passes=*/true);
-  }
-
-  // Slice the unsharded reference results and compare to the sharded case.
-  void CompareShardedUnsharded(const std::string& hlo_text,
-                               int64_t num_partitions,
-                               std::vector<Literal>& ref_results,
-                               std::vector<Literal>& results,
-                               ErrorSpec& error_spec) {
-    HloModuleConfig config = GetModuleConfigForTest();
-    DebugOptions opts = GetDebugOptionsForTest();
-    opts.set_xla_gpu_enable_triton_gemm(false);
-    config.set_debug_options(opts);
-    config.set_num_partitions(num_partitions);
-    TF_ASSERT_OK_AND_ASSIGN(std::unique_ptr<VerifiedHloModule> module,
-                            ParseAndReturnVerifiedModule(hlo_text, config));
-    auto dimensions =
-        module->entry_computation()->root_instruction()->shape().dimensions();
-    std::vector<int64_t> root_dims(dimensions.begin(), dimensions.end());
-    std::vector<int64_t> root_dims_per_shard = root_dims;
-    std::vector<int64_t> root_sharded_dims;
-    {
-      HloSharding root_sharding =
-          module->entry_computation()->root_instruction()->sharding();
-      EvaluateShardedDims(root_dims_per_shard, root_sharded_dims,
-                          root_sharding);
-    }
-    if (!root_sharded_dims.empty()) {
-      std::vector<int64_t> lower(root_dims_per_shard.size(), 0);
-      std::vector<int64_t> upper(root_dims_per_shard.begin(),
-                                 root_dims_per_shard.end());
-      for (const Literal& result : results) {
-        Literal ref_results_slice = ref_results[0].Slice(lower, upper);
-        EXPECT_TRUE(
-            LiteralTestUtil::Near(ref_results_slice, result, error_spec));
-        for (int m = root_sharded_dims.size() - 1; m >= 0; --m) {
-          if (upper[root_sharded_dims[m]] < root_dims[root_sharded_dims[m]]) {
-            upper[root_sharded_dims[m]] +=
-                root_dims_per_shard[root_sharded_dims[m]];
-            break;
-          }
-          upper[root_sharded_dims[m]] =
-              root_dims_per_shard[root_sharded_dims[m]];
-        }
-        std::transform(upper.begin(), upper.end(), root_dims_per_shard.begin(),
-                       lower.begin(), std::minus<int64_t>());
-      }
-    } else {
-      EXPECT_TRUE(
-          LiteralTestUtil::Near(ref_results[0], results[0], error_spec));
-    }
-  }
-
-  void EvaluateShardedDims(std::vector<int64_t>& dims_per_shard,
-                           std::vector<int64_t>& sharded_dims,
-                           const HloSharding& sharding) {
-    if (!sharding.IsReplicated()) {
-      for (int k = 0; k < sharding.tile_assignment().num_dimensions(); ++k) {
-        if (sharding.dimension(k) > 1) {
-          dims_per_shard[k] /= sharding.dimension(k);
-          sharded_dims.push_back(k);
-        }
-      }
-    }
-  }
-};
-
-TEST_F(CollectiveOpsTestE2EShardedUnsharded, DotBatchAndBatch) {
-  const std::string hlo_text = R"(
-HloModule module, entry_computation_layout={(f32[4,16,8]{2,1,0}, f32[4,4,8]{2,1,0})->f32[4,16,4]{2,1,0}}, num_partitions=2
-
-ENTRY entry {
-  lhs = f32[4,16,8]{2,1,0} parameter(0), sharding={devices=[2,1,1]<=[2]}
-  rhs = f32[4,4,8]{2,1,0} parameter(1), sharding={devices=[2,1,1]<=[2]}
-  ROOT dot = f32[4,16,4]{2,1,0} dot(lhs, rhs), lhs_batch_dims={0}, rhs_batch_dims={0}, lhs_contracting_dims={2}, rhs_contracting_dims={2}, sharding={devices=[1,2,1]<=[2]}
-})";
-  CollectiveOpsCompareShardedUnsharded(hlo_text);
-}
-
-// This is an execution test for the example in Option 2 in go/dus-spmd. This
-// test should pass regardless of which DUS SPMD implementation option is used.
-TEST_F(CollectiveOpsTestE2EShardedUnsharded,
-       DusSingleDimensionInPartitionMode) {
-  const std::string hlo_text = R"(
-    HloModule module, entry_computation_layout={(s32[16]{0}, s32[8]{0})->s32[16]{0}}, num_partitions=4
-
-    ENTRY entry {
-      %input = s32[16] parameter(0), sharding={devices=[4]<=[4]}
-      %update = s32[8] parameter(1), sharding={devices=[4]<=[4]}
-      %c3 = s32[] constant(3)
-      ROOT %dynamic-update-slice = s32[16] dynamic-update-slice(%input, %update, %c3), sharding={devices=[4]<=[4]}
-    })";
-  CollectiveOpsCompareShardedUnsharded(hlo_text, /*num_partitions=*/4,
-                                       /*enable_enzyme_comms_opt=*/true);
-  // This test should pass regardless if enzyme comms opt is enabled or not.
-  CollectiveOpsCompareShardedUnsharded(hlo_text, /*num_partitions=*/4,
-                                       /*enable_enzyme_comms_opt=*/false);
-}
-
-TEST_F(CollectiveOpsTestE2EShardedUnsharded,
-       KeepPartitionedNonSlicedDimensionWithConstantIndices) {
-  const std::string hlo_text = R"(
-    HloModule module, entry_computation_layout={(bf16[2,24,24,32]{3,2,1,0}, bf16[2,4,4,32]{3,2,1,0})->bf16[2,56,56,32]{3,2,1,0}}, num_partitions=8
-
-    ENTRY entry {
-      p1 = bf16[2,24,24,32]{3,2,1,0} parameter(0), sharding={replicated}
-      p2 = bf16[2,4,4,32]{3,2,1,0} parameter(1), sharding={replicated}
-      c1 = bf16[2,24,24,32]{3,2,1,0} copy(p1), sharding={devices=[2,2,2,1]<=[8]}
-      c2 = bf16[2,4,4,32]{3,2,1,0} copy(p2), sharding={devices=[2,2,2,1]<=[8]}
-      constant.1163 = bf16[] constant(0), sharding={replicated}
-      constant.1165 = s32[] constant(0), sharding={replicated}
-      pad.179 = bf16[2,56,56,32]{3,2,1,0} pad(c1, constant.1163), padding=0_0x16_16x16_16x0_0, sharding={devices=[2,2,2,1]<=[8]}
-      add.439 = bf16[2,4,4,32]{3,2,1,0} add(c2, c2), sharding={devices=[2,2,2,1]<=[8]}
-      constant.1070 = s32[] constant(48), sharding={replicated}
-      dynamic-update-slice.128 = bf16[2,56,56,32]{3,2,1,0} dynamic-update-slice(pad.179, add.439, constant.1165, constant.1070, constant.1070, /*index=5*/constant.1165), sharding={devices=[2,2,2,1]<=[8]}
-      ROOT c = bf16[2,56,56,32]{3,2,1,0} copy(dynamic-update-slice.128), sharding={devices=[2,2,2,1]<=[8]}
-    })";
-  CollectiveOpsCompareShardedUnsharded(hlo_text, /*num_partitions=*/8,
-                                       /*enable_enzyme_comms_opt=*/true);
-  CollectiveOpsCompareShardedUnsharded(hlo_text, /*num_partitions=*/8,
-                                       /*enable_enzyme_comms_opt=*/false);
-}
-
-TEST_F(CollectiveOpsTestE2EShardedUnsharded, DotBatchAndNonContracting) {
-  const std::string hlo_text = R"(
-HloModule module, entry_computation_layout={(f32[4,16,8]{2,1,0}, f32[4,4,8]{2,1,0})->f32[4,16,4]{2,1,0}}, num_partitions=2
-
-ENTRY entry {
-  lhs = f32[4,16,8]{2,1,0} parameter(0), sharding={devices=[2,1,1]<=[2]}
-  rhs = f32[4,4,8]{2,1,0} parameter(1), sharding={devices=[1,2,1]<=[2]}
-  ROOT dot = f32[4,16,4]{2,1,0} dot(lhs, rhs), lhs_batch_dims={0}, rhs_batch_dims={0}, lhs_contracting_dims={2}, rhs_contracting_dims={2}, sharding={devices=[2,1,1]<=[2]}
-})";
-  CollectiveOpsCompareShardedUnsharded(hlo_text);
-}
-
-TEST_F(CollectiveOpsTestE2EShardedUnsharded, DotContractingAndContracting) {
-  const std::string hlo_text = R"(
-HloModule module, entry_computation_layout={(f32[16,8]{1,0}, f32[4,8]{1,0})->f32[16,4]{1,0}}, num_partitions=2
-
-ENTRY entry {
-  lhs = f32[16,8]{1,0} parameter(0), sharding={devices=[1,2]<=[2]}
-  rhs = f32[4,8]{1,0} parameter(1), sharding={devices=[1,2]<=[2]}
-  ROOT dot = f32[16,4]{1,0} dot(lhs, rhs), lhs_contracting_dims={1}, rhs_contracting_dims={1}, sharding={devices=[2,1]<=[2]}
-})";
-  CollectiveOpsCompareShardedUnsharded(hlo_text);
-}
-
-TEST_F(CollectiveOpsTestE2EShardedUnsharded, DotNonContractingAndContracting) {
-  const std::string hlo_text = R"(
-HloModule module, entry_computation_layout={(f32[16,8]{1,0}, f32[4,8]{1,0})->f32[16,4]{1,0}}, num_partitions=2
-
-ENTRY entry {
-  lhs = f32[16,8]{1,0} parameter(0), sharding={devices=[2,1]<=[2]}
-  rhs = f32[4,8]{1,0} parameter(1), sharding={devices=[1,2]<=[2]}
-  ROOT dot = f32[16,4]{1,0} dot(lhs, rhs), lhs_contracting_dims={1}, rhs_contracting_dims={1}, sharding={devices=[2,1]<=[2]}
-})";
-  CollectiveOpsCompareShardedUnsharded(hlo_text);
-}
-
-TEST_F(CollectiveOpsTestE2EShardedUnsharded, DotContractingAndReplicated) {
-  const std::string hlo_text = R"(
-HloModule module, entry_computation_layout={(f32[16,8]{1,0}, f32[4,8]{1,0})->f32[16,4]{1,0}}, num_partitions=2
-
-ENTRY entry {
-  lhs = f32[16,8]{1,0} parameter(0), sharding={devices=[1,2]<=[2]}
-  rhs = f32[4,8]{1,0} parameter(1), sharding={replicated}
-  ROOT dot = f32[16,4]{1,0} dot(lhs, rhs), lhs_contracting_dims={1}, rhs_contracting_dims={1}, sharding={devices=[2,1]<=[2]}
-})";
-  CollectiveOpsCompareShardedUnsharded(hlo_text);
-}
-
-TEST_F(CollectiveOpsTestE2EShardedUnsharded, DotReplicatedAndReplicated) {
-  const std::string hlo_text = R"(
-HloModule module, entry_computation_layout={(f32[4,4]{1,0}, f32[1,4]{1,0})->f32[4,1]{1,0}}, num_partitions=2
-
-ENTRY entry {
-  lhs = f32[4,4]{1,0} parameter(0), sharding={replicated}
-  rhs = f32[1,4]{1,0} parameter(1), sharding={replicated}
-  ROOT dot = f32[4,1]{1,0} dot(lhs, rhs), lhs_contracting_dims={1}, rhs_contracting_dims={1}, sharding={devices=[2,1]<=[2]}
-})";
-  CollectiveOpsCompareShardedUnsharded(hlo_text);
-}
-
-TEST_F(CollectiveOpsTestE2EShardedUnsharded,
-       DotContractingNonContractingAndContractingNonContracting) {
-  const std::string hlo_text = R"(
-HloModule module, entry_computation_layout={(f32[16,8]{1,0}, f32[4,8]{1,0})->f32[16,4]{1,0}}, num_partitions=4
-
-ENTRY entry {
-  lhs = f32[16,8]{1,0} parameter(0), sharding={devices=[2,2]<=[4]}
-  rhs = f32[4,8]{1,0} parameter(1), sharding={devices=[2,2]<=[4]}
-  ROOT dot = f32[16,4]{1,0} dot(lhs, rhs), lhs_contracting_dims={1}, rhs_contracting_dims={1}, sharding={devices=[2,2]<=[4]}
-})";
-  CollectiveOpsCompareShardedUnsharded(hlo_text, /*num_partitions=*/4);
-}
-
-TEST_F(CollectiveOpsTestE2EShardedUnsharded, BlockScaledDotBatchAndBatch) {
-  const std::string hlo_text = R"(
-HloModule module, entry_computation_layout={(f8e4m3fn[4,16,64]{2,1,0}, f8e8m0fnu[4,16,2]{2,1,0}, f8e4m3fn[4,4,64]{2,1,0}, f8e8m0fnu[4,4,2]{2,1,0})->f32[4,16,4]{2,1,0}}, num_partitions=2
-
-ENTRY entry {
-  lhs = f8e4m3fn[4,16,64]{2,1,0} parameter(0), sharding={devices=[2,1,1]<=[2]}
-  lhs_scale = f8e8m0fnu[4,16,2]{2,1,0} parameter(1), sharding={devices=[2,1,1]<=[2]}
-  rhs = f8e4m3fn[4,4,64]{2,1,0} parameter(2), sharding={devices=[2,1,1]<=[2]}
-  rhs_scale = f8e8m0fnu[4,4,2]{2,1,0} parameter(3), sharding={devices=[2,1,1]<=[2]}
-  ROOT block_scaled_dot = f32[4,16,4]{2,1,0} custom-call(lhs, rhs, lhs_scale, rhs_scale), custom_call_target="__op$block_scaled_dot", sharding={devices=[1,2,1]<=[2]}
-})";
-  CollectiveOpsCompareShardedUnsharded(hlo_text);
-}
-
-TEST_F(CollectiveOpsTestE2EShardedUnsharded,
-       BlockScaledDotBatchAndNonContracting) {
-  const std::string hlo_text = R"(
-HloModule module, entry_computation_layout={(f8e4m3fn[4,16,64]{2,1,0}, f8e8m0fnu[4,16,2]{2,1,0}, f8e4m3fn[4,4,64]{2,1,0}, f8e8m0fnu[4,4,2]{2,1,0})->f32[4,16,4]{2,1,0}}, num_partitions=2
-
-ENTRY entry {
-  lhs = f8e4m3fn[4,16,64]{2,1,0} parameter(0), sharding={devices=[2,1,1]<=[2]}
-  lhs_scale = f8e8m0fnu[4,16,2]{2,1,0} parameter(1), sharding={devices=[2,1,1]<=[2]}
-  rhs = f8e4m3fn[4,4,64]{2,1,0} parameter(2), sharding={devices=[1,2,1]<=[2]}
-  rhs_scale = f8e8m0fnu[4,4,2]{2,1,0} parameter(3), sharding={devices=[1,2,1]<=[2]}
-  ROOT block_scaled_dot = f32[4,16,4]{2,1,0} custom-call(lhs, rhs, lhs_scale, rhs_scale), custom_call_target="__op$block_scaled_dot", sharding={devices=[2,1,1]<=[2]}
-})";
-  CollectiveOpsCompareShardedUnsharded(hlo_text);
-}
-
-TEST_F(CollectiveOpsTestE2EShardedUnsharded,
-       BlockScaledDotContractingAndContracting) {
-  const std::string hlo_text = R"(
-HloModule module, entry_computation_layout={(f8e4m3fn[16,64]{1,0}, f8e8m0fnu[16,2]{1,0}, f8e4m3fn[4,64]{1,0}, f8e8m0fnu[4,2]{1,0})->f32[16,4]{1,0}}, num_partitions=2
-
-ENTRY entry {
-  lhs = f8e4m3fn[16,64]{1,0} parameter(0), sharding={devices=[1,2]<=[2]}
-  lhs_scale = f8e8m0fnu[16,2]{1,0} parameter(1), sharding={devices=[1,2]<=[2]}
-  rhs = f8e4m3fn[4,64]{1,0} parameter(2), sharding={devices=[1,2]<=[2]}
-  rhs_scale = f8e8m0fnu[4,2]{1,0} parameter(3), sharding={devices=[1,2]<=[2]}
-  ROOT block_scaled_dot = f32[16,4]{1,0} custom-call(lhs, rhs, lhs_scale, rhs_scale), custom_call_target="__op$block_scaled_dot", sharding={devices=[2,1]<=[2]}
-})";
-  CollectiveOpsCompareShardedUnsharded(hlo_text);
-}
-
-TEST_F(CollectiveOpsTestE2EShardedUnsharded,
-       BlockScaledDotNonContractingAndContracting) {
-  const std::string hlo_text = R"(
-HloModule module, entry_computation_layout={(f8e4m3fn[16,128]{1,0}, f8e8m0fnu[16,4]{1,0}, f8e4m3fn[4,128]{1,0}, f8e8m0fnu[4,4]{1,0})->f32[16,4]{1,0}}, num_partitions=2
-
-ENTRY entry {
-  lhs = f8e4m3fn[16,128]{1,0} parameter(0), sharding={devices=[2,1]<=[2]}
-  lhs_scale = f8e8m0fnu[16,4]{1,0} parameter(1), sharding={devices=[2,1]<=[2]}
-  rhs = f8e4m3fn[4,128]{1,0} parameter(2), sharding={devices=[1,2]<=[2]}
-  rhs_scale = f8e8m0fnu[4,4]{1,0} parameter(3), sharding={devices=[1,2]<=[2]}
-  ROOT block_scaled_dot = f32[16,4]{1,0} custom-call(lhs, rhs, lhs_scale, rhs_scale), custom_call_target="__op$block_scaled_dot", sharding={devices=[2,1]<=[2]}
-})";
-  CollectiveOpsCompareShardedUnsharded(hlo_text);
-}
-
-TEST_F(CollectiveOpsTestE2EShardedUnsharded,
-       BlockScaledDotContractingAndReplicated) {
-  const std::string hlo_text = R"(
-HloModule module, entry_computation_layout={(f8e4m3fn[16,128]{1,0}, f8e8m0fnu[16,4]{1,0}, f8e4m3fn[4,128]{1,0}, f8e8m0fnu[4,4]{1,0})->f32[16,4]{1,0}}, num_partitions=2
-
-ENTRY entry {
-  lhs = f8e4m3fn[16,128]{1,0} parameter(0), sharding={devices=[1,2]<=[2]}
-  lhs_scale = f8e8m0fnu[16,4]{1,0} parameter(1), sharding={devices=[1,2]<=[2]}
-  rhs = f8e4m3fn[4,128]{1,0} parameter(2), sharding={replicated}
-  rhs_scale = f8e8m0fnu[4,4]{1,0} parameter(3), sharding={replicated}
-  ROOT block_scaled_dot = f32[16,4]{1,0} custom-call(lhs, rhs, lhs_scale, rhs_scale), custom_call_target="__op$block_scaled_dot", sharding={devices=[2,1]<=[2]}
-})";
-  CollectiveOpsCompareShardedUnsharded(hlo_text);
-}
-
-TEST_F(CollectiveOpsTestE2EShardedUnsharded,
-       BlockScaledDotReplicatedAndReplicated) {
-  const std::string hlo_text = R"(
-HloModule module, entry_computation_layout={(f8e4m3fn[4,128]{1,0}, f8e8m0fnu[4,4], f8e4m3fn[1,128]{1,0}, f8e8m0fnu[1,4]{1,0})->f32[4,1]{1,0}}, num_partitions=2
-
-ENTRY entry {
-  lhs = f8e4m3fn[4,128]{1,0} parameter(0), sharding={replicated}
-  lhs_scale = f8e8m0fnu[4,4]{1,0} parameter(1), sharding={replicated}
-  rhs = f8e4m3fn[1,128]{1,0} parameter(2), sharding={replicated}
-  rhs_scale = f8e8m0fnu[1,4]{1,0} parameter(3), sharding={replicated}
-  ROOT block_scaled_dot = f32[4,1]{1,0} custom-call(lhs, rhs, lhs_scale, rhs_scale), custom_call_target="__op$block_scaled_dot", sharding={devices=[2,1]<=[2]}
-})";
-  CollectiveOpsCompareShardedUnsharded(hlo_text);
-}
-
-TEST_F(CollectiveOpsTestE2EShardedUnsharded,
-       BlockScaledDotContractingNonContractingAndContractingNonContracting) {
-  const std::string hlo_text = R"(
-HloModule module, entry_computation_layout={(f8e4m3fn[8,128]{1,0}, f8e8m0fnu[8,4]{1,0}, f8e4m3fn[4,128]{1,0}, f8e8m0fnu[4,4]{1,0})->f32[8,4]{1,0}}, num_partitions=4
-
-ENTRY entry {
-  lhs = f8e4m3fn[8,128]{1,0} parameter(0), sharding={devices=[2,2]<=[4]}
-  lhs_scale = f8e8m0fnu[8,4]{1,0} parameter(1), sharding={devices=[2,2]<=[4]}
-  rhs = f8e4m3fn[4,128]{1,0} parameter(2), sharding={devices=[2,2]<=[4]}
-  rhs_scale = f8e8m0fnu[4,4]{1,0} parameter(3), sharding={devices=[2,2]<=[4]}
-  ROOT dot = f32[8,4]{1,0} custom-call(lhs, rhs, lhs_scale, rhs_scale), custom_call_target="__op$block_scaled_dot", sharding={devices=[2,2]<=[4]}
-})";
-  CollectiveOpsCompareShardedUnsharded(hlo_text, /*num_partitions=*/4);
-}
-
 // E2E tests comparing the results of windowed einsum and non-windowed cases.
 class CollectiveOpsTestE2EWindowedNonWindowed : public CollectiveOpsTestE2E {
  public:
@@ -1742,12 +1291,6 @@ class CollectiveOpsTestE2EWindowedNonWindowed : public CollectiveOpsTestE2E {
       GTEST_SKIP() << "Test requires at least " << kNumReplicas * kNumPartitions
                    << " devices (" << hlo_runner_->device_count()
                    << " available)";
-    }
-
-    DeviceAssignment assn(/*replica_count=*/kNumReplicas,
-                          /*computation_count=*/kNumPartitions);
-    for (int64_t i = 0; i < kNumPartitions; ++i) {
-      assn(0, i) = i;
     }
 
     HloModuleConfig ref_config =
@@ -1769,10 +1312,9 @@ class CollectiveOpsTestE2EWindowedNonWindowed : public CollectiveOpsTestE2E {
     }
 
     TF_ASSERT_OK_AND_ASSIGN(
-        std::vector<Literal> ref_results,
-        ExecuteReplicated(std::move(ref_module), ref_fake_ptrs, kNumPartitions,
-                          &assn, /*run_hlo_passes=*/true,
-                          /*use_threads=*/true));
+        ExecutionResult ref_execution_result,
+        ExecuteReplicated(std::move(ref_module), ref_fake_ptrs));
+    const std::vector<Literal>& ref_results = ref_execution_result.results;
 
     HloModuleConfig config =
         GetModuleConfigForTest(/*replica_count=*/kNumReplicas);
@@ -1799,10 +1341,9 @@ class CollectiveOpsTestE2EWindowedNonWindowed : public CollectiveOpsTestE2E {
       fake_ptrs[i] = &fake_arguments[i];
     }
 
-    TF_ASSERT_OK_AND_ASSIGN(
-        std::vector<Literal> results,
-        ExecuteReplicated(std::move(module), fake_ptrs, kNumPartitions, &assn,
-                          /*run_hlo_passes=*/true, /*use_threads=*/true));
+    TF_ASSERT_OK_AND_ASSIGN(ExecutionResult execution_result,
+                            ExecuteReplicated(std::move(module), fake_ptrs));
+    const std::vector<Literal>& results = execution_result.results;
     ASSERT_EQ(results.size(), kNumPartitions);
 
     ASSERT_EQ(ref_results.size(), kNumPartitions);
@@ -2178,16 +1719,9 @@ class CollectiveOpsTestE2EPipelinedNonPipelined : public CollectiveOpsTestE2E {
       fake_ptrs[i] = &fake_arguments[i];
     }
 
-    DeviceAssignment assn(/*replica_count=*/kNumReplicas,
-                          /*computation_count=*/kNumPartitions);
-    for (int64_t i = 0; i < kNumPartitions; ++i) {
-      assn(0, i) = i;
-    }
-
-    TF_ASSERT_OK_AND_ASSIGN(
-        std::vector<Literal> results,
-        ExecuteReplicated(std::move(module), fake_ptrs, kNumPartitions, &assn,
-                          /*run_hlo_passes=*/true, /*use_threads=*/true));
+    TF_ASSERT_OK_AND_ASSIGN(ExecutionResult execution_result,
+                            ExecuteReplicated(std::move(module), fake_ptrs));
+    const std::vector<Literal>& results = execution_result.results;
     ASSERT_EQ(results.size(), kNumPartitions);
 
     HloModuleConfig ref_config =
@@ -2206,10 +1740,9 @@ class CollectiveOpsTestE2EPipelinedNonPipelined : public CollectiveOpsTestE2E {
     }
 
     TF_ASSERT_OK_AND_ASSIGN(
-        std::vector<Literal> ref_results,
-        ExecuteReplicated(std::move(ref_module), ref_fake_ptrs, kNumPartitions,
-                          &assn,
-                          /*run_hlo_passes=*/true, /*use_threads=*/true));
+        ExecutionResult ref_execution_result,
+        ExecuteReplicated(std::move(ref_module), ref_fake_ptrs));
+    const std::vector<Literal>& ref_results = ref_execution_result.results;
     ASSERT_EQ(ref_results.size(), kNumPartitions);
     ErrorSpec error_spec{1e-5, 1e-5};
     // Expect same results with and without pipelining of collectives.
@@ -2415,30 +1948,17 @@ ENTRY entry {
   config.set_num_partitions(kNumPartitions);
   TF_ASSERT_OK_AND_ASSIGN(
       auto module, ParseAndReturnVerifiedModule(kModuleReplicatedStr, config));
+  // Execute the test on 2 partitions.
+  TF_ASSERT_OK_AND_ASSIGN(ExecutionResult execution_result,
+                          ExecuteReplicated(std::move(module)));
 
-  TF_ASSERT_OK_AND_ASSIGN(
-      auto executable, hlo_runner_->CreateExecutable(std::move(module),
-                                                     /*run_hlo_passes=*/true));
-  TF_ASSERT_OK_AND_ASSIGN(const HloModule* const hlo_module,
-                          hlo_runner_->HloModuleFromWrapped(executable.get()));
+  const HloModule* hlo_module = execution_result.optimized_module;
   HloInstruction* all_to_all =
       FindInstruction(hlo_module, HloOpcode::kAllToAll);
   EXPECT_THAT(all_to_all, NotNull());
   EXPECT_EQ(all_to_all->shape().element_type(), BF16);
 
-  // Execute the test on 2 partitions.
-  TF_ASSERT_OK_AND_ASSIGN(
-      module, ParseAndReturnVerifiedModule(kModuleReplicatedStr, config));
-  DeviceAssignment assignment(/*replica_count=*/kNumReplicas,
-                              /*computation_count=*/kNumPartitions);
-  for (int64_t i = 0; i < kNumPartitions; ++i) {
-    assignment(0, i) = i;
-  }
-  TF_ASSERT_OK_AND_ASSIGN(
-      std::vector<Literal> results,
-      ExecuteReplicated(std::move(module), {}, kNumPartitions, &assignment,
-                        /*run_hlo_passes=*/true,
-                        /*use_threads=*/true));
+  const std::vector<Literal>& results = execution_result.results;
   ASSERT_EQ(results.size(), kNumPartitions);
   const bfloat16 four = static_cast<bfloat16>(4.);
   const bfloat16 eight = static_cast<bfloat16>(8.);
@@ -2465,37 +1985,22 @@ ENTRY entry {
       << "Test requires at least " << kNumReplicas * kNumPartitions
       << " devices (" << hlo_runner_->device_count() << " available)";
 
-  HloModuleConfig config =
-      GetModuleConfigForTest(/*replica_count=*/kNumReplicas);
-  config.set_num_partitions(kNumPartitions);
-
   // Verify that the element type of the all-to-all has been changed to BF16.
   TF_ASSERT_OK_AND_ASSIGN(
-      auto module, ParseAndReturnVerifiedModule(kModuleReplicatedStr, config));
+      auto module, ParseAndReturnVerifiedModule(kModuleReplicatedStr,
+                                                kNumReplicas, kNumPartitions));
 
-  TF_ASSERT_OK_AND_ASSIGN(
-      auto executable, hlo_runner_->CreateExecutable(std::move(module),
-                                                     /*run_hlo_passes=*/true));
-  TF_ASSERT_OK_AND_ASSIGN(const HloModule* const hlo_module,
-                          hlo_runner_->HloModuleFromWrapped(executable.get()));
+  TF_ASSERT_OK_AND_ASSIGN(ExecutionResult execution_result,
+                          ExecuteReplicated(std::move(module)));
+
+  const HloModule* hlo_module = execution_result.optimized_module;
   HloInstruction* all_to_all =
       FindInstruction(hlo_module, HloOpcode::kAllToAll);
   EXPECT_THAT(all_to_all, NotNull());
   EXPECT_EQ(all_to_all->shape().element_type(), BF16);
 
   // Execute the test on 2 partitions.
-  TF_ASSERT_OK_AND_ASSIGN(
-      module, ParseAndReturnVerifiedModule(kModuleReplicatedStr, config));
-  DeviceAssignment assignment(/*replica_count=*/kNumReplicas,
-                              /*computation_count=*/kNumPartitions);
-  for (int64_t i = 0; i < kNumPartitions; ++i) {
-    assignment(0, i) = i;
-  }
-  TF_ASSERT_OK_AND_ASSIGN(
-      std::vector<Literal> results,
-      ExecuteReplicated(std::move(module), {}, kNumPartitions, &assignment,
-                        /*run_hlo_passes=*/true,
-                        /*use_threads=*/true));
+  const std::vector<Literal>& results = execution_result.results;
   ASSERT_EQ(results.size(), kNumPartitions);
   LiteralTestUtil::ExpectR1Equal<float>({4., 4.}, results[0]);
   LiteralTestUtil::ExpectR1Equal<float>({8., 8.}, results[1]);
@@ -2671,16 +2176,9 @@ ENTRY main.49 {
     fake_ptrs[i] = &fake_arguments[i];
   }
 
-  DeviceAssignment assn(/*replica_count=*/kNumReplicas,
-                        /*computation_count=*/kNumPartitions);
-  for (int64_t i = 0; i < kNumPartitions; ++i) {
-    assn(0, i) = i;
-  }
-
-  TF_ASSERT_OK_AND_ASSIGN(
-      std::vector<Literal> results,
-      ExecuteReplicated(std::move(module), fake_ptrs, kNumPartitions, &assn,
-                        /*run_hlo_passes=*/true, /*use_threads=*/true));
+  TF_ASSERT_OK_AND_ASSIGN(ExecutionResult execution_result,
+                          ExecuteReplicated(std::move(module), fake_ptrs));
+  const std::vector<Literal>& results = execution_result.results;
   ASSERT_EQ(results.size(), kNumPartitions);
 
   HloModuleConfig ref_config =
@@ -2697,10 +2195,9 @@ ENTRY main.49 {
   }
 
   TF_ASSERT_OK_AND_ASSIGN(
-      std::vector<Literal> ref_results,
-      ExecuteReplicated(std::move(ref_module), ref_fake_ptrs, kNumPartitions,
-                        &assn,
-                        /*run_hlo_passes=*/true, /*use_threads=*/true));
+      ExecutionResult ref_execution_result,
+      ExecuteReplicated(std::move(ref_module), ref_fake_ptrs));
+  const std::vector<Literal>& ref_results = ref_execution_result.results;
   ASSERT_EQ(ref_results.size(), kNumPartitions);
   ErrorSpec error_spec{1e-5, 1e-5};
   // Expect same results with and without pipelining of collectives.
@@ -2770,23 +2267,15 @@ ENTRY main {
     ref_fake_ptrs[i] = &fake_ref_arguments[i];
   }
 
-  DeviceAssignment assn(/*replica_count=*/kNumReplicas,
-                        /*computation_count=*/kNumPartitions);
-  for (int64_t i = 0; i < kNumPartitions; ++i) {
-    assn(0, i) = i;
-  }
-
-  TF_ASSERT_OK_AND_ASSIGN(
-      std::vector<Literal> results,
-      ExecuteReplicated(std::move(module), fake_ptrs, kNumPartitions, &assn,
-                        /*run_hlo_passes=*/true, /*use_threads=*/true));
+  TF_ASSERT_OK_AND_ASSIGN(ExecutionResult execution_result,
+                          ExecuteReplicated(std::move(module), fake_ptrs));
+  const std::vector<Literal>& results = execution_result.results;
   ASSERT_EQ(results.size(), kNumPartitions);
 
   TF_ASSERT_OK_AND_ASSIGN(
-      std::vector<Literal> ref_results,
-      ExecuteReplicated(std::move(ref_module), ref_fake_ptrs, kNumPartitions,
-                        &assn,
-                        /*run_hlo_passes=*/true, /*use_threads=*/true));
+      ExecutionResult ref_execution_result,
+      ExecuteReplicated(std::move(ref_module), ref_fake_ptrs));
+  const std::vector<Literal>& ref_results = ref_execution_result.results;
   ASSERT_EQ(ref_results.size(), kNumPartitions);
   ErrorSpec error_spec{1e-5, 1e-5};
   // Expect same results with and without pipelining of collectives.
@@ -2996,11 +2485,8 @@ TEST_P(AllReduceTest, AsyncAllReduce_F32_2GPUs) {
       << "Test requires at least " << kNumReplicas << " devices ("
       << hlo_runner_->device_count() << " available)";
 
-  HloModuleConfig config =
-      GetModuleConfigForTest(/*replica_count=*/kNumReplicas);
-
-  TF_ASSERT_OK_AND_ASSIGN(auto module,
-                          ParseAndReturnVerifiedModule(kModuleStr, config));
+  TF_ASSERT_OK_AND_ASSIGN(
+      auto module, ParseAndReturnVerifiedModule(kModuleStr, kNumReplicas));
 
   int64_t num_elements =
       module->entry_computation()->root_instruction()->shape().dimensions()[0];
@@ -3019,12 +2505,11 @@ TEST_P(AllReduceTest, AsyncAllReduce_F32_2GPUs) {
       LiteralUtil::CreateFromArray(expected_output);
 
   TF_ASSERT_OK_AND_ASSIGN(
-      std::vector<Literal> results,
+      ExecutionResult execution_result,
       ExecuteReplicated(std::move(module),
-                        {{&input_literal1}, {&input_literal2}},
-                        /*device_assignment=*/nullptr,
-                        /*num_replicas=*/kNumReplicas,
-                        /*run_hlo_passes=*/true));
+                        std::vector<std::vector<Literal*>>{{&input_literal1},
+                                                           {&input_literal2}}));
+  const std::vector<Literal>& results = execution_result.results;
   ASSERT_EQ(results.size(), kNumReplicas);
   EXPECT_TRUE(LiteralTestUtil::Equal(expected_output_literal, results[0]));
   EXPECT_TRUE(LiteralTestUtil::Equal(expected_output_literal, results[1]));
@@ -3076,11 +2561,8 @@ TEST_P(AllReduceTest, AsyncAllReduceInsideWhile_F32_2GPUs) {
       << "Test requires at least " << kNumReplicas << " devices ("
       << hlo_runner_->device_count() << " available)";
 
-  HloModuleConfig config =
-      GetModuleConfigForTest(/*replica_count=*/kNumReplicas);
-
-  TF_ASSERT_OK_AND_ASSIGN(auto module,
-                          ParseAndReturnVerifiedModule(kModuleStr, config));
+  TF_ASSERT_OK_AND_ASSIGN(
+      auto module, ParseAndReturnVerifiedModule(kModuleStr, kNumReplicas));
 
   int64_t num_elements =
       module->entry_computation()->root_instruction()->shape().dimensions()[0];
@@ -3100,12 +2582,11 @@ TEST_P(AllReduceTest, AsyncAllReduceInsideWhile_F32_2GPUs) {
       LiteralUtil::CreateFromArray(expected_output);
 
   TF_ASSERT_OK_AND_ASSIGN(
-      std::vector<Literal> results,
+      ExecutionResult execution_result,
       ExecuteReplicated(std::move(module),
-                        {{&input_literal1}, {&input_literal2}},
-                        /*device_assignment=*/nullptr,
-                        /*num_replicas=*/kNumReplicas,
-                        /*run_hlo_passes=*/true));
+                        std::vector<std::vector<Literal*>>{{&input_literal1},
+                                                           {&input_literal2}}));
+  const std::vector<Literal>& results = execution_result.results;
   ASSERT_EQ(results.size(), kNumReplicas);
   EXPECT_TRUE(LiteralTestUtil::Equal(expected_output_literal, results[0]));
   EXPECT_TRUE(LiteralTestUtil::Equal(expected_output_literal, results[1]));
@@ -3132,11 +2613,8 @@ TEST_P(AllReduceTest, AsyncAllReduce_BF16_2GPUs) {
       << "Test requires at least " << kNumReplicas << " devices ("
       << hlo_runner_->device_count() << " available)";
 
-  HloModuleConfig config =
-      GetModuleConfigForTest(/*replica_count=*/kNumReplicas);
-
-  TF_ASSERT_OK_AND_ASSIGN(auto module,
-                          ParseAndReturnVerifiedModule(kModuleStr, config));
+  TF_ASSERT_OK_AND_ASSIGN(
+      auto module, ParseAndReturnVerifiedModule(kModuleStr, kNumReplicas));
 
   int64_t num_elements =
       module->entry_computation()->root_instruction()->shape().dimensions()[0];
@@ -3155,12 +2633,11 @@ TEST_P(AllReduceTest, AsyncAllReduce_BF16_2GPUs) {
       LiteralUtil::CreateFromArray(expected_output);
 
   TF_ASSERT_OK_AND_ASSIGN(
-      std::vector<Literal> results,
+      ExecutionResult execution_result,
       ExecuteReplicated(std::move(module),
-                        {{&input_literal1}, {&input_literal2}},
-                        /*device_assignment=*/nullptr,
-                        /*num_replicas=*/kNumReplicas,
-                        /*run_hlo_passes=*/true));
+                        std::vector<std::vector<Literal*>>{{&input_literal1},
+                                                           {&input_literal2}}));
+  const std::vector<Literal>& results = execution_result.results;
   ASSERT_EQ(results.size(), kNumReplicas);
   EXPECT_TRUE(LiteralTestUtil::Equal(expected_output_literal, results[0]));
   EXPECT_TRUE(LiteralTestUtil::Equal(expected_output_literal, results[1]));
@@ -3187,11 +2664,8 @@ TEST_P(AllReduceTest, AsyncAllReduce_PRED_2GPUs) {
       << "Test requires at least " << kNumReplicas << " devices ("
       << hlo_runner_->device_count() << " available)";
 
-  HloModuleConfig config =
-      GetModuleConfigForTest(/*replica_count=*/kNumReplicas);
-
-  TF_ASSERT_OK_AND_ASSIGN(auto module,
-                          ParseAndReturnVerifiedModule(kModuleStr, config));
+  TF_ASSERT_OK_AND_ASSIGN(
+      auto module, ParseAndReturnVerifiedModule(kModuleStr, kNumReplicas));
 
   int64_t num_elements =
       module->entry_computation()->root_instruction()->shape().dimensions()[0];
@@ -3210,12 +2684,11 @@ TEST_P(AllReduceTest, AsyncAllReduce_PRED_2GPUs) {
       LiteralUtil::CreateFromArray(expected_output);
 
   TF_ASSERT_OK_AND_ASSIGN(
-      std::vector<Literal> results,
+      ExecutionResult execution_result,
       ExecuteReplicated(std::move(module),
-                        {{&input_literal1}, {&input_literal2}},
-                        /*device_assignment=*/nullptr,
-                        /*num_replicas=*/kNumReplicas,
-                        /*run_hlo_passes=*/true));
+                        std::vector<std::vector<Literal*>>{{&input_literal1},
+                                                           {&input_literal2}}));
+  const std::vector<Literal>& results = execution_result.results;
   ASSERT_EQ(results.size(), kNumReplicas);
   EXPECT_TRUE(LiteralTestUtil::Equal(expected_output_literal, results[0]));
   EXPECT_TRUE(LiteralTestUtil::Equal(expected_output_literal, results[1]));
@@ -3244,22 +2717,17 @@ TEST_P(AllReduceTest, AsyncAllReduce_8GPUs_AllReplicasOneGroup) {
                  << hlo_runner_->device_count() << " available)";
   }
 
-  HloModuleConfig config =
-      GetModuleConfigForTest(/*replica_count=*/kNumReplicas);
-
-  TF_ASSERT_OK_AND_ASSIGN(auto module,
-                          ParseAndReturnVerifiedModule(kModuleStr, config));
+  TF_ASSERT_OK_AND_ASSIGN(
+      auto module, ParseAndReturnVerifiedModule(kModuleStr, kNumReplicas));
   TF_ASSERT_OK_AND_ASSIGN(
       InputsOutputs test_io,
       BuildTestInputsOutputs(*module, kNumReplicas, /*num_iterations=*/1));
 
   TF_ASSERT_OK_AND_ASSIGN(
-      std::vector<Literal> results,
+      ExecutionResult execution_result,
       ExecuteReplicated(std::move(module),
-                        /*arguments=*/test_io.InputLiteralPtrs(),
-                        /*device_assignment=*/nullptr,
-                        /*num_replicas=*/kNumReplicas,
-                        /*run_hlo_passes=*/true));
+                        /*arguments=*/test_io.InputLiteralPtrs()))
+  const std::vector<Literal>& results = execution_result.results;
   ASSERT_EQ(results.size(), kNumReplicas);
   for (int i = 0; i < kNumReplicas; ++i) {
     // NB: nccl accumulation order can be different from expected calculations
@@ -3316,23 +2784,18 @@ TEST_P(AllReduceTest, AsyncAllReduce_8GPUs_2ReplicasPerGroup) {
                  << hlo_runner_->device_count() << " available)";
   }
 
-  HloModuleConfig config =
-      GetModuleConfigForTest(/*replica_count=*/kNumReplicas);
-
-  TF_ASSERT_OK_AND_ASSIGN(auto module,
-                          ParseAndReturnVerifiedModule(kModuleStr, config));
+  TF_ASSERT_OK_AND_ASSIGN(
+      auto module, ParseAndReturnVerifiedModule(kModuleStr, kNumReplicas));
 
   TF_ASSERT_OK_AND_ASSIGN(
       InputsOutputs test_io,
       BuildTestInputsOutputs(*module, kNumReplicas, kNumIterations));
 
   TF_ASSERT_OK_AND_ASSIGN(
-      std::vector<Literal> results,
+      ExecutionResult execution_result,
       ExecuteReplicated(std::move(module),
-                        /*arguments=*/test_io.InputLiteralPtrs(),
-                        /*device_assignment=*/nullptr,
-                        /*num_replicas=*/kNumReplicas,
-                        /*run_hlo_passes=*/true));
+                        /*arguments=*/test_io.InputLiteralPtrs()));
+  const std::vector<Literal>& results = execution_result.results;
   ASSERT_EQ(results.size(), kNumReplicas);
   for (int i = 0; i < kNumReplicas; ++i) {
     ASSERT_TRUE(LiteralTestUtil::Equal(test_io.expected_outputs[i], results[i]))
@@ -3465,29 +2928,17 @@ TEST_F(CollectiveMetadataTest, ConstructCollectiveMetadata) {
       std::unique_ptr<OpaqueExecutable> executable,
       hlo_runner_->CreateExecutable(std::move(unoptimized_module),
                                     /*run_hlo_passes=*/false));
-  const std::array<Literal, 2> arguments = {
-      LiteralUtil::CreateR1<float>({1.0f, 2.0f, 3.0f, 4.0f}),
-      LiteralUtil::CreateR1<float>({1.0f, 2.0f, 3.0f, 4.0f})};
-  DeviceAssignment device_assignment = MakeDeviceAssignment(kNumReplicas);
+  Literal input_0 = LiteralUtil::CreateR1<float>({1.0f, 2.0f, 3.0f, 4.0f});
+  Literal input_1 = LiteralUtil::CreateR1<float>({1.0f, 2.0f, 3.0f, 4.0f});
   TF_ASSERT_OK_AND_ASSIGN(
-      std::vector<Literal> result,
-      ExecuteReplicated(
-          /*executable_provider*/ [&](int64_t) { return executable.get(); },
-          /*argument_count_provider*/ [&](int64_t) { return arguments.size(); },
-          /*argument_provider*/
-          [&](int64_t replica_id, int64_t arg_index) {
-            return &arguments[arg_index];
-          },
-          kNumReplicas,
-          /*run_hlo_passes=*/false, &device_assignment));
-
+      ExecutionResult execution_result,
+      ExecuteReplicated(std::move(unoptimized_module),
+                        /*arguments=*/{&input_0, &input_1}));
+  const std::vector<Literal>& result = execution_result.results;
   ASSERT_EQ(result.size(), kNumReplicas);
-  Literal first_result = std::move(result[0]);
-  Literal second_result = std::move(result[1]);
 
-  absl::Span<const uint64_t> first_result_data = first_result.data<uint64_t>();
-  absl::Span<const uint64_t> second_result_data =
-      second_result.data<uint64_t>();
+  absl::Span<const uint64_t> first_result_data = result[0].data<uint64_t>();
+  absl::Span<const uint64_t> second_result_data = result[1].data<uint64_t>();
   constexpr int kNumElements = 9;
   ASSERT_EQ(first_result_data.size(), kNumElements);
   ASSERT_EQ(second_result_data.size(), kNumElements);
@@ -3512,13 +2963,7 @@ TEST_F(CollectiveMetadataTest, ConstructCollectiveMetadata) {
 }
 
 TEST_F(CollectiveMetadataTest, ConstructCollectiveMetadataWithReplicaGroup) {
-  constexpr int kNumReplicas = 4;
-  if (hlo_runner_->device_count() < kNumReplicas) {
-    GTEST_SKIP() << "Test requires at least " << kNumReplicas << " devices ("
-                 << hlo_runner_->device_count() << " available)";
-  }
-  TF_ASSERT_OK_AND_ASSIGN(std::unique_ptr<VerifiedHloModule> unoptimized_module,
-                          ParseAndReturnVerifiedModule(R"(
+  const absl::string_view kModuleStr = R"(
   HloModule test, replica_count=4
 
   ENTRY test_computation {
@@ -3528,42 +2973,33 @@ TEST_F(CollectiveMetadataTest, ConstructCollectiveMetadataWithReplicaGroup) {
 
     result_tuple = (f32[4], f32[4]{0:S(1)}, u64[7]) custom-call(param_0, copy_1), custom_call_target="CollectiveMetadata", output_to_operand_aliasing={{0}: (0, {}), {1}: (1, {})}, backend_config="{\"collective_metadata_backend_config\":{\"collective_devices\": { \"replica_groups\": [{\"replica_ids\": [0,1]}, {\"replica_ids\": [2,3]}]}}}"
     ROOT get_tuple_element = u64[7] get-tuple-element(result_tuple), index=2
-  })"));
+  })";
+
+  constexpr int kNumReplicas = 4;
+  if (hlo_runner_->device_count() < kNumReplicas) {
+    GTEST_SKIP() << "Test requires at least " << kNumReplicas << " devices ("
+                 << hlo_runner_->device_count() << " available)";
+  }
 
   TF_ASSERT_OK_AND_ASSIGN(
-      std::unique_ptr<OpaqueExecutable> executable,
-      hlo_runner_->CreateExecutable(std::move(unoptimized_module),
-                                    /*run_hlo_passes=*/false));
-  const std::array<Literal, 2> arguments = {
-      LiteralUtil::CreateR1<float>({1.0f, 2.0f, 3.0f, 4.0f}),
-      LiteralUtil::CreateR1<float>({1.0f, 2.0f, 3.0f, 4.0f})};
-  DeviceAssignment device_assignment = MakeDeviceAssignment(kNumReplicas);
-  TF_ASSERT_OK_AND_ASSIGN(
-      std::vector<Literal> result,
-      ExecuteReplicated(
-          /*executable_provider*/ [&](int64_t) { return executable.get(); },
-          /*argument_count_provider*/ [&](int64_t) { return arguments.size(); },
-          /*argument_provider*/
-          [&](int64_t replica_id, int64_t arg_index) {
-            return &arguments[arg_index];
-          },
-          kNumReplicas,
-          /*run_hlo_passes=*/false, &device_assignment));
+      auto module, ParseAndReturnVerifiedModule(kModuleStr, kNumReplicas));
 
+  Literal input_0 = LiteralUtil::CreateR1<float>({1.0f, 2.0f, 3.0f, 4.0f});
+  Literal input_1 = LiteralUtil::CreateR1<float>({1.0f, 2.0f, 3.0f, 4.0f});
+
+  TF_ASSERT_OK_AND_ASSIGN(
+      ExecutionResult execution_result,
+      ExecuteReplicated(std::move(module), /*arguments=*/{&input_0, &input_1}));
+  const std::vector<Literal>& result = execution_result.results;
   ASSERT_EQ(result.size(), kNumReplicas);
-  Literal replica_0_result_0 = std::move(result[0]);
-  Literal replica_0_result_1 = std::move(result[1]);
-  Literal replica_1_result_0 = std::move(result[2]);
-  Literal replica_1_result_1 = std::move(result[3]);
-
   absl::Span<const uint64_t> replica_0_result_0_data =
-      replica_0_result_0.data<uint64_t>();
+      result[0].data<uint64_t>();
   absl::Span<const uint64_t> replica_0_result_1_data =
-      replica_0_result_1.data<uint64_t>();
+      result[1].data<uint64_t>();
   absl::Span<const uint64_t> replica_1_result_0_data =
-      replica_1_result_0.data<uint64_t>();
+      result[2].data<uint64_t>();
   absl::Span<const uint64_t> replica_1_result_1_data =
-      replica_1_result_1.data<uint64_t>();
+      result[3].data<uint64_t>();
 
   // Check the rank in the first position.
   constexpr int kNumElements = 7;

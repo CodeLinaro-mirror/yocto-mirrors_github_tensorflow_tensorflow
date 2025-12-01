@@ -303,6 +303,7 @@ def nvidia_gpu_build_with_compute_capability(
       options={
           "run_under": "//build_tools/ci:parallel_gpu_execute",
           "//xla/tsl:ci_build": True,
+          "@cuda_driver//:include_cuda_umd_libs": True,
           **_DEFAULT_BAZEL_OPTIONS,
       },
       repo_env={"TF_CUDA_COMPUTE_CAPABILITIES": f"{compute_capability/10}"},
@@ -528,6 +529,7 @@ Build(
     options={
         "run_under": "//build_tools/ci:parallel_gpu_execute",
         "//xla/tsl:ci_build": True,
+        "@cuda_driver//:include_cuda_umd_libs": True,
         **_DEFAULT_BAZEL_OPTIONS,
     },
     repo_env={
@@ -593,6 +595,7 @@ Build(
     options={
         "run_under": "//build_tools/ci:parallel_gpu_execute",
         "//xla/tsl:ci_build": True,
+        "@cuda_driver//:include_cuda_umd_libs": True,
         **_DEFAULT_BAZEL_OPTIONS,
     },
     repo_env={
@@ -956,7 +959,8 @@ Build(
         profile="profile.json.gz",
         test_lang_filters="cc,py",
         color="yes",
-    ),
+    )
+    | {"@cuda_driver//:include_cuda_umd_libs": True},
     repo_env={"USE_PYWRAP_RULES": "True"},
     extra_setup_commands=(
         # This is pretty devious - but we have to do some adhoc extra Copybara

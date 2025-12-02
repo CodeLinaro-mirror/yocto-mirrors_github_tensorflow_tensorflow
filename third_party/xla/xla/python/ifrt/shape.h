@@ -55,9 +55,18 @@ class Shape {
   // Constructs `Shape` from `ShapeProto`.
   static absl::StatusOr<Shape> FromProto(const ShapeProto& proto);
 
+  // Serializes the shape to `proto`.
+  void ToProto(
+      ShapeProto& proto,
+      SerDesVersion version = SerDesDefaultVersionAccessor::Get()) const;
+
   // Returns a `ShapeProto` representation.
   ShapeProto ToProto(
-      SerDesVersion version = SerDesDefaultVersionAccessor::Get()) const;
+      SerDesVersion version = SerDesDefaultVersionAccessor::Get()) const {
+    ShapeProto proto;
+    ToProto(proto, version);
+    return proto;
+  }
 
   absl::Span<const int64_t> dims() const { return dims_; }
 
@@ -129,9 +138,18 @@ class BoundedDynamicShapeTag {
   static absl::StatusOr<BoundedDynamicShapeTag> FromProto(
       const BoundedDynamicShapeTagProto& proto);
 
+  // Serializes the tag to `proto`.
+  void ToProto(
+      BoundedDynamicShapeTagProto& proto,
+      SerDesVersion version = SerDesDefaultVersionAccessor::Get()) const;
+
   // Returns a `BoundedDynamicShapeTagProto` representation.
   BoundedDynamicShapeTagProto ToProto(
-      SerDesVersion version = SerDesDefaultVersionAccessor::Get()) const;
+      SerDesVersion version = SerDesDefaultVersionAccessor::Get()) const {
+    BoundedDynamicShapeTagProto proto;
+    ToProto(proto, version);
+    return proto;
+  }
 
  private:
   // This vector is the same size as `Shape`'s 'dims()' and indicates whether
@@ -181,9 +199,18 @@ class DynamicShape {
   // Constructs `DynamicShape` from `DynamicShapeProto`.
   static absl::StatusOr<DynamicShape> FromProto(const DynamicShapeProto& proto);
 
+  // Serializes the shape to `proto`.
+  void ToProto(
+      DynamicShapeProto& proto,
+      SerDesVersion version = SerDesDefaultVersionAccessor::Get()) const;
+
   // Returns a `DynamicShapeProto` representation.
   DynamicShapeProto ToProto(
-      SerDesVersion version = SerDesDefaultVersionAccessor::Get()) const;
+      SerDesVersion version = SerDesDefaultVersionAccessor::Get()) const {
+    DynamicShapeProto proto;
+    ToProto(proto, version);
+    return proto;
+  }
 
   std::string DebugString() const;
 

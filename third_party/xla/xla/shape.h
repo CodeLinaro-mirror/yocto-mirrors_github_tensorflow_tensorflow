@@ -101,8 +101,15 @@ class Shape {
   // opposed to crashing) if the proto has logically invalid fields.
   static absl::StatusOr<Shape> FromProto(const ShapeProto& shape_proto);
 
+  // Serializes the Shape to a ShapeProto.
+  void ToProto(ShapeProto& proto) const;
+
   // Returns a ShapeProto representation of the Shape.
-  ShapeProto ToProto() const;
+  ShapeProto ToProto() const {
+    ShapeProto proto;
+    ToProto(proto);
+    return proto;
+  }
 
   // Prints a human-readable string that represents the given shape, with or
   // without layout. e.g. "F32[42,12] {0, 1}" or "F32[64]".

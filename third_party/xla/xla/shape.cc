@@ -137,8 +137,8 @@ absl::StatusOr<Shape> Shape::FromProto(const ShapeProto& shape_proto) {
   return shape;
 }
 
-ShapeProto Shape::ToProto() const {
-  ShapeProto proto;
+void Shape::ToProto(ShapeProto& proto) const {
+  proto.Clear();
   proto.set_element_type(element_type_);
 
   if (const auto* const state = if_array_state()) {
@@ -150,17 +150,16 @@ ShapeProto Shape::ToProto() const {
       proto.add_is_dynamic_dimension(dynamic);
     }
     if (state->layout.has_value()) {
-      *proto.mutable_layout() = state->layout->ToProto();
+      state->layout->ToProto(*proto.mutable_layout());
     }
   } else if (const auto* const state = if_tuple_state()) {
     proto.mutable_tuple_shapes()->Reserve(state->tuple_shapes.size());
     for (const Shape& shape : state->tuple_shapes) {
-      *proto.add_tuple_shapes() = shape.ToProto();
+      shape.ToProto(*proto.add_tuple_shapes());
     }
   } else if (const auto* const state = if_buffer_state()) {
-    *proto.add_tuple_shapes() = state->buffer_shape->ToProto();
+    state->buffer_shape->ToProto(*proto.add_tuple_shapes());
   }
-  return proto;
 }
 
 Shape::BufferState::BufferState() : buffer_shape(std::make_unique<Shape>()) {}

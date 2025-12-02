@@ -36,12 +36,11 @@ limitations under the License.
 
 namespace xla {
 
-TileProto Tile::ToProto() const {
-  TileProto tile_proto;
+void Tile::ToProto(TileProto& tile_proto) const {
+  tile_proto.Clear();
   for (int64_t i : dimensions()) {
     tile_proto.add_dimensions(i);
   }
-  return tile_proto;
 }
 
 void Tile::Print(Printer* printer) const {
@@ -71,13 +70,12 @@ Layout::Layout()
     : index_primitive_type_(PRIMITIVE_TYPE_INVALID),
       pointer_primitive_type_(PRIMITIVE_TYPE_INVALID) {}
 
-SplitConfigProto SplitConfig::ToProto() const {
-  SplitConfigProto split_config_proto;
+void SplitConfig::ToProto(SplitConfigProto& split_config_proto) const {
+  split_config_proto.Clear();
   split_config_proto.set_dimension(dimension_);
   for (int64_t i : split_indices_) {
     split_config_proto.add_split_indices(i);
   }
-  return split_config_proto;
 }
 
 std::string SplitConfig::ToString() const {
@@ -192,8 +190,7 @@ Layout& Layout::operator=(Layout&& other) = default;
   return layout;
 }
 
-LayoutProto Layout::ToProto() const {
-  LayoutProto proto;
+void Layout::ToProto(LayoutProto& proto) const {
   proto.Clear();
   proto.mutable_minor_to_major()->Reserve(minor_to_major().size());
   for (const int64_t dimension : minor_to_major()) {
@@ -216,7 +213,6 @@ LayoutProto Layout::ToProto() const {
   }
   proto.set_dynamic_shape_metadata_prefix_bytes(
       dynamic_shape_metadata_prefix_bytes_);
-  return proto;
 }
 
 // Converts a DimLevelType to a single-character abbreviation:

@@ -57,7 +57,12 @@ class Tile {
     }
     return tile;
   }
-  TileProto ToProto() const;
+  void ToProto(TileProto& tile_proto) const;
+  TileProto ToProto() const {
+    TileProto proto;
+    ToProto(proto);
+    return proto;
+  }
 
   bool operator==(const Tile& other) const {
     return dimensions() == other.dimensions();
@@ -125,7 +130,12 @@ class SplitConfig {
     return SplitConfig(split_config_proto.dimension(),
                        split_config_proto.split_indices());
   }
-  SplitConfigProto ToProto() const;
+  void ToProto(SplitConfigProto& split_config_proto) const;
+  SplitConfigProto ToProto() const {
+    SplitConfigProto proto;
+    ToProto(proto);
+    return proto;
+  }
 
   bool operator==(const SplitConfig& other) const {
     return dimension() == other.dimension() &&
@@ -202,8 +212,15 @@ class Layout {
     return FromProto(proto).value();
   }
 
+  // Serializes the Layout to a LayoutProto.
+  void ToProto(LayoutProto& proto) const;
+
   // Returns a LayoutProto representation of the Layout.
-  LayoutProto ToProto() const;
+  LayoutProto ToProto() const {
+    LayoutProto proto;
+    ToProto(proto);
+    return proto;
+  }
 
   // Prints this layout as human-readable string, in the format
   // "{minor_to_major:properties}", where the fields are:

@@ -478,9 +478,7 @@ class ReverseV2Test(test_util.TensorFlowTestCase):
               outer_size=outer_size,
               middle_size=middle_size,
               use_gpu=True):
-            x_np = np.reshape(
-                np.arange(outer_size * middle_size * 3, dtype=np.float32),
-                newshape=(outer_size, middle_size, 3))
+            x_np = np.reshape(np.arange(outer_size * middle_size * 3, dtype=np.float32), (outer_size, middle_size, 3))
             x_tf = self.evaluate(reverse_f(x_np, [1]))
             np_answer = x_np[:, ::-1, :]
             self.assertAllEqual(x_tf, np_answer)
@@ -494,9 +492,7 @@ class ReverseV2Test(test_util.TensorFlowTestCase):
               outer_size=outer_size,
               middle_size=middle_size,
               use_gpu=True):
-            x_np = np.reshape(
-                np.arange(outer_size * middle_size * 4, dtype=np.float32),
-                newshape=(outer_size, middle_size, 4))
+            x_np = np.reshape(np.arange(outer_size * middle_size * 4, dtype=np.float32), (outer_size, middle_size, 4))
             x_tf = self.evaluate(reverse_f(x_np, [1]))
             np_answer = x_np[:, ::-1, :]
             self.assertAllEqual(x_tf, np_answer)
@@ -510,9 +506,7 @@ class ReverseV2Test(test_util.TensorFlowTestCase):
               outer_size=outer_size,
               middle_size=middle_size,
               use_gpu=True):
-            x_np = np.reshape(
-                np.arange(outer_size * middle_size * 3, dtype=np.float32),
-                newshape=(outer_size, middle_size, 3))
+            x_np = np.reshape(np.arange(outer_size * middle_size * 3, dtype=np.float32), (outer_size, middle_size, 3))
             x_tf = self.evaluate(reverse_f(x_np, [0]))
             np_answer = x_np[::-1, :, :]
             self.assertAllEqual(x_tf, np_answer)

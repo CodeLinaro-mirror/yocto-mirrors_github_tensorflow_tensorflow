@@ -1529,7 +1529,7 @@ cc_library(
         ":hlo_execution_profile",
         ":hlo_module_config",
         ":hlo_proto_cc",
-        ":maybe_owning_device_memory",
+        ":maybe_owning_device_address",
         ":shaped_buffer",
         ":stream_pool",
         "//xla:executable_run_options",
@@ -1667,7 +1667,7 @@ cc_library(
     hdrs = ["transfer_manager.h"],
     deps = [
         ":compiler",
-        ":maybe_owning_device_memory",
+        ":maybe_owning_device_address",
         ":shaped_buffer",
         "//xla:literal",
         "//xla:shape_tree",
@@ -4081,25 +4081,36 @@ xla_cc_test(
 )
 
 cc_library(
-    name = "maybe_owning_device_memory",
-    srcs = ["maybe_owning_device_memory.cc"],
-    hdrs = ["maybe_owning_device_memory.h"],
+    name = "maybe_owning_device_address",
+    srcs = ["maybe_owning_device_address.cc"],
+    hdrs = ["maybe_owning_device_address.h"],
     deps = [
+        "//xla:types",
         "//xla/stream_executor:device_address",
         "//xla/stream_executor:device_address_allocator",
-        "//xla/stream_executor:device_memory",
-        "//xla/stream_executor:device_memory_allocator",
+        "@com_google_absl//absl/base:core_headers",
     ],
 )
 
 xla_cc_test(
-    name = "maybe_owning_device_memory_test",
-    srcs = ["maybe_owning_device_memory_test.cc"],
+    name = "maybe_owning_device_address_test",
+    srcs = ["maybe_owning_device_address_test.cc"],
     deps = [
-        ":maybe_owning_device_memory",
+        ":maybe_owning_device_address",
         "//xla/tsl/platform:test",
         "//xla/tsl/platform:test_benchmark",
         "//xla/tsl/platform:test_main",
+    ],
+)
+
+cc_library(
+    name = "maybe_owning_device_memory",
+    hdrs = ["maybe_owning_device_memory.h"],
+    deps = [
+        ":maybe_owning_device_address",
+        "//xla/stream_executor:device_memory",
+        "//xla/stream_executor:device_memory_allocator",
+        "@com_google_absl//absl/base:core_headers",
     ],
 )
 
@@ -4450,7 +4461,7 @@ cc_library(
         ":executable",
         ":hlo_module_util",
         ":hlo_runner_interface",
-        ":maybe_owning_device_memory",
+        ":maybe_owning_device_address",
         ":shaped_buffer",
         ":transfer_manager",
         "//xla:executable_run_options",

@@ -193,7 +193,7 @@ absl::Status UpdateDynamicInputs(
           TF_RET_CHECK(
               DynamicShapeIsCompatible(runtime_shape, compile_time_shape));
 
-          xla::MaybeOwningDeviceMemory* mutable_input_mem =
+          xla::MaybeOwningDeviceAddress* mutable_input_mem =
               runtime_input.MutableBuffer(index);
           auto padded_data = std::make_shared<std::vector<int8_t>>(
               ShapeSizeCompact(compile_time_shape), -1);
@@ -249,7 +249,7 @@ absl::Status UpdateDynamicInputs(
           // Modify the memory location in the input shape tree to point to the
           // new input.
           *mutable_input_mem =
-              xla::MaybeOwningDeviceMemory(std::move(new_input));
+              xla::MaybeOwningDeviceAddress(std::move(new_input));
           element_modified = true;
           return absl::OkStatus();
         }));
@@ -499,7 +499,7 @@ absl::StatusOr<xla::ExecutionOutput> TPUExecute(
   VLOG(1) << "TPUExecute: Adding " << device_memory_addrs_count
           << " TPUEmbedding memory addresses to HLO parameters.";
   for (int i = 0; i < device_memory_addrs_count; ++i) {
-    xla::ShapeTree<xla::MaybeOwningDeviceMemory> tree(
+    xla::ShapeTree<xla::MaybeOwningDeviceAddress> tree(
         xla::ShapeUtil::MakeOpaqueShape());
     const SE_DeviceMemoryBase& addr = device_memory_addrs[i];
     VLOG(2) << absl::StrFormat("Device memory addr[%i] = {%p, %llu, %llu}", i,

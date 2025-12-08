@@ -99,7 +99,7 @@ absl::Status GetComputationCacheEntry(
 }
 
 // Builds an InputBuffers object that describes the inputs to the computation.
-absl::StatusOr<xla::ShapeTree<xla::MaybeOwningDeviceMemory>> BuildInputBuffers(
+absl::StatusOr<xla::ShapeTree<xla::MaybeOwningDeviceAddress>> BuildInputBuffers(
     OpKernelContext* context, const std::vector<VariableInfo>& variables,
     const xla::Shape& input_host_shape, xla::Backend* backend,
     int device_ordinal, se::Stream* stream) {
@@ -153,7 +153,7 @@ absl::StatusOr<xla::ShapeTree<xla::MaybeOwningDeviceMemory>> BuildInputBuffers(
   se::DeviceMemoryAllocator* const allocator = backend->memory_allocator();
   xla::TransferManager* const transfer_manager = backend->transfer_manager();
 
-  xla::ShapeTree<xla::MaybeOwningDeviceMemory> input_buffers(
+  xla::ShapeTree<xla::MaybeOwningDeviceAddress> input_buffers(
       transfer_manager->HostShapeToDeviceShape(input_host_shape));
 
   // Allocates a buffer for the root tuple.

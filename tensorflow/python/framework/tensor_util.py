@@ -1281,6 +1281,12 @@ def is_tf_type(x):  # pylint: disable=invalid-name
   Returns:
     `True` if `x` is a TensorFlow-native type.
   """
+  # Break the dependency cycle between wrapt and tensor_util.
+  # ObjectProxy is a special type of object that is used by wrapt to wrap
+  # objects. It is not a Tensor.
+  if (type(x).__name__ == "ObjectProxy" and
+      type(x).__module__ in ("wrapt.wrappers", "wrapt._wrappers")):
+    return False
   return isinstance(x, tf_type_classes)
 
 

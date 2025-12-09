@@ -26,6 +26,7 @@ limitations under the License.
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallVector.h"
+#include "llvm/ADT/StringMap.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/BuiltinTypeInterfaces.h"
@@ -258,6 +259,113 @@ int64_t convertReduceScatter(sdy::ReduceScatterOp op, int64_t nextChannelId,
   return nextChannelId;
 }
 
+void convertShardedToUnreduced(sdy::ShardedToUnreducedOp op,
+                               mlir::IRRewriter& rewriter) {
+  MeshAttr mesh = op.getOutSharding().getMesh(op);
+  rewriter.setInsertionPoint(op);
+
+  ManualComputationOp manualComputation = createFullyManualComputation(
+      op.getLoc(), op.getTensor(), op.getOutSharding(), mesh, rewriter,
+      [&](mlir::BlockArgument arg, OpBuilder& blockBuilder) {
+        TensorShardingAttr inSharding = sdy::getSharding(op.getTensor());
+        TensorShardingAttr outSharding = op.getOutSharding();
+        Value input = arg;
+        mlir::Location loc = op.getLoc();
+
+        auto outputType =
+            mlir::cast<RankedTensorType>(outSharding.getLocalTensorType(
+                mlir::cast<RankedTensorType>(op.getResult().getType()), mesh));
+        Value zero = stablehlo::ConstantOp::create(
+            blockBuilder, loc,
+            blockBuilder.getZeroAttr(outputType.getElementType()));
+        Value broadcast = stablehlo::BroadcastOp::create(
+            blockBuilder, loc, outputType, zero, outputType.getShape());
+
+        Value partitionId = stablehlo::PartitionIdOp::create(blockBuilder, loc);
+        partitionId = stablehlo::ConvertOp::create(
+            blockBuilder, loc,
+            RankedTensorType::get({}, blockBuilder.getIntegerType(32)),
+            partitionId);
+
+        Value logicalId = partitionId;
+        // Calculate logical device ID (index in mesh).
+        CHECK(mesh.getDeviceIds().empty());
+
+        // Decompose logicalId into axis coordinates.
+        llvm::StringMap<Value> axisCoordinates;
+        Value currentRem = logicalId;
+        // Iterate axes reversed.
+        for (const auto& axis : llvm::reverse(mesh.getAxes())) {
+          Value axisSize = stablehlo::ConstantOp::create(
+              blockBuilder, loc,
+              blockBuilder.getIntegerAttr(blockBuilder.getIntegerType(32),
+                                          axis.getSize()));
+
+          Value coord =
+              stablehlo::RemOp::create(blockBuilder, loc, currentRem, axisSize);
+          axisCoordinates[axis.getName()] = coord;
+          currentRem =
+              stablehlo::DivOp::create(blockBuilder, loc, currentRem, axisSize);
+        }
+
+        SmallVector<Value> offsets;
+        offsets.reserve(outputType.getRank());
+
+        for (int64_t dim = 0; dim < outputType.getRank(); ++dim) {
+          Value offset = stablehlo::ConstantOp::create(
+              blockBuilder, loc,
+              blockBuilder.getIntegerAttr(blockBuilder.getIntegerType(32), 0));
+
+          Value currentStride = stablehlo::GetDimensionSizeOp::create(
+              blockBuilder, loc, input, dim);
+
+          // Input axes.
+          SmallVector<StringRef> inAxes;
+          if (auto dimSharding = inSharding.getDimSharding(dim)) {
+            for (const auto& axis : dimSharding.getAxes()) {
+              inAxes.push_back(axis.getName());
+            }
+          }
+
+          SmallVector<StringRef> outAxes;
+          if (auto dimSharding = outSharding.getDimSharding(dim)) {
+            for (const auto& axis : dimSharding.getAxes()) {
+              outAxes.push_back(axis.getName());
+            }
+          }
+
+          // Iterate reversed input axes.
+          for (auto axisName : llvm::reverse(inAxes)) {
+            bool kept = llvm::is_contained(outAxes, axisName);
+
+            if (!kept) {
+              Value coord = axisCoordinates[axisName];
+              Value term = stablehlo::MulOp::create(blockBuilder, loc, coord,
+                                                    currentStride);
+              offset =
+                  stablehlo::AddOp::create(blockBuilder, loc, offset, term);
+
+              // Update stride.
+              int64_t size = 1;
+              for (auto axis : mesh.getAxes())
+                if (axis.getName() == axisName) size = axis.getSize();
+              Value axisSizeVal = stablehlo::ConstantOp::create(
+                  blockBuilder, loc,
+                  blockBuilder.getIntegerAttr(blockBuilder.getIntegerType(32),
+                                              size));
+              currentStride = stablehlo::MulOp::create(
+                  blockBuilder, loc, currentStride, axisSizeVal);
+            }
+          }
+          offsets.push_back(offset);
+        }
+
+        return stablehlo::DynamicUpdateSliceOp::create(
+            blockBuilder, loc, outputType, broadcast, input, offsets);
+      });
+  rewriter.replaceOp(op, manualComputation);
+}
+
 void syncInOutUnreducedAxes(mlir::Operation* op) {
   Value input = op->getOperand(0);
   TensorShardingAttr outSharding = sdy::getSharding(op->getResult(0));
@@ -322,6 +430,9 @@ class StablehloExportManualReductionCollectivesPass
           nextChannelId =
               convertReduceScatter(reduceScatter, nextChannelId, rewriter);
         }
+      } else if (auto shardedToUnreduced =
+                     mlir::dyn_cast<sdy::ShardedToUnreducedOp>(op)) {
+        convertShardedToUnreduced(shardedToUnreduced, rewriter);
       }
     });
   }

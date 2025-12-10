@@ -1720,6 +1720,28 @@ absl::StatusOr<std::intptr_t> PjRtCApiDevice::GetStreamForExternalReadyEvents()
   return args.stream;
 }
 
+absl::StatusOr<bool> PjRtCApiDevice::PoisonExecution(int32_t launch_id,
+                                                     absl::Status error) {
+  if (client_->pjrt_c_api()->pjrt_api_version.major_version == 0 &&
+      client_->pjrt_c_api()->pjrt_api_version.minor_version < 85) {
+    return absl::UnimplementedError(
+        "PJRT_Device_PoisonExecution requires PJRT C API version 0.85 or "
+        "higher.");
+  }
+  const PJRT_Api* c_api = client_->pjrt_c_api();
+  PJRT_Device_PoisonExecution_Args args;
+  args.struct_size = PJRT_Device_PoisonExecution_Args_STRUCT_SIZE;
+  args.device = device_;
+  args.launch_id = launch_id;
+
+  args.error_code = pjrt::StatusCodeToPjrtErrorCode(error.code());
+  args.error_message = error.message().data();
+  args.error_message_size = error.message().size();
+
+  RETURN_STATUS_IF_PJRT_ERROR(c_api->PJRT_Device_PoisonExecution(&args), c_api);
+  return args.poisoned;
+}
+
 // ------------------------------- Memory --------------------------------------
 
 const PJRT_Api* PjRtCApiMemorySpace::pjrt_c_api() const {
@@ -3092,6 +3114,41 @@ Future<> PjRtCApiBuffer::CopyRawToHost(void* dst, int64_t offset,
   args.transfer_size = transfer_size;
   const PJRT_Api* api = pjrt_c_api();
   RETURN_FUTURE_IF_ERROR(api->PJRT_Buffer_CopyRawToHost(&args), api);
+  CHECK(args.event != nullptr);
+  return pjrt::ConvertCEventToCppFuture(args.event, api);
+}
+
+Future<> PjRtCApiBuffer::CopyRawToHostFuture(Future<void*> dst, int64_t offset,
+                                             int64_t transfer_size) {
+  PJRT_Buffer_CopyRawToHostFuture_Args args;
+  args.struct_size = PJRT_Buffer_CopyRawToHostFuture_Args_STRUCT_SIZE;
+  args.extension_start = nullptr;
+  args.buffer = buffer_.get();
+  args.offset = offset;
+  args.transfer_size = transfer_size;
+  const PJRT_Api* api = pjrt_c_api();
+  RETURN_FUTURE_IF_ERROR(api->PJRT_Buffer_CopyRawToHostFuture(&args), api);
+  dst.OnReady(
+      [callback_data = args.callback_data,
+       callback = args.future_ready_callback](absl::StatusOr<void*> dst) {
+        PJRT_Buffer_CopyRawToHostFuture_Callback_Args callback_args;
+        callback_args.struct_size =
+            PJRT_Buffer_CopyRawToHostFuture_Callback_Args_STRUCT_SIZE;
+        if (dst.ok()) {
+          callback_args.dst = *dst;
+          callback_args.error_code = PJRT_Error_Code_OK;
+          callback_args.error_message = nullptr;
+          callback_args.error_message_size = 0;
+        } else {
+          callback_args.dst = nullptr;
+          callback_args.error_code =
+              pjrt::StatusCodeToPjrtErrorCode(dst.status().code());
+          callback_args.error_message = dst.status().message().data();
+          callback_args.error_message_size = dst.status().message().size();
+        }
+        callback_args.callback_data = callback_data;
+        callback(&callback_args);
+      });
   CHECK(args.event != nullptr);
   return pjrt::ConvertCEventToCppFuture(args.event, api);
 }

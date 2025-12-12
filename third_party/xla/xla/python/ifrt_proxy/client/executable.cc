@@ -35,6 +35,7 @@
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 #include "absl/synchronization/mutex.h"
+#include "absl/time/time.h"
 #include "absl/types/span.h"
 #include "llvm/Support/Casting.h"
 #include "xla/hlo/ir/hlo_module.h"
@@ -42,6 +43,7 @@
 #include "xla/pjrt/host_callback.h"
 #include "xla/pjrt/pjrt_executable.h"
 #include "xla/pjrt/pjrt_layout.h"
+#include "xla/pjrt/profiling/device_time_measurement.h"
 #include "xla/python/ifrt/array.h"
 #include "xla/python/ifrt/array_spec.h"
 #include "xla/python/ifrt/attribute_map.h"
@@ -735,10 +737,17 @@ LoadedExecutable::Execute(absl::Span<xla::ifrt::ArrayRef> args,
     }
   }
 
+  std::optional<uint64_t> device_time_key = xla::GetDeviceTimeMeasurementKey();
+  if (device_time_key.has_value()) {
+    // An active device time measurement requires the server to respond with
+    // measured device times after the execution is complete.
+    req->mutable_execute_options()->set_fill_status(true);
+  }
+
   // Starting version 6, the server populates the status future only if it was
   // explicitly requested via `options.fill_status`.
-  const bool result_needs_exec_status =
-      rpc_helper_->protocol_version() < 6 || options.fill_status;
+  const bool result_needs_exec_status = rpc_helper_->protocol_version() < 6 ||
+                                        req->execute_options().fill_status();
 
   // The client generates handles if the protocol version is sufficiently newer,
   // and we've already seen at least one response from an execute (and thus know
@@ -760,6 +769,55 @@ LoadedExecutable::Execute(absl::Span<xla::ifrt::ArrayRef> args,
   // without resolving it to a concrete layout.
   absl::StatusOr<std::vector<std::shared_ptr<const xla::PjRtLayout>>> layouts =
       GetOutputLayouts();
+
+  auto fetch_execute_result =
+      [this, &device_time_key](uint64_t status_handle) -> tsl::Future<> {
+    if (rpc_helper_->protocol_version() >= protocol_version::kExecuteResult) {
+      auto req = std::make_unique<LoadedExecutableFetchExecuteResultRequest>();
+      req->set_result_status_handle(status_handle);
+
+      tsl::Future<std::shared_ptr<LoadedExecutableFetchExecuteResultResponse>>
+          result =
+              rpc_helper_->LoadedExecutableFetchExecuteResult(std::move(req));
+
+      if (device_time_key.has_value()) {
+        result.OnReady(
+            [device_time_key](
+                const absl::StatusOr<std::shared_ptr<
+                    LoadedExecutableFetchExecuteResultResponse>>& resp) {
+              if (!resp.ok()) {
+                return;
+              }
+
+              for (const auto& [device_type_name, duration] :
+                   (*resp)->device_time()) {
+                xla::DeviceTimeMeasurement::DeviceType device_type;
+                if (device_type_name == "tpu") {
+                  device_type = xla::DeviceTimeMeasurement::DeviceType::kTpu;
+                } else if (device_type_name == "gpu") {
+                  device_type = xla::DeviceTimeMeasurement::DeviceType::kGpu;
+                } else {
+                  device_type =
+                      xla::DeviceTimeMeasurement::DeviceType::kUnknown;
+                }
+                if (device_type !=
+                    xla::DeviceTimeMeasurement::DeviceType::kUnknown) {
+                  xla::RecordDeviceTimeMeasurement(*device_time_key,
+                                                   absl::Microseconds(duration),
+                                                   device_type);
+                }
+              }
+            });
+      }
+
+      return result.GetReadyFuture();
+    } else {
+      // Note that `CheckFuture` needs to be sent after
+      // `LoadedExecutableExecute` above, or the server will not recognize the
+      // handle being sent.
+      return rpc_helper_->CheckFuture(status_handle);
+    }
+  };
 
   if (client_generated_handles) {
     auto output_specs = *output_spec_cache_->Retrieve();
@@ -789,10 +847,10 @@ LoadedExecutable::Execute(absl::Span<xla::ifrt::ArrayRef> args,
     }
     rpc_helper_->LoadedExecutableExecute(std::move(req));
     if (result_needs_exec_status) {
-      // Note that `CheckFuture` needs to be sent after
-      // `LoadedExecutableExecute` above, or the server will not recognize the
-      // handle being sent.
-      result.status = rpc_helper_->CheckFuture(status_handle);
+      tsl::Future<> status = fetch_execute_result(status_handle);
+      if (options.fill_status) {
+        result.status = std::move(status);
+      }
     }
 
     return result;
@@ -808,8 +866,8 @@ LoadedExecutable::Execute(absl::Span<xla::ifrt::ArrayRef> args,
       Array::Destruct(rpc_helper_.get(), ArrayHandle{output.array_handle()});
     }
     if (result_needs_exec_status) {
-      // `CheckFuture` deletes the server-side future handle.
-      rpc_helper_->CheckFuture(response->status_handle());
+      // `fetch_execute_result` deletes the server-side future handle.
+      fetch_execute_result(response->status_handle());
     }
     return status;
   }
@@ -836,7 +894,10 @@ LoadedExecutable::Execute(absl::Span<xla::ifrt::ArrayRef> args,
     }
   }
   if (result_needs_exec_status) {
-    result.status = rpc_helper_->CheckFuture(response->status_handle());
+    tsl::Future<> status = fetch_execute_result(response->status_handle());
+    if (options.fill_status) {
+      result.status = std::move(status);
+    }
   } else {
     CHECK_EQ(response->status_handle(), 0);
   }

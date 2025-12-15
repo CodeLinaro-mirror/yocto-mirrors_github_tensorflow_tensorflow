@@ -261,7 +261,7 @@ message DynamicSliceThunkProto {
   repeated OptionalDynamicSliceOffsetsProto offsets = 3;
   repeated OptionalShapeProto orig_shapes = 4;
   repeated OptionalShapeProto sliced_shapes = 5;
-  repeated OptionalInt64Proto offset_byte_sizes = 6;
+  repeated OptionalPrimitiveType offset_primitive_types = 6;
   optional OffsetAsFunctionOfIndvarModulesMetadataProto
       offset_as_function_of_indvar_modules_metadata = 7;
   repeated BufferAllocationProto fake_allocations = 8;
@@ -338,8 +338,8 @@ message NormThunkProto {
 
 message ConvolutionThunkProto {
   GpuConvDescriptorProto conv_descriptor = 1;
-  repeated xla.buffer_assignment.BufferAllocationSliceProto operand_buffers = 2;
-  repeated xla.buffer_assignment.BufferAllocationSliceProto result_buffers = 3;
+  repeated ShapedSliceProto operand_buffers = 2;
+  repeated ShapedSliceProto result_buffers = 3;
   xla.buffer_assignment.BufferAllocationSliceProto scratch_buffer = 4;
 }
 

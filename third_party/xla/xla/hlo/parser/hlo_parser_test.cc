@@ -4236,6 +4236,44 @@ TEST(HloParserSingleOpTest, SingleOpNoNames) {
               GmockMatch(m::Multiply(m::Parameter(0), m::Parameter(1))));
 }
 
+TEST(HloParserSingleOpTest, SkipStackFrameIndex) {
+  const std::string text = R"(HloModule m, entry_computation_layout={()->pred[]}
+
+FileNames
+1 "<embedded module>"
+2 "experimental/module.py"
+3 "yet/another/test.py"
+
+FunctionNames
+1 "main"
+2 "method"
+
+FileLocations
+1 {file_name_id=1 function_name_id=1 line=153 end_line=153 column=2 end_column=31}
+2 {file_name_id=3 function_name_id=2 line=35 end_line=35 column=2 end_column=24}
+3 {file_name_id=2 function_name_id=2 line=83 end_line=83 column=2 end_column=15}
+
+StackFrames
+1 {file_location_id=1 parent_frame_id=1}
+2 {file_location_id=2 parent_frame_id=2}
+
+
+ENTRY %constant_pred () -> pred[] {
+  ROOT %constant = pred[] constant(true), metadata={op_type="const" op_name="opname" stack_frame_id=1}
+})";
+  TF_ASSERT_OK_AND_ASSIGN(auto module, ParseAndReturnUnverifiedModule(text));
+  HloPrintOptions options = HloPrintOptions::Canonical();
+  options.set_print_metadata(false);
+  EXPECT_EQ(module->ToString(options),
+            R"(HloModule m, entry_computation_layout={()->pred[]}
+
+ENTRY constant_pred {
+  ROOT tmp_0 = pred[] constant(true)
+}
+
+)");
+}
+
 TEST(HloParserSingleOpTest, CanonicalOp) {
   const std::string text =
       "f32[2,4]{1,0} multiply(f32[2,4]{1,0}, f32[2,4]{1,0})";

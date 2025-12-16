@@ -754,18 +754,6 @@ absl::Status RunOptimizationPasses(
         gpu_target_config.device_description.gpu_compute_capability());
     pipeline.AddPass<GpuAlgebraicSimplifier>(layout_insensitive_algsimp_opts,
                                              gpu_version);
-    // Only merge "smallish" dots.  This threshold defaults to 32MB today, with
-    // a flag to override.
-    // Do not merge dots when they are assigned different stream ids.
-    std::function<int64_t(const HloInstruction* dot)> queue_id =
-        [&](const HloInstruction* dot) -> int64_t {
-      return dot->backend_config<GpuBackendConfig>()->operation_queue_id();
-    };
-    pipeline.AddPass<DotMerger>(
-        /*max_size_to_merge=*/int64_t{debug_options
-                                          .xla_gpu_dot_merger_threshold_mb()}
-            << 20,
-        queue_id);
     pipeline.AddPass<SortSimplifier>();
     pipeline.AddPass<TupleSimplifier>();
     pipeline.AddPass<WhileLoopConstantSinking>();
@@ -778,10 +766,24 @@ absl::Status RunOptimizationPasses(
     pipeline.AddPass<HloConstantFolding>();
     pipeline.AddPass<ConditionalSimplifier>();
     pipeline.AddPass<RealImagExpander>();
-    pipeline.AddPass<TransposeFolding>(CanFoldTransposeOperandIntoDot);
+    pipeline.AddPass<TransposeFolding>();
     pipeline.AddPass<HloCSE>(/*is_layout_sensitive=*/false);
     pipeline.AddPass<HloDCE>();
   }();
+
+  // Only merge "smallish" dots.  This threshold defaults to 32MB today, with
+  // a flag to override.
+  // Do not merge dots when they are assigned different stream ids.
+  std::function<int64_t(const HloInstruction* dot)> queue_id =
+      [&](const HloInstruction* dot) -> int64_t {
+    return dot->backend_config<GpuBackendConfig>()->operation_queue_id();
+  };
+  pipeline.AddPass<DotMerger>(
+      /*max_size_to_merge=*/int64_t{debug_options
+                                        .xla_gpu_dot_merger_threshold_mb()}
+          << 20,
+      queue_id);
+  pipeline.AddPass<TransposeFolding>(CanFoldTransposeOperandIntoDot);
 
   // ConvertMover and ReshapeMover fight with each other: ConvertMover wants
   // to move some converts down the graph, but ReshapeMover wants to move them

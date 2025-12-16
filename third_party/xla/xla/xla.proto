@@ -467,7 +467,8 @@ message DebugOptions {
   // If set to true XLA:GPU invokes `ptxas` with -O0 (default is -O3).
   optional bool xla_gpu_disable_gpuasm_optimizations = 103;
 
-  // DotMerger pass threshold size to be used in MB.
+  // DotMerger pass threshold size to be used in MB. The input+output bytes of
+  // at least one dot must be below this threshold for merging to happen.
   optional int32 xla_gpu_dot_merger_threshold_mb = 331;
 
   // File to write autotune logs to. It will stored in txt format.

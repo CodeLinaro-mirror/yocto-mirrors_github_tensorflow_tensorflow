@@ -184,6 +184,19 @@ bool ConstraintExpression::IsSatisfiedBy(
       });
 }
 
+void ConstraintExpression::PrintUnsatisfiedConstraints(
+    absl::Span<const int64_t> dim_values, std::ostream& out) const {
+  for (const auto& disjunction : disjoint_conjoint_constraints_) {
+    for (const Constraint& constraint : disjunction) {
+      int64_t value = EvaluateAffineExpr(constraint.expr, dim_values);
+      if (!constraint.interval.Contains(value)) {
+        out << constraint.expr << " in " << constraint.interval.ToString()
+            << ". Value: " << value << "\n";
+      }
+    }
+  }
+}
+
 std::string ConstraintExpression::ToString() const {
   std::stringstream ss;
   Print(ss);

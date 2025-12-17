@@ -65,18 +65,12 @@ using tensorflow::PollForErrorRequest;
 using tensorflow::PollForErrorResponse;
 using tensorflow::RegisterTaskRequest;
 using tensorflow::RegisterTaskResponse;
-using tensorflow::ReportErrorToServiceRequest;
-using tensorflow::ReportErrorToServiceResponse;
-using tensorflow::ReportErrorToTaskRequest;
-using tensorflow::ReportErrorToTaskResponse;
 using tensorflow::ResetTaskRequest;
 using tensorflow::ResetTaskResponse;
 using tensorflow::ShutdownTaskRequest;
 using tensorflow::ShutdownTaskResponse;
 using tensorflow::TryGetKeyValueRequest;
 using tensorflow::TryGetKeyValueResponse;
-using tensorflow::WaitForAllTasksRequest;
-using tensorflow::WaitForAllTasksResponse;
 using tensorflow::WatchJobStateRequest;
 using tensorflow::WatchJobStateResponse;
 
@@ -134,16 +128,6 @@ class GrpcCoordinationClient : public CoordinationClient {
         &target_);
   }
 
-  void WaitForAllTasksAsync(const WaitForAllTasksRequest* request,
-                            WaitForAllTasksResponse* response,
-                            tsl::StatusCallback done) override {
-    new tsl::RPCState<tsl::protobuf::Message>(
-        &stub_, cq_, "/tensorflow.CoordinationService/WaitForAllTasks",
-        *request, response, std::move(done), /*call_opts=*/nullptr,
-        /*threadpool=*/nullptr, /*max_retries=*/0, /*fail_fast=*/true,
-        &target_);
-  }
-
   void ShutdownTaskAsync(tsl::CallOptions* call_opts,
                          const ShutdownTaskRequest* request,
                          ShutdownTaskResponse* response,
@@ -176,27 +160,6 @@ class GrpcCoordinationClient : public CoordinationClient {
         response, std::move(done), call_opts, /*threadpool=*/nullptr,
         /*max_retries=*/3,
         /*fail_fast=*/true, &target_);
-  }
-
-  void ReportErrorToTaskAsync(tsl::CallOptions* call_opts,
-                              const ReportErrorToTaskRequest* request,
-                              ReportErrorToTaskResponse* response,
-                              tsl::StatusCallback done) override {
-    new tsl::RPCState<tsl::protobuf::Message>(
-        &stub_, cq_, "/tensorflow.CoordinationService/ReportErrorToTask",
-        *request, response, std::move(done), call_opts,
-        /*threadpool=*/nullptr, /*max_retries=*/0, /*fail_fast=*/true,
-        &target_);
-  }
-
-  void ReportErrorToServiceAsync(const ReportErrorToServiceRequest* request,
-                                 ReportErrorToServiceResponse* response,
-                                 tsl::StatusCallback done) override {
-    new tsl::RPCState<tsl::protobuf::Message>(
-        &stub_, cq_, "/tensorflow.CoordinationService/ReportErrorToService",
-        *request, response, std::move(done), /*call_opts=*/nullptr,
-        /*threadpool=*/nullptr, /*max_retries=*/0, /*fail_fast=*/true,
-        &target_);
   }
 
   void GetTaskStateAsync(const GetTaskStateRequest* request,

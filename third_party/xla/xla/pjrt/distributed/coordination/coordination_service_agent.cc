@@ -349,35 +349,6 @@ void CoordinationServiceAgent::PollForErrorAsync(tsl::StatusCallback done) {
       });
 }
 
-absl::Status CoordinationServiceAgent::WaitForAllTasks(
-    const DeviceInfo& local_devices) {
-  absl::Status agent_running_status = ValidateRunningAgent();
-  if (!agent_running_status.ok()) {
-    return agent_running_status;
-  }
-  WaitForAllTasksRequest request;
-  *request.mutable_source_task() = task_;
-  *request.mutable_device_info() = local_devices;
-  VLOG(3) << "WaitForAllTasksRequest: " << request.DebugString();
-  WaitForAllTasksResponse response;
-  absl::Status status;
-  absl::Notification n;
-  leader_client_->WaitForAllTasksAsync(&request, &response,
-                                       [&](const absl::Status& s) {
-                                         status = s;
-                                         n.Notify();
-                                       });
-  n.WaitForNotification();
-  if (!status.ok()) {
-    VLOG(3) << "WaitForAllTasksResponse: " << status;
-    SetError(status);
-    return status;
-  }
-  VLOG(3) << "WaitForAllTasksResponse: " << response.DebugString();
-  cluster_devices_ = response.device_info();
-  return absl::OkStatus();
-}
-
 const DeviceInfo& CoordinationServiceAgent::GetClusterDeviceInfo() {
   return cluster_devices_;
 }
@@ -452,50 +423,6 @@ CoordinationServiceAgent::WatchJobState(absl::string_view job_name,
       });
   done.WaitForNotification();
   return response;
-}
-
-absl::Status CoordinationServiceAgent::ReportError(const absl::Status& error) {
-  {
-    absl::MutexLock l(state_mu_);
-    if (state_ == CoordinatedTaskState::TASKSTATE_UNINITIALIZED) {
-      return MakeCoordinationError(absl::FailedPreconditionError(
-          "Coordination service agent must be initialized first before "
-          "reporting error."));
-    }
-    if (state_ == CoordinatedTaskState::TASKSTATE_ERROR) {
-      return MakeCoordinationError(absl::FailedPreconditionError(
-          "Coordination service agent is already in error state."));
-    }
-  }
-  SetError(MakeCoordinationError(error, task_,
-                                 /*is_reported_error=*/true));
-  LOG(INFO) << "Reporting error to coordination service: " << error;
-  ReportErrorToServiceRequest request;
-  request.set_error_code(error.raw_code());
-  request.set_error_message(std::string(error.message()));
-  *request.mutable_error_origin() = task_;
-  VLOG(5) << "ReportErrorToServiceRequest: " << request.DebugString();
-  ReportErrorToServiceResponse response;
-
-  absl::Notification n;
-  leader_client_->ReportErrorToServiceAsync(
-      &request, &response, [&](const absl::Status& s) {
-        VLOG(5) << "ReportErrorToServiceResponse: " << s;
-        if (!s.ok()) {
-          LOG(ERROR)
-              << "Encountered another error when reporting error to "
-                 "coordination service: "
-              << s
-              << "\nThis is usually caused by an earlier error during "
-                 "execution. Check the logs of (a) this task, (b) the "
-                 "leader (usually slice 0 task 0) and (c) the scheduler "
-                 "(e.g. preemption, eviction) for an earlier error to debug "
-                 "further.";
-        }
-        n.Notify();
-      });
-  n.WaitForNotification();
-  return absl::OkStatus();
 }
 
 absl::Status CoordinationServiceAgent::Shutdown() { return ShutdownInternal(); }

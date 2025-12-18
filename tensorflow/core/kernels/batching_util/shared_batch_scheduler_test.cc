@@ -2480,7 +2480,7 @@ class SharedBatchSchedulerPriorityAwareTest
       const std::map<tsl::criticality::Criticality, size_t>&
           per_criticality_queue_size) {
     QueueOptions options;
-    options.enable_priority_aware_scheduler = true;
+    options.enable_priority_aware_batch_scheduler = true;
     options.max_execution_batch_size = max_execution_batch_size;
     options.input_batch_size_limit = max_execution_batch_size;
     options.batch_timeout_micros = batch_timeout_micros;

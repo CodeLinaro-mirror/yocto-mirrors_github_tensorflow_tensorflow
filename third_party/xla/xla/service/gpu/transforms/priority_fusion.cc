@@ -87,7 +87,19 @@ bool IsFusibleBitcast(const HloInstruction& instr) {
          hlo_instruction_utils::KeepsBitwidth(instr);
 }
 
+bool IsSortOrSortFusion(const HloInstruction* instr) {
+  return HloPredicateIsOp<HloOpcode::kSort>(instr) ||
+         (HloPredicateIsOp<HloOpcode::kFusion>(instr) &&
+          HloPredicateIsOp<HloOpcode::kSort>(instr->fused_expression_root()));
+}
+
 bool IsFusible(const HloInstruction& instr) {
+  // Sort is a special case. We need to consider it to be fusible, but actually
+  // only as consumer.
+  if (HloPredicateIsOp<HloOpcode::kSort>(&instr)) {
+    return true;
+  }
+
   // Side-effecting operations are not fusible.
   if (!instr.IsFusible()) {
     return false;
@@ -777,11 +789,15 @@ class PriorityFusionQueue {
           "not fusing into the output of the root instruction");
     }
 
-    if (!IsFusible(*producer)) {
+    if (!IsFusible(*producer) || HloPredicateIsOp<HloOpcode::kSort>(producer)) {
       return FusionDecision::Forbid("the producer is not fusible");
     }
 
-    if (!IsFusible(*consumer)) {
+    if (IsSortOrSortFusion(consumer)) {
+      if (!HloPredicateIsOp<HloOpcode::kIota>(producer)) {
+        return FusionDecision::Forbid("Only iota can be fused into sort");
+      }
+    } else if (!IsFusible(*consumer)) {
       return FusionDecision::Forbid("the consumer is not fusible");
     }
 

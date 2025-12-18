@@ -568,6 +568,40 @@ CHECK-COUNT-3: fusion(
   )");
 }
 
+TEST_F(PriorityFusionTest, FuseIotaIntoSort) {
+  auto module = *ParseAndReturnVerifiedModule(R"(
+    HloModule module
+
+    sorting_computation {
+      %lhs_key = s32[] parameter(0)
+      %rhs_key = s32[] parameter(1)
+      %lhs_index = s32[] parameter(2)
+      %rhs_index = s32[] parameter(3)
+      %lt_key = pred[] compare(%lhs_key, %rhs_key), direction=LT
+      %gt_key = pred[] compare(%rhs_key, %lhs_key), direction=LT
+      %eq_key = pred[] compare(%lt_key, %gt_key), direction=EQ
+      %lt_index = pred[] compare(%lhs_index, %rhs_index), direction=LT
+      ROOT res = pred[] select(%eq_key, %lt_index, %lt_key)
+    }
+
+    ENTRY main {
+      p0 = s32[16384]{0} parameter(0)
+      neg = s32[16384]{0} negate(p0)
+      iota = s32[16384]{0} iota(), iota_dimension=0
+      ROOT sort = (s32[16384]{0}, s32[16384]{0}) sort(neg, iota), dimensions={0}, is_stable=true, to_apply=sorting_computation
+    }
+  )");
+  EXPECT_THAT(priority_fusion_.Run(module.get()),
+              absl_testing::IsOkAndHolds(true));
+
+  HloInstruction* root = module->entry_computation()->root_instruction();
+  const HloInstruction* fusion = nullptr;
+  ASSERT_THAT(root, GmockMatch(m::Fusion(&fusion, m::Negate())));
+  EXPECT_EQ(fusion->fusion_kind(), HloInstruction::FusionKind::kInput);
+  EXPECT_THAT(fusion->fused_expression_root(),
+              GmockMatch(m::Sort(m::Parameter(), m::Iota())));
+}
+
 TEST_F(PriorityFusionTest, DontFuseIntoFirstOperandOfScatter) {
   auto module = *ParseAndReturnVerifiedModule(R"(
     HloModule test_module

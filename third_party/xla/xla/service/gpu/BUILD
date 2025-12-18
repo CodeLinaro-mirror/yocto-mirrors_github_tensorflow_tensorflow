@@ -2828,7 +2828,6 @@ xla_cc_test(
         "//xla/tests:xla_internal_test_main",
         "@com_google_absl//absl/log",
         "@com_google_absl//absl/log:check",
-        "@local_tsl//tsl/platform:statusor",
     ],
 )
 

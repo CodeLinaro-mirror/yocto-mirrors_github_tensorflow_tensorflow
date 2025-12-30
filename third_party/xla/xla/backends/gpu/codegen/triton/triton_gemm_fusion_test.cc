@@ -388,15 +388,18 @@ ENTRY e {
   }
   DebugOptions debug_options = verified_module->config().debug_options();
   debug_options.set_xla_dump_to(output_directory);
-  debug_options.set_xla_dump_emitter_re("triton-fusion");
+  debug_options.set_xla_dump_emitter_re("triton");
   verified_module->mutable_config().set_debug_options(debug_options);
 
   EXPECT_TRUE(RunAndCompare(std::move(verified_module),
                             ErrorSpec{/*aabs=*/1e-3, /*arel=*/1e-3}));
 
   std::vector<std::string> paths;
-  TF_EXPECT_OK(tsl::Env::Default()->GetMatchingPaths(
-      tsl::io::JoinPath(output_directory, "*.triton-passes.log"), &paths));
+  EXPECT_OK(tsl::Env::Default()->GetMatchingPaths(
+      tsl::io::JoinPath(output_directory, "*.xtile-to-triton.txt"), &paths));
+  EXPECT_EQ(paths.size(), 1);
+  EXPECT_OK(tsl::Env::Default()->GetMatchingPaths(
+      tsl::io::JoinPath(output_directory, "*.triton-to-llvm.txt"), &paths));
   EXPECT_EQ(paths.size(), 1);
 }
 

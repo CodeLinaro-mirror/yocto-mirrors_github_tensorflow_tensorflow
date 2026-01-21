@@ -24,7 +24,8 @@ limitations under the License.
 #include "xla/literal.h"
 #include "xla/literal_util.h"
 #include "xla/service/hlo_module_util.h"
-#include "xla/tests/hlo_test_base.h"
+#include "xla/tests/hlo_pjrt_interpreter_reference_mixin.h"
+#include "xla/tests/hlo_pjrt_test_base.h"
 #include "xla/tests/literal_test_util.h"
 #include "xla/tsl/platform/statusor.h"
 #include "xla/tsl/platform/test.h"
@@ -32,7 +33,8 @@ limitations under the License.
 namespace xla {
 namespace {
 
-class TokenHloTest : public HloTestBase {};
+class TokenHloTest : public HloPjRtInterpreterReferenceMixin<HloPjRtTestBase> {
+};
 
 TEST_F(TokenHloTest, SingleTokenInstruction) {
   std::unique_ptr<HloModule> module = CreateNewVerifiedModule();
@@ -112,7 +114,7 @@ ENTRY %TokenInWhileLoop () -> s32[] {
   TF_ASSERT_OK_AND_ASSIGN(std::unique_ptr<HloModule> module,
                           CreateModuleFromString(module_string, debug_options));
 
-  EXPECT_TRUE(RunAndCompare(std::move(module), error_spec_));
+  EXPECT_TRUE(RunAndCompare(std::move(module), kDefaultErrorSpec));
 }
 
 TEST_F(TokenHloTest, TokenInConditional) {

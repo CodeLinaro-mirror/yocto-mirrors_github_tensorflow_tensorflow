@@ -1,5 +1,7 @@
 load("@llvm-project//mlir:tblgen.bzl", "gentbl_cc_library", "td_library")
 load("@rules_cc//cc:cc_library.bzl", "cc_library")
+load("//third_party/protobuf/bazel:cc_proto_library.bzl", "cc_proto_library")
+load("//third_party/protobuf/bazel:proto_library.bzl", "proto_library")
 load("//xla:xla.default.bzl", "xla_cc_test")
 load("//xla/tsl:tsl.bzl", "internal_visibility")
 load("//xla/tsl:tsl.default.bzl", "get_compatible_with_portable", "tsl_pybind_extension")
@@ -585,5 +587,23 @@ cc_library(
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings",
+    ],
+)
+
+proto_library(
+    name = "serialized_executable_metadata_proto",
+    srcs = ["serialized_executable_metadata.proto"],
+    compatible_with = ["//buildenv/target:libtpu"],
+    deps = [
+        "//xla/python/ifrt/ir:ifrt_ir_compile_options_proto",
+    ],
+)
+
+cc_proto_library(
+    name = "serialized_executable_metadata_cc_proto",
+    compatible_with = ["//buildenv/target:libtpu"],
+    visibility = ["//learning/brain/research/ifrt:__subpackages__"],
+    deps = [
+        ":serialized_executable_metadata_proto",
     ],
 )

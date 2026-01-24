@@ -3,10 +3,7 @@ TODO(Intel-tf): Delete this and reuse a similar function in third_party/llvm
 after the TF 2.4 branch cut has passed.
 """
 
-load(
-    "//xla/tsl/platform:rules_cc.bzl",
-    "cc_binary",
-)
+load("@rules_cc//cc:cc_binary.bzl", "cc_binary")
 
 WINDOWS_MSVC_LLVM_OPENMP_LIBPATH = "bazel-out/x64_windows-opt/bin/external/llvm_openmp/libiomp5md.dll.if.lib"
 WINDOWS_MSVC_LLVM_OPENMP_LINKOPTS = "/NODEFAULTLIB:libomp /DEFAULTLIB:" + WINDOWS_MSVC_LLVM_OPENMP_LIBPATH

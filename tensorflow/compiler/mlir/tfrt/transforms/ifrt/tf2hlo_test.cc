@@ -37,13 +37,19 @@ limitations under the License.
 #include "tensorflow/compiler/mlir/tensorflow/dialect_registration.h"
 #include "tensorflow/compiler/mlir/tfrt/transforms/ifrt/ifrt_types.h"
 #include "tensorflow/compiler/tf2xla/xla_helpers.h"
+#include "xla/layout.h"
+#include "xla/layout_util.h"
 #include "xla/pjrt/pjrt_compiler.h"
+#include "xla/pjrt/pjrt_layout.h"
 #include "xla/pjrt/plugin/xla_cpu/cpu_topology_description.h"
 #include "xla/python/ifrt/client.h"
 #include "xla/python/ifrt/mock.h"
 #include "xla/python/ifrt/test_util.h"
+#include "xla/python/pjrt_ifrt/pjrt_layout.h"
 #include "xla/python/pjrt_ifrt/pjrt_topology.h"
 #include "xla/service/computation_placer.h"
+#include "xla/shape.h"
+#include "xla/shape_util.h"
 #include "xla/tsl/lib/core/status_test_util.h"
 #include "xla/tsl/platform/statusor.h"
 #include "tensorflow/core/platform/resource_loader.h"
@@ -668,6 +674,26 @@ TEST_F(Tf2HloTest, DifferentCompileMetadataProduceDifferentKeyFingerprint) {
   TF_ASSERT_OK_AND_ASSIGN(std::string key0, tf_to_hlo_compiler.Key(arg0));
   TF_ASSERT_OK_AND_ASSIGN(std::string key1, tf_to_hlo_compiler.Key(arg1));
   EXPECT_THAT(key0, Ne(key1));
+}
+
+TEST_F(Tf2HloTest, ToProtoAndFromProto) {
+  Tf2HloResult result;
+  result.hlo_module_proto.set_name("test_module");
+  result.compile_metadata.set_num_replicas(1);
+
+  xla::Shape shape0 = xla::ShapeUtil::MakeShape(xla::F32, {10, 20});
+  xla::Shape shape1 = xla::ShapeUtil::MakeShape(xla::F32, {30, 40});
+  result.xla_input_shapes = {shape0, shape1};
+
+  TF_ASSERT_OK_AND_ASSIGN(auto proto, result.ToProto());
+  TF_ASSERT_OK_AND_ASSIGN(auto result_from_proto,
+                          Tf2HloResult::FromProto(proto));
+
+  EXPECT_EQ(result_from_proto.hlo_module_proto.name(), "test_module");
+  EXPECT_EQ(result_from_proto.compile_metadata.num_replicas(), 1);
+  ASSERT_EQ(result_from_proto.xla_input_shapes.size(), 2);
+  EXPECT_EQ(result_from_proto.xla_input_shapes[0], shape0);
+  EXPECT_EQ(result_from_proto.xla_input_shapes[1], shape1);
 }
 
 }  // namespace

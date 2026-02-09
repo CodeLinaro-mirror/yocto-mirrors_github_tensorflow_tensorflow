@@ -920,10 +920,9 @@ absl::StatusOr<std::vector<tensorflow::Tensor>> IfrtServingExecutable::Execute(
       TF_ASSIGN_OR_RETURN(
           tsl::Future<xla::ifrt::ArrayRef> array_ref,
           (*user_inputs_h2d_transfer_executor)
-              ->ScheduledH2DTransfer(
-                  reshaped, xla_input_shape, device_list,
-                  executable_bundle->compile_metadata.args()[i].sharding(),
-                  thread_pool_, std::move(layout_ref)));
+              ->ScheduledH2DTransfer(reshaped, xla_input_shape, device_list,
+                                     executable_bundle->arg_hlo_shardings[i],
+                                     thread_pool_, std::move(layout_ref)));
       args.push_back(std::move(array_ref));
     }
   }

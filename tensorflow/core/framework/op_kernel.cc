@@ -15,6 +15,8 @@ limitations under the License.
 
 #include "tensorflow/core/framework/op_kernel.h"
 
+#include <algorithm>
+#include <atomic>
 #include <cstdlib>
 #include <cstring>
 #include <memory>
@@ -1388,6 +1390,77 @@ const std::string& GetKernelLabelAttr(const AttrSlice& node_attrs) {
     return kEmptyString;
   else
     return attr_value->s();
+}
+
+// Cache for FindKernelRegistration.
+struct KernelCacheKey {
+  std::string op_name;
+  std::string device_type;
+  std::string label;
+  // Use vector of pairs to store attributes as AttrSlice is not owning.
+  // Sorted by attribute name.
+  std::vector<std::pair<std::string, AttrValue>> attrs;
+  uint64_t hash;
+
+  KernelCacheKey(absl::string_view op, absl::string_view device,
+                 absl::string_view lbl, AttrSlice node_attrs)
+      : op_name(op), device_type(device), label(lbl) {
+    attrs.reserve(node_attrs.size());
+    for (const auto& p : node_attrs) {
+      attrs.emplace_back(p.first, p.second);
+    }
+    std::sort(attrs.begin(), attrs.end(),
+              [](const std::pair<std::string, AttrValue>& a,
+                 const std::pair<std::string, AttrValue>& b) {
+                return a.first < b.first;
+              });
+    // Calculate hash.
+    hash = Hash64(op_name);
+    hash = Hash64Combine(hash, Hash64(device_type));
+    hash = Hash64Combine(hash, Hash64(label));
+    for (const auto& p : attrs) {
+      hash = Hash64Combine(hash, Hash64(p.first));
+      hash = Hash64Combine(hash, FastAttrValueHash(p.second));
+    }
+  }
+};
+
+struct KernelCacheKeyHash {
+  std::size_t operator()(const KernelCacheKey& k) const { return k.hash; }
+};
+
+struct KernelCacheKeyEq {
+  bool operator()(const KernelCacheKey& a, const KernelCacheKey& b) const {
+    if (a.hash != b.hash) return false;
+    if (a.op_name != b.op_name) return false;
+    if (a.device_type != b.device_type) return false;
+    if (a.label != b.label) return false;
+    if (a.attrs.size() != b.attrs.size()) return false;
+    for (size_t i = 0; i < a.attrs.size(); ++i) {
+      if (a.attrs[i].first != b.attrs[i].first) return false;
+      if (!AreAttrValuesEqual(a.attrs[i].second, b.attrs[i].second))
+        return false;
+    }
+    return true;
+  }
+};
+
+struct CachedKernelResult {
+  const KernelRegistration* reg;
+  bool was_attr_mismatch;
+};
+
+using KernelCache = absl::flat_hash_map<KernelCacheKey, CachedKernelResult,
+                                        KernelCacheKeyHash, KernelCacheKeyEq>;
+
+KernelCache* GetGlobalKernelCache() {
+  static KernelCache* cache = new KernelCache();
+  return cache;
+}
+
+mutex* GetGlobalKernelCacheLock() {
+  static mutex* mu = new mutex();
+  return mu;
 }
 
 // TODO(irving): Replace with const Node& version below.

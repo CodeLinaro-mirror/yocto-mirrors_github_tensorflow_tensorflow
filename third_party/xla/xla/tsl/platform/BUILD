@@ -356,7 +356,6 @@ tsl_cc_test(
         "//xla/tsl/platform/testdata:test_noop",
         "//xla/tsl/platform/testdata:test_stderr",
     ],
-    tags = ["no_oss"],  # TODO(b/327036247): revisit after this moves to XLA
     deps = [
         ":env",
         ":subprocess",

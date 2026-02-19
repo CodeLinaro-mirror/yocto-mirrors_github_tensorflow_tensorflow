@@ -34,6 +34,7 @@ limitations under the License.
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
+#include "absl/strings/str_split.h"
 #include "absl/strings/string_view.h"
 #include "llvm/ADT/APFloat.h"
 #include "llvm/ADT/APInt.h"
@@ -151,6 +152,16 @@ struct DebugMetadata {
 Location TensorLoc(const TensorT& tensor, Builder builder, Location base) {
   if (tensor.name.empty()) {
     return base;
+  }
+  std::vector<std::string> fused_loc_parts((absl::StrSplit(tensor.name, ';')));
+  if (fused_loc_parts.size() > 1) {
+    std::vector<mlir::Location> fused_locs;
+    fused_locs.reserve(fused_loc_parts.size());
+    for (const auto& part : fused_loc_parts) {
+      fused_locs.push_back(
+          mlir::NameLoc::get(builder.getStringAttr(part), base));
+    }
+    return mlir::FusedLoc::get(builder.getContext(), fused_locs);
   }
   return mlir::NameLoc::get(builder.getStringAttr(tensor.name), base);
 }

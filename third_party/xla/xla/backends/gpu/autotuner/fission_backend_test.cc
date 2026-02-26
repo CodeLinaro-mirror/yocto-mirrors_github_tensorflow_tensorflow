@@ -85,6 +85,25 @@ const char kTritonFusionHlo[] = R"(
       backend_config={"fusion_backend_config":{"kind":"__triton_gemm"}}
   })";
 
+const char kCustomFusionHlo[] = R"(
+  HloModule module
+
+  computation {
+    p0 = bf16[1024,1024]{1,0} parameter(0)
+    convert0 = f32[1024,1024]{1,0} convert(p0)
+    p1 = s8[1024,1024]{1,0} parameter(1)
+    convert1 = f32[1024,1024]{1,0} convert(p1)
+    ROOT dot = f32[1024,1024]{1,0} dot(convert0, convert1),
+        lhs_contracting_dims={1}, rhs_contracting_dims={0}
+  }
+
+  ENTRY main {
+    p0 = bf16[1024,1024]{1,0} parameter(0)
+    p1 = s8[1024,1024]{1,0} parameter(1)
+    ROOT fusion = f32[1024,1024]{1,0} fusion(p0, p1),
+      kind=kCustom, calls=computation
+  })";
+
 const char kF8TritonFusionHlo[] = R"(
 HloModule o
 
@@ -533,6 +552,16 @@ INSTANTIATE_TEST_SUITE_P(
          },
          /*expected_backend_name=*/"CUBLAS_FISSION"},
         {"TritonFusion_CustomKernel", kTritonFusionHlo,
+         &FissionTest::GetCustomKernelRewriterPipeline,
+         &FissionTest::CreateCustomKernelBackend,
+         /*expected_module_substrings_fn=*/
+         [](const se::DeviceDescription& device_description) {
+           return std::vector<std::string>{
+               "\"kind\":\"__custom_fusion\"",
+           };
+         },
+         /*expected_backend_name=*/"CUSTOM_KERNEL_FISSION"},
+        {"RewritesGemmFusionToCustomKernelFusion", kCustomFusionHlo,
          &FissionTest::GetCustomKernelRewriterPipeline,
          &FissionTest::CreateCustomKernelBackend,
          /*expected_module_substrings_fn=*/

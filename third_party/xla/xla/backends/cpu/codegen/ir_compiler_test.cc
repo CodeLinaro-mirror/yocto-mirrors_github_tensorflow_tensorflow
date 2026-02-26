@@ -295,6 +295,40 @@ TEST(IrCompilerTest, EmitIntrinsicCall) {
   EXPECT_THAT(ir, ::testing::Not(::testing::HasSubstr("store i8")));
 }
 
+class IrCompilerParameterizedTest
+    : public ::testing::TestWithParam<std::string> {};
+
+TEST_P(IrCompilerParameterizedTest, CrossCompileForDifferentTriples) {
+  const std::string& triple = GetParam();
+
+  auto context = std::make_unique<llvm::LLVMContext>();
+  IrCompiler::CompilationHooks compilation_hooks;
+
+  TargetMachineOptions target_machine_options(triple, /*cpu=*/"",
+                                              /*features=*/"");
+
+  std::unique_ptr<IrCompiler> ir_compiler = IrCompiler::Create(
+      llvm::TargetOptions(),
+      IrCompiler::Options{/*opt_level=*/llvm::CodeGenOptLevel::Aggressive,
+                          /*optimize_for_size=*/false, target_machine_options},
+      compilation_hooks);
+
+  TF_ASSERT_OK_AND_ASSIGN(auto ir_module,
+                          ParseModule(*context, kUnoptimizedIr, "test_module"));
+
+  TF_ASSERT_OK_AND_ASSIGN(auto target_machine,
+                          ir_compiler->build_target_machine());
+
+  ir_module->setDataLayout(target_machine->createDataLayout());
+  ir_module->setTargetTriple(target_machine->getTargetTriple());
+  EXPECT_FALSE(static_cast<bool>((*ir_compiler)(*ir_module).takeError()));
+}
+
+INSTANTIATE_TEST_SUITE_P(IrCompilerParameterizedTestInstantiation,
+                         IrCompilerParameterizedTest,
+                         ::testing::Values("x86_64-grtev4-linux-gnu",
+                                           "aarch64-unknown-linux-gnu"));
+
 }  // namespace
 
 }  // namespace xla::cpu

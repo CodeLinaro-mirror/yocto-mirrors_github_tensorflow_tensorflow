@@ -3498,6 +3498,7 @@ cc_library(
         ":kernel_thunk",
         ":memset_thunk",
         ":norm_thunk",
+        ":nvshmem_collective_permute_thunk",
         ":nvshmem_collective_thunk",
         ":outfeed_thunk",
         ":ragged_all_to_all_thunk",
@@ -3612,6 +3613,7 @@ xla_cc_test(
     srcs = ["nvshmem_collective_thunk_test.cc"],
     deps = [
         ":collective_thunk",
+        ":nvshmem_collective_permute_thunk",
         ":nvshmem_collective_thunk",
         ":thunk",
         ":thunk_proto_cc",

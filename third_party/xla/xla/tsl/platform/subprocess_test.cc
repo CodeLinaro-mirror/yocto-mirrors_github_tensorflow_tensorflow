@@ -396,6 +396,18 @@ TEST_F(SubProcessTest, ConcurrentCheckRunning) {
   EXPECT_FALSE(proc.CheckRunning());
 }
 
+TEST_F(SubProcessTest, Running) {
+  tsl::SubProcess proc;
+  proc.SetProgram(EchoProgram(), {EchoProgram()});
+  proc.SetChannelAction(CHAN_STDIN, ACTION_PIPE);
+  EXPECT_FALSE(proc.running());
+  EXPECT_TRUE(proc.Start());
+  EXPECT_TRUE(proc.running());
+  EXPECT_TRUE(proc.Kill(SIGKILL));
+  EXPECT_TRUE(proc.Wait());
+  EXPECT_FALSE(proc.running());
+}
+
 TEST_F(SubProcessTest, SetDirectory) {
   tsl::SubProcess proc;
   proc.SetProgram(PwdProgram(), {PwdProgram()});

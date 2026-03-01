@@ -95,6 +95,11 @@ class SubProcess {
   //    because the process doesn't exist.
   virtual bool Kill(int signal);
 
+  // running()
+  //    Return true if the process is currently running. This just checks the
+  //    most-recently-known status.
+  virtual bool running();
+
   // CheckRunning()
   //    Check to see if the process is still running.
   //    @return false, if the process has exited;

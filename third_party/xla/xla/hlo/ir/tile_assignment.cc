@@ -790,6 +790,7 @@ std::optional<AnalyzeTileAssignmentResult> AnalyzeTileAssignment(
   if (tile_assignment.iota()) {
     std::optional<std::vector<SubDimInfo>> sub_dims =
         GetOrderedSubDimsFromIotaTileAssignment(*tile_assignment.iota());
+    // TODO(b/489003790): Non-iota tile assignments are not yet handled.
     CHECK(sub_dims.has_value())
         << "tile assignment: " << tile_assignment.ToString();
 

@@ -1,0 +1,21 @@
+edition = "2024";
+
+package xla.megascale.runtime;
+
+option features.field_presence = IMPLICIT;
+
+// Overlay for xla.megascale.runtime.MegaScaleRuntimeError
+message MegaScaleRuntimeErrorOverlay {
+  enum ErrorType {
+    NO_ERROR = 0;
+    HANG_DETECTED = 1;
+    UNRECOVERABLE_ERROR = 2;
+    CANCELLED = 3;
+  }
+
+  ErrorType error_type = 1;
+  string error_message = 2;
+  uint64 estimated_start_time_ms = 3;
+  int32 triggering_launch_id = 5;
+  string hostname = 6;
+}

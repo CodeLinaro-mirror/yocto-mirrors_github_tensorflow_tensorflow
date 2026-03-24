@@ -105,6 +105,12 @@ struct RaggedAllToAllStreamState {
   // This value is incremented locally by the kernel after every barrier.
   std::unique_ptr<se::MemoryAllocation> barrier_signal_value;
 
+  // Device memory buffer to store the output buffer pointers.
+  std::unique_ptr<se::MemoryAllocation> output_buffer_ptr_storage;
+
+  // Reference to the symmetric memory handler for the pointer storage.
+  tsl::TiedRef<xla::SymmetricMemory> output_buffer_ptr_storage_symmetric_memory;
+
   // Contains the output buffer pointers and barrier signal buffers for all
   // peers.
   std::shared_ptr<std::vector<RaggedAllToAllRendezvousValue>> participants;
@@ -134,7 +140,8 @@ class RaggedAllToAllStartThunk : public CollectiveThunk {
       std::vector<CollectiveThunk::Buffer> buffers,
       bool one_shot_kernel_enabled,
       bool use_multi_gpu_barrier_in_one_shot_kernel,
-      bool use_multi_gpu_barrier_with_nccl_in_one_shot_kernel);
+      bool use_multi_gpu_barrier_with_nccl_in_one_shot_kernel,
+      int64_t fast_interconnect_slice_size_override);
 
   // Returns whether the given instruction can be lowered to a nccl
   // ragged-all-to-all call.
@@ -203,11 +210,18 @@ class RaggedAllToAllStartThunk : public CollectiveThunk {
     return IsAllReplicasLocal(device_count, config_.config);
   }
 
+  bool is_local_to_fast_interconnect(int device_count) const {
+    return is_local(fast_interconnect_slice_size_override_ > 0
+                        ? fast_interconnect_slice_size_override_
+                        : device_count);
+  }
+
   const RaggedAllToAllConfig config_;
   const std::vector<Buffer> buffers_;
   const bool one_shot_kernel_enabled_;
   const bool use_multi_gpu_barrier_in_one_shot_kernel_;
   const bool use_multi_gpu_barrier_with_nccl_in_one_shot_kernel_;
+  const int64_t fast_interconnect_slice_size_override_;
 
   mutable absl::Mutex mutex_;
   absl::flat_hash_map<se::StreamExecutor*,
@@ -284,9 +298,10 @@ absl::Status RunOneShotRaggedAllToAllWithNccl(
     const GpuCliqueKey& clique_key, se::Stream& stream, RankId rank,
     std::shared_ptr<xla::SymmetricMemory> barrier_signal_symmetric_memory,
     const se::DeviceAddressBase& barrier_signal_value,
+    std::shared_ptr<xla::SymmetricMemory>
+        output_buffer_ptr_storage_symmetric_memory,
     int64_t num_total_updates, int64_t num_input_rows, int64_t num_row_elements,
-    absl::Span<DeviceBufferPair const> buffers,
-    const std::vector<RaggedAllToAllRendezvousValue>& participants);
+    absl::Span<DeviceBufferPair const> buffers);
 
 }  // namespace gpu
 }  // namespace xla

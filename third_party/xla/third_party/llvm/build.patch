@@ -56,3 +56,25 @@ index 0102a20b28..0102a295f2 100644
          "//conditions:default": [
              "BLAKE3_NO_AVX2",
              "BLAKE3_NO_AVX512",
+@@ -355,6 +355,7 @@
+             "-luuid",
+             "-lws2_32",
+             "-lntdll",
++            "-lwinhttp",
+         ],
+         ":is_windows_clang_cl": [
+             "/STACK:10000000",
+@@ -362,6 +363,7 @@
+             "uuid.lib",
+             "ws2_32.lib",
+             "ntdll.lib",
++            "-lwinhttp",
+         ],
+         ":is_windows_msvc": [
+             "/STACK:10000000",
+@@ -369,6 +371,7 @@
+             "uuid.lib",
+             "ws2_32.lib",
+             "ntdll.lib",
++            "-lwinhttp",
+         ],

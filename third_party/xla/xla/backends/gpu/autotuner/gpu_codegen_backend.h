@@ -19,6 +19,7 @@ limitations under the License.
 #include <memory>
 #include <utility>
 
+#include "absl/algorithm/container.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
 #include "xla/backends/autotuner/backends.pb.h"
@@ -70,16 +71,19 @@ class GpuCodegenBackend : public CodegenBackend {
   absl::StatusOr<std::unique_ptr<Executable>> Compile(
       const HloInstruction& hlo_instruction,
       const BackendConfig& config) override {
-    bool extract_consumer =
+    bool extract_consumers =
         uses_last_output_for_scratch_ && hlo_instruction.shape().IsTuple() &&
-        hlo_instruction.users().size() == 1 &&
-        hlo_instruction.users()[0]->opcode() == HloOpcode::kGetTupleElement;
+        hlo_instruction.users().size() ==
+            hlo_instruction.shape().tuple_shapes().size() - 1 &&
+        absl::c_all_of(hlo_instruction.users(), [](const HloInstruction* user) {
+          return user->opcode() == HloOpcode::kGetTupleElement;
+        });
 
     std::unique_ptr<HloModule> hlo_module;
     HloInstruction* instruction_to_tune = nullptr;
-    if (extract_consumer) {
-      hlo_module = ExtractProducerConsumerIntoNewModule(
-          hlo_instruction, *hlo_instruction.users()[0]);
+    if (extract_consumers) {
+      hlo_module = ExtractProducerConsumersIntoNewModule(
+          hlo_instruction, hlo_instruction.users());
       instruction_to_tune =
           hlo_module->entry_computation()->root_instruction()->mutable_operand(
               0);

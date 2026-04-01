@@ -133,6 +133,10 @@ class NanoValue : public llvm::RTTIExtends<Self, Base> {
 
   ifrt::UserContextRef user_context() const override { return user_context_; }
 
+  absl::StatusOr<std::optional<int64_t>> ByteSize() const override {
+    return xla::ifrt::Layout::ByteSize(dtype_, shape_, sharding_, layout_);
+  }
+
   // All nano values are immediately ready.
   tsl::Future<> GetReadyFuture() const override { return Ready(); }
 

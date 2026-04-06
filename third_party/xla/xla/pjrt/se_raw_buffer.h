@@ -162,6 +162,11 @@ class PjRtStreamExecutorRawBuffer : public CommonPjRtRawBufferImpl {
     return device_buffer_.GetAsyncValue();
   }
 
+  absl::StatusOr<PjRtDeviceEventRef> CopyRawToRemoteDevice(
+      Future<std::string> serialized_descriptor, RemoteSendCallback on_done,
+      std::vector<tsl::RCReference<tsl::AsyncValue>> transfer_dependency_avs)
+      override;
+
  private:
   PjRtStreamExecutorClient* client_;
   PjRtMemorySpace* memory_space_;

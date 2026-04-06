@@ -643,4 +643,12 @@ std::unique_ptr<PjRtDeviceEventSet> PjRtStreamExecutorDeviceEventSet::Clone()
   return std::make_unique<PjRtStreamExecutorDeviceEventSet>(*this);
 }
 
+absl::StatusOr<PjRtDeviceEventRef>
+PjRtStreamExecutorRawBuffer::CopyRawToRemoteDevice(
+    Future<std::string> serialized_descriptor, RemoteSendCallback on_done,
+    std::vector<tsl::RCReference<tsl::AsyncValue>> transfer_dependency_avs) {
+  return absl::UnimplementedError(
+      "PjRtStreamExecutorRawBuffer does not support CopyRawToRemoteDevice.");
+}
+
 }  // namespace xla

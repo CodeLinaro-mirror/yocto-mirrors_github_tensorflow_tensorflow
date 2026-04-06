@@ -1,15 +1,2591 @@
+diff --git a/shardy/dialect/mpmd/ir/dialect.cc b/shardy/dialect/mpmd/ir/dialect.cc
+index bfd82c0..0e00341 100644
+--- a/shardy/dialect/mpmd/ir/dialect.cc
++++ b/shardy/dialect/mpmd/ir/dialect.cc
+@@ -1171,7 +1171,8 @@ LogicalResult UnassignOp::verify() {
+ 
+ LogicalResult UnassignOp::inferReturnTypeComponents(
+     MLIRContext*, std::optional<Location> location, ValueShapeRange operands,
+-    DictionaryAttr attributes, OpaqueProperties properties, RegionRange regions,
++    DictionaryAttr attributes, mlir::PropertyRef properties,
++    RegionRange regions,
+     SmallVectorImpl<ShapedTypeComponents>& inferredReturnShapes) {
+   UnassignOp::Adaptor adaptor(operands, attributes, properties, regions);
+   inferredReturnShapes.emplace_back(
+diff --git a/shardy/dialect/mpmd/transforms/export/test/reshard_only_fragments_failure.mlir b/shardy/dialect/mpmd/transforms/export/test/reshard_only_fragments_failure.mlir
+index 04ebbed..0a78b74 100644
+--- a/shardy/dialect/mpmd/transforms/export/test/reshard_only_fragments_failure.mlir
++++ b/shardy/dialect/mpmd/transforms/export/test/reshard_only_fragments_failure.mlir
+@@ -9,7 +9,7 @@ func.func private @reshard_only_callee(%arg0: tensor<4x8xf32>) -> tensor<4x8xf32
+ 
+ func.func @has_reshard_only_fragment(%arg0: !mesh_1_tensor loc("x")) -> (!mesh_1_tensor_sharded_x {jax.result_info = "result"}) attributes {
+     "topology"=#mpmd.topology<<"m1": <["x"=2, "y"=2]>>> } {
+-  // expected-error@+1 {{Detected reshard-only fragment 'reshard_only_callee'. This usually indicates an unexpected reshard. Operands: Replicated <4x8xf32> loc("x"). Results: #sdy.sharding<@m1, [{"x"}, {?}]> <4x8xf32> loc("result")}}
++  // expected-error@+1 {{Detected reshard-only fragment 'reshard_only_callee'. This usually indicates an unexpected reshard. Operands: Replicated loc("x"). Results: #sdy.sharding<@m1, [{"x"}, {?}]> loc("result")}}
+   %0 = mpmd.fragment_call<mesh="m1", origin=[]> @reshard_only_callee(%arg0) : (!mesh_1_tensor) -> !mesh_1_tensor_sharded_x
+   func.return %0 : !mesh_1_tensor_sharded_x
+ }
+diff --git a/shardy/dialect/mpmd/transforms/export/test/reshard_only_fragments_warning.mlir b/shardy/dialect/mpmd/transforms/export/test/reshard_only_fragments_warning.mlir
+index c2ea955..c8fe1ff 100644
+--- a/shardy/dialect/mpmd/transforms/export/test/reshard_only_fragments_warning.mlir
++++ b/shardy/dialect/mpmd/transforms/export/test/reshard_only_fragments_warning.mlir
+@@ -9,7 +9,7 @@ func.func private @reshard_only_callee(%arg0: tensor<4x8xf32>) -> tensor<4x8xf32
+ 
+ func.func @has_reshard_only_fragment(%arg0: !mesh_1_tensor loc("x")) -> (!mesh_1_tensor_sharded_x {jax.result_info = "result"}) attributes {
+     "topology"=#mpmd.topology<<"m1": <["x"=2, "y"=2]>>> } {
+-  // expected-warning@+1 {{Detected reshard-only fragment 'reshard_only_callee'. This usually indicates an unexpected reshard. Operands: Replicated <4x8xf32> loc("x"). Results: #sdy.sharding<@m1, [{"x"}, {?}]> <4x8xf32> loc("result")}}
++  // expected-warning@+1 {{Detected reshard-only fragment 'reshard_only_callee'. This usually indicates an unexpected reshard. Operands: Replicated loc("x"). Results: #sdy.sharding<@m1, [{"x"}, {?}]> loc("result")}}
+   %0 = mpmd.fragment_call<mesh="m1", origin=[]> @reshard_only_callee(%arg0) : (!mesh_1_tensor) -> !mesh_1_tensor_sharded_x
+   func.return %0 : !mesh_1_tensor_sharded_x
+ }
+diff --git a/shardy/dialect/mpmd/transforms/export/validate_no_backward_deps.cc b/shardy/dialect/mpmd/transforms/export/validate_no_backward_deps.cc
+index 0ab0ed9..658e9c7 100644
+--- a/shardy/dialect/mpmd/transforms/export/validate_no_backward_deps.cc
++++ b/shardy/dialect/mpmd/transforms/export/validate_no_backward_deps.cc
+@@ -13,16 +13,12 @@ See the License for the specific language governing permissions and
+ limitations under the License.
+ ==============================================================================*/
+ 
+-#include <string>
+-
+-#include "llvm/Support/raw_ostream.h"
+ #include "mlir/Dialect/Func/IR/FuncOps.h"
+ #include "mlir/IR/Attributes.h"
+ #include "mlir/IR/Diagnostics.h"
+ #include "mlir/IR/Value.h"
+ #include "mlir/Support/LLVM.h"
+ #include "mlir/Support/WalkResult.h"
+-#include "shardy/common/logging.h"
+ #include "shardy/dialect/mpmd/ir/dialect.h"
+ #include "shardy/dialect/mpmd/ir/utils.h"
+ #include "shardy/dialect/mpmd/transforms/export/passes.h"  // IWYU pragma: keep
+@@ -91,20 +87,15 @@ class ValidateNoBackwardDepsPass
+         }
+ 
+         if (producer.getMeshName() > consumer.getMeshName()) {
+-          std::string msg;
+-          llvm::raw_string_ostream os(msg);
+-          os << "Detected backward dependency but expected forward-only "
+-                "pipeline since there are no transpose fragments: "
+-             << "fragment call on mesh \"" << producer.getMeshName()
+-             << "\" produces a value consumed by fragment call on mesh \""
+-             << consumer.getMeshName()
+-             << "\". In a forward-only pipeline, dependencies must go from "
+-             << "lexicographically earlier meshes to later meshes.";
+-
+-          SDY_LOG(WARNING) << msg;
+           auto diag = failOnBackwardDeps ? consumer.emitError()
+                                          : consumer.emitWarning();
+-          diag << msg;
++          diag << "Detected backward dependency but expected forward-only "
++                  "pipeline since there are no transpose fragments: "
++               << "fragment call on mesh \"" << producer.getMeshName()
++               << "\" produces a value consumed by fragment call on mesh \""
++               << consumer.getMeshName()
++               << "\". In a forward-only pipeline, dependencies must go from "
++               << "lexicographically earlier meshes to later meshes.";
+           if (failOnBackwardDeps) {
+             signalPassFailure();
+           }
+diff --git a/shardy/dialect/mpmd/transforms/export/validate_no_reshards.cc b/shardy/dialect/mpmd/transforms/export/validate_no_reshards.cc
+index 350f803..10a671c 100644
+--- a/shardy/dialect/mpmd/transforms/export/validate_no_reshards.cc
++++ b/shardy/dialect/mpmd/transforms/export/validate_no_reshards.cc
+@@ -13,17 +13,12 @@ See the License for the specific language governing permissions and
+ limitations under the License.
+ ==============================================================================*/
+ 
+-#include <string>
+-
+ #include "llvm/ADT/STLExtras.h"
+-#include "llvm/Support/raw_ostream.h"
+ #include "mlir/Dialect/Func/IR/FuncOps.h"
+-#include "mlir/IR/BuiltinTypes.h"
+ #include "mlir/IR/Diagnostics.h"
+ #include "mlir/IR/SymbolTable.h"
+ #include "mlir/IR/Value.h"
+ #include "mlir/Support/LLVM.h"
+-#include "shardy/common/logging.h"
+ #include "shardy/dialect/mpmd/ir/dialect.h"
+ #include "shardy/dialect/mpmd/ir/utils.h"
+ #include "shardy/dialect/mpmd/transforms/export/passes.h"  // IWYU pragma: keep
+@@ -48,59 +43,49 @@ class ValidateNoReshardsPass
+         return;
+       }
+ 
+-      std::string msg;
+-      llvm::raw_string_ostream os(msg);
+-      os << "Detected reshard-only fragment '" << callOp.getCallee()
+-         << "'. This usually indicates an unexpected reshard. Operands: ";
++      InFlightDiagnostic diag = failOnReshardOnlyFragments
++                                    ? callOp.emitError()
++                                    : callOp.emitWarning();
++      diag << "Detected reshard-only fragment '" << callOp.getCallee()
++           << "'. This usually indicates an "
++              "unexpected reshard. Operands: ";
+ 
+-      auto printShardingAndShape = [](Type type, llvm::raw_ostream& stream) {
+-        auto meshType = cast<MeshTensorType>(type);
++      auto printSharding = [](Type type, InFlightDiagnostic& diag) {
++        auto meshType = dyn_cast<MeshTensorType>(type);
+         if (auto sharding = meshType ? meshType.getSharding() : nullptr) {
+-          stream << sharding;
++          diag << sharding;
+         } else {
+-          stream << "Replicated";
++          diag << "Replicated";
+         }
+-
+-        RankedTensorType rankedType = meshType.getRankedTensorType();
+-
+-        stream << " <";
+-        llvm::interleave(rankedType.getShape(), stream, "x");
+-        stream << "x" << rankedType.getElementType() << ">";
+       };
+ 
+       llvm::interleaveComma(
+-          llvm::zip(callOp.getOperands(), callOp.getOperandTypes()), os,
++          llvm::zip(callOp.getOperands(), callOp.getOperandTypes()), diag,
+           [&](auto pair) {
+             auto [operand, type] = pair;
+-            printShardingAndShape(type, os);
+-            os << " " << operand.getLoc();
++            printSharding(type, diag);
++            diag << " " << operand.getLoc();
+           });
+-      os << ". Results: ";
++      diag << ". Results: ";
+       bool first = true;
+       for (auto [result, type] :
+            llvm::zip(callOp.getResults(), callOp.getResultTypes())) {
+         if (!first) {
+-          os << ", ";
++          diag << ", ";
+         }
+         first = false;
+-        printShardingAndShape(type, os);
++        printSharding(type, diag);
+         for (OpOperand& use : result.getUses()) {
+           auto returnOp = dyn_cast<func::ReturnOp>(use.getOwner());
+           if (!returnOp) {
+             continue;
+           }
+           if (auto loc = GetResultInfoLoc(func, use.getOperandNumber())) {
+-            os << " " << *loc;
++            diag << " " << *loc;
+           }
+         }
+       }
+ 
+-      SDY_LOG(WARNING) << msg;
+-      InFlightDiagnostic diag = failOnReshardOnlyFragments
+-                                    ? callOp.emitError()
+-                                    : callOp.emitWarning();
+-      diag << msg;
+-
+       if (failOnReshardOnlyFragments) {
+         signalPassFailure();
+       }
+diff --git a/shardy/dialect/sdy/ir/dialect.cc b/shardy/dialect/sdy/ir/dialect.cc
+index 798e9c0..3c398a5 100644
+--- a/shardy/dialect/sdy/ir/dialect.cc
++++ b/shardy/dialect/sdy/ir/dialect.cc
+@@ -1369,7 +1369,7 @@ bool ManualComputationOp::shouldKeepEdgeOwnerShardingsDivisible() {
+ LogicalResult ShardingGroupOp::inferReturnTypes(MLIRContext*,
+                                                 std::optional<Location>,
+                                                 ValueRange, DictionaryAttr,
+-                                                OpaqueProperties, RegionRange,
++                                                mlir::PropertyRef, RegionRange,
+                                                 SmallVectorImpl<Type>&) {
+   return success();
+ }
+@@ -1384,8 +1384,8 @@ bool ConstantOp::isCompatibleReturnTypes(TypeRange l, TypeRange r) {
+ 
+ LogicalResult ConstantOp::inferReturnTypes(
+     MLIRContext* context, std::optional<Location> location, ValueRange operands,
+-    DictionaryAttr attributes, OpaqueProperties properties, RegionRange regions,
+-    SmallVectorImpl<Type>& inferredReturnTypes) {
++    DictionaryAttr attributes, mlir::PropertyRef properties,
++    RegionRange regions, SmallVectorImpl<Type>& inferredReturnTypes) {
+   ConstantOpAdaptor adaptor(operands, attributes, properties);
+   inferredReturnTypes.push_back(adaptor.getValue().getType());
+   return success();
+@@ -1536,8 +1536,8 @@ Value NamedComputationOp::getEdgeOwnerFromSource(OpOperand& source) {
+ 
+ LogicalResult NamedComputationOp::inferReturnTypes(
+     MLIRContext*, std::optional<Location> location, ValueRange operands,
+-    DictionaryAttr attributes, OpaqueProperties properties, RegionRange regions,
+-    SmallVectorImpl<Type>& inferredReturnTypes) {
++    DictionaryAttr attributes, mlir::PropertyRef properties,
++    RegionRange regions, SmallVectorImpl<Type>& inferredReturnTypes) {
+   NamedComputationOpAdaptor adaptor(operands, attributes, properties, regions);
+   llvm::copy(getBodyTerminatorOperands(adaptor).getTypes(),
+              std::back_inserter(inferredReturnTypes));
+diff --git a/shardy/dialect/sdy/transforms/export/BUILD b/shardy/dialect/sdy/transforms/export/BUILD
+index f3e7101..b958e35 100644
+--- a/shardy/dialect/sdy/transforms/export/BUILD
++++ b/shardy/dialect/sdy/transforms/export/BUILD
+@@ -35,7 +35,6 @@ cc_library(
+         "convert_global_to_local.cc",
+         "drop_sharding_and_mesh.cc",
+         "drop_sharding_rules.cc",
+-        "export_named_computations.cc",
+         "export_pipeline.cc",
+         "insert_explicit_reshards.cc",
+         "remove_ag_rs_for_cmv1.cc",
+diff --git a/shardy/dialect/sdy/transforms/export/export_named_computations.cc b/shardy/dialect/sdy/transforms/export/export_named_computations.cc
+deleted file mode 100644
+index 15acbca..0000000
+--- a/shardy/dialect/sdy/transforms/export/export_named_computations.cc
++++ /dev/null
+@@ -1,150 +0,0 @@
+-/* Copyright 2024 The OpenXLA Authors.
+-
+-Licensed under the Apache License, Version 2.0 (the "License");
+-you may not use this file except in compliance with the License.
+-You may obtain a copy of the License at
+-
+-    http://www.apache.org/licenses/LICENSE-2.0
+-
+-Unless required by applicable law or agreed to in writing, software
+-distributed under the License is distributed on an "AS IS" BASIS,
+-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+-See the License for the specific language governing permissions and
+-limitations under the License.
+-==============================================================================*/
+-#include <cstdint>
+-#include <optional>
+-
+-#include "llvm/ADT/STLExtras.h"
+-#include "llvm/ADT/StringRef.h"
+-#include "mlir/Dialect/Func/IR/FuncOps.h"
+-#include "mlir/IR/Attributes.h"
+-#include "mlir/IR/BuiltinAttributes.h"
+-#include "mlir/IR/BuiltinOps.h"
+-#include "mlir/IR/OperationSupport.h"
+-#include "mlir/IR/PatternMatch.h"
+-#include "mlir/IR/SymbolTable.h"
+-#include "mlir/Support/LLVM.h"
+-#include "mlir/Transforms/DialectConversion.h"
+-#include "shardy/dialect/sdy/ir/constants.h"
+-#include "shardy/dialect/sdy/ir/dialect.h"
+-#include "shardy/dialect/sdy/ir/utils.h"
+-#include "shardy/dialect/sdy/transforms/export/passes.h"  // IWYU pragma: keep
+-
+-namespace mlir {
+-namespace sdy {
+-
+-#define GEN_PASS_DEF_EXPORTNAMEDCOMPUTATIONSPASS
+-#include "shardy/dialect/sdy/transforms/export/passes.h.inc"
+-
+-namespace {
+-
+-using func::CallOp;
+-using func::FuncOp;
+-
+-struct NamedComputationWithCount {
+-  NamedComputationOp namedComputationOp;
+-  int64_t callSiteCount;
+-};
+-
+-// TODO(enver): TensorShardingPerValueAttr can be nullptr. Drop optional and use
+-// nullptr. Be careful on handling an empty TensorShardingPerValueAttr properly.
+-StringAttr createFuncOp(
+-    NamedComputationOp namedComputationOp, IRRewriter& rewriter,
+-    SymbolTable& symbolTable,
+-    std::optional<TensorShardingPerValueAttr> inShardings,
+-    std::optional<TensorShardingPerValueAttr> outShardings) {
+-  FuncOp funcOp = FuncOp::create(
+-      rewriter, namedComputationOp.getLoc(), namedComputationOp.getName(),
+-      rewriter.getFunctionType(namedComputationOp.getBody().getArgumentTypes(),
+-                               namedComputationOp.getResultTypes()),
+-      rewriter.getStringAttr("private"),
+-      /*argAttrs=*/ArrayAttr(), /*resultAttrs=*/ArrayAttr());
+-  funcOp->setAttr(kOriginalFuncName, namedComputationOp.getNameAttr());
+-
+-  rewriter.setInsertionPointToStart(funcOp->getBlock());
+-  inlineRegionAndConvertTerminatorOp<func::ReturnOp>(
+-      namedComputationOp.getBody(), funcOp.getBody());
+-
+-  // Copy the input shardings to the func.
+-  if (inShardings.has_value()) {
+-    for (auto [i, sharding] : llvm::enumerate(inShardings->getShardings())) {
+-      funcOp.setArgAttr(i, kShardingAttr, sharding);
+-    }
+-  }
+-
+-  // Copy the output shardings to the func.
+-  if (outShardings.has_value()) {
+-    for (auto [i, sharding] : llvm::enumerate(outShardings->getShardings())) {
+-      funcOp.setResultAttr(i, kShardingAttr, sharding);
+-    }
+-  }
+-  return symbolTable.insert(funcOp);
+-}
+-
+-TensorShardingPerValueAttr getFullyClosedLike(
+-    TensorShardingPerValueAttr shardings) {
+-  SmallVector<TensorShardingAttr> resultShardings;
+-  resultShardings.reserve(shardings.size());
+-  for (TensorShardingAttr sharding : shardings.getShardings()) {
+-    resultShardings.push_back(TensorShardingAttr::getFullyClosedLike(sharding));
+-  }
+-  return TensorShardingPerValueAttr::get(shardings.getContext(),
+-                                         resultShardings);
+-}
+-
+-void exportNamedComputations(ModuleOp moduleOp, SymbolTable& symbolTable) {
+-  Block& moduleBlock = moduleOp.getRegion().front();
+-
+-  // NOTE: The walk needs to be in post order, which is the default order, to
+-  // account for nested named computations.
+-  moduleOp.walk([&](NamedComputationOp namedComputationOp) {
+-    IRRewriter rewriter(namedComputationOp);
+-    rewriter.setInsertionPointToEnd(&moduleBlock);
+-
+-    std::optional<TensorShardingPerValueAttr> inShardings =
+-        namedComputationOp.getInShardings();
+-    std::optional<TensorShardingPerValueAttr> outShardings =
+-        namedComputationOp.getOutShardings();
+-
+-    StringAttr funcSymName = createFuncOp(
+-        namedComputationOp, rewriter, symbolTable, inShardings, outShardings);
+-
+-    // Replace the `NamedComputationOp` with a `CallOp`.
+-    rewriter.setInsertionPoint(namedComputationOp);
+-    SmallVector<NamedAttribute> callOpAttrs(
+-        namedComputationOp->getDiscardableAttrs());
+-    auto callOp = rewriter.replaceOpWithNewOp<CallOp>(
+-        namedComputationOp, namedComputationOp.getResultTypes(), funcSymName,
+-        namedComputationOp.getOperands());
+-    callOp->setAttrs(callOpAttrs);
+-    FuncOp funcOp = symbolTable.lookup<FuncOp>(funcSymName);
+-    // Copy the func output shardings to the call op.
+-    if (TensorShardingPerValueAttr funcResultShardings =
+-            getFuncResultShardings(funcOp, symbolTable);
+-        funcResultShardings || outShardings) {
+-      setShardings(callOp, outShardings
+-                               ? *outShardings
+-                               : getFullyClosedLike(funcResultShardings));
+-    }
+-  });
+-}
+-
+-struct ExportNamedComputationsPass
+-    : public impl::ExportNamedComputationsPassBase<
+-          ExportNamedComputationsPass> {
+-  using ExportNamedComputationsPassBase::ExportNamedComputationsPassBase;
+-
+-  void runOnOperation() final {
+-    ModuleOp moduleOp = getOperation();
+-    SymbolTableCollection symbolTableCollection;
+-
+-    SymbolTable& symbolTable = symbolTableCollection.getSymbolTable(moduleOp);
+-    exportNamedComputations(moduleOp, symbolTable);
+-  }
+-};
+-
+-}  // namespace
+-
+-}  // namespace sdy
+-}  // namespace mlir
+diff --git a/shardy/dialect/sdy/transforms/export/passes.td b/shardy/dialect/sdy/transforms/export/passes.td
+index 0374fdf..b0c5f02 100644
+--- a/shardy/dialect/sdy/transforms/export/passes.td
++++ b/shardy/dialect/sdy/transforms/export/passes.td
+@@ -248,18 +248,3 @@ def ConvertGlobalToLocalPass : Pass<"sdy-convert-global-to-local", "ModuleOp"> {
+             "Combine multi-dimension reduce-scatter into a single reduce-scatter.">,
+     ];
+ }
+-
+-def ExportNamedComputationsPass : Pass<"sdy-export-named-computations", "ModuleOp"> {
+-  let summary = "Outline calls from `NamedComputationOp`.";
+-  let description = [{
+-    Creates a pass that converts a `NamedComputationOp` to a `CallOp` with a new
+-    private function called the `NamedComputationOp`'s `name`. The new `FuncOp`
+-    and `CallOp` have the same shardings as the original `NamedComputationOp`s
+-    operands/results.
+-
+-    If there is a function with the same name as the `NamedComputationOp` in the
+-    module, the MLIR symbol table will change it to `{name}_#`.
+-  }];
+-  let dependentDialects = ["mlir::sdy::SdyDialect"];
+-}
+-
+diff --git a/shardy/dialect/sdy/transforms/export/test/export_named_computations.mlir b/shardy/dialect/sdy/transforms/export/test/export_named_computations.mlir
+deleted file mode 100644
+index b62b1db..0000000
+--- a/shardy/dialect/sdy/transforms/export/test/export_named_computations.mlir
++++ /dev/null
+@@ -1,1237 +0,0 @@
+-// RUN: sdy_opt %s -sdy-export-named-computations -split-input-file | FileCheck %s
+-
+-sdy.mesh @mesh = <["x"=2, "y"=2]>
+-
+-// Note we don't override the block argument shardings of the function
+-// @ignore_operand_shardings, but we set the argument shardings on the call
+-// to @foo.
+-// CHECK-LABEL: func @ignore_operand_shardings(
+-// CHECK-SAME: %arg0: tensor<8x2xi32> {sdy.sharding = #sdy.sharding<@mesh, [{}, {"y"}]>})
+-// CHECK-SAME: -> (tensor<8x2xi32> {sdy.sharding = #sdy.sharding<@mesh, [{"x"}, {"y"}]>}) {
+-func.func @ignore_operand_shardings(%arg0: tensor<8x2xi32> {sdy.sharding = #sdy.sharding<@mesh, [{}, {"y"}]>}) -> (tensor<8x2xi32> {sdy.sharding = #sdy.sharding<@mesh, [{"x"}, {"y"}]>}) {
+-  // CHECK-NEXT: %[[CALL:.*]] = call @foo(%arg0)
+-  // CHECK-SAME:   {mhlo.frontend_attributes = {backend_config = "{\22flag_configs\22:[],\22scoped_memory_configs\22:[],\22device_type\22:\22DEVICE_TYPE_HOST\22,\22used_scoped_memory_configs\22:[]}"},
+-  // CHECK-SAME:    random_attr = "random_value",
+-  // CHECK-SAME:    sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"x"}, {}]>]>}
+-  // CHECK-SAME:   : (tensor<8x2xi32>) -> tensor<8x2xi32>
+-  // CHECK-NEXT: %[[MOVE_TO_HOST:.*]] = stablehlo.custom_call @MoveToHost(%[[CALL]]) {backend_config = "", sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{}, {"y", ?}]>]>} : (tensor<8x2xi32>) -> tensor<8x2xi32>
+-  // CHECK-NEXT: return %[[MOVE_TO_HOST]] : tensor<8x2xi32>
+-  %0 = sdy.named_computation<"foo">(%arg0) in_shardings=[<@mesh, [{}, {"y"}]>] out_shardings=[<@mesh, [{"x"}, {}]>] (%arg1: tensor<8x2xi32>) {
+-    %2 = stablehlo.multiply %arg1, %arg1 {mhlo.frontend_attributes = {_xla_compute_type = "host"}, sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"x", ?}, {"y", ?}]>]>} : tensor<8x2xi32>
+-    sdy.return %2 : tensor<8x2xi32>
+-  } {random_attr = "random_value", mhlo.frontend_attributes = {backend_config = "{\22flag_configs\22:[],\22scoped_memory_configs\22:[],\22device_type\22:\22DEVICE_TYPE_HOST\22,\22used_scoped_memory_configs\22:[]}"}} : (tensor<8x2xi32>) -> tensor<8x2xi32>
+-  %1 = stablehlo.custom_call @MoveToHost(%0) {backend_config = "", sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{}, {"y", ?}]>]>} : (tensor<8x2xi32>) -> tensor<8x2xi32>
+-  return %1 : tensor<8x2xi32>
+-}
+-
+-// CHECK-LABEL: func @vanilla_named_computation(%arg0: tensor<8x2xi32>) -> tensor<8x2xi32> {
+-func.func @vanilla_named_computation(%arg0: tensor<8x2xi32>) -> tensor<8x2xi32> {
+-  // CHECK-NEXT: %[[CALL:.*]] = call @bar(%arg0) : (tensor<8x2xi32>) -> tensor<8x2xi32>
+-  // CHECK-NEXT: return %[[CALL]] : tensor<8x2xi32>
+-  %0 = sdy.named_computation<"bar">(%arg0) (%arg1: tensor<8x2xi32>) {
+-    %1 = stablehlo.multiply %arg1, %arg1 : tensor<8x2xi32>
+-    sdy.return %1 : tensor<8x2xi32>
+-  } : (tensor<8x2xi32>) -> tensor<8x2xi32>
+-  return %0 : tensor<8x2xi32>
+-}
+-
+-// CHECK-LABEL: func private @foo
+-// CHECK-SAME:    (%arg0: tensor<8x2xi32> {sdy.sharding = #sdy.sharding<@mesh, [{}, {"y"}]>})
+-// CHECK-SAME:    -> (tensor<8x2xi32> {sdy.sharding = #sdy.sharding<@mesh, [{"x"}, {}]>}) attributes {sdy.original_func_name = "foo"} {
+-// CHECK-NEXT:    %[[MULT:.*]] = stablehlo.multiply %arg0, %arg0 {mhlo.frontend_attributes = {_xla_compute_type = "host"}, sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"x", ?}, {"y", ?}]>]>} : tensor<8x2xi32>
+-// CHECK-NEXT:    return %0 : tensor<8x2xi32>
+-
+-// CHECK-LABEL: func private @bar(%arg0: tensor<8x2xi32>) -> tensor<8x2xi32> attributes {sdy.original_func_name = "bar"} {
+-// CHECK-NEXT:    %[[MULT:.*]] = stablehlo.multiply %arg0, %arg0 : tensor<8x2xi32>
+-// CHECK-NEXT:    return %0 : tensor<8x2xi32>
+-
+-// -----
+-
+-sdy.mesh @mesh = <["x"=2, "y"=2]>
+-
+-// CHECK-LABEL: func @multiple_same_named_computations_same_shardings(
+-func.func @multiple_same_named_computations_same_shardings(%arg0: tensor<8x2xi32> {sdy.sharding = #sdy.sharding<@mesh, [{}, {"y"}]>}) -> (tensor<8x2xi32> {sdy.sharding = #sdy.sharding<@mesh, [{"x"}, {"y"}]>}) {
+-  // CHECK-NEXT: %0 = call @baz(%arg0) {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"x"}, {}]>]>} : (tensor<8x2xi32>) -> tensor<8x2xi32>
+-  // CHECK-NEXT: %1 = call @baz_0(%arg0) {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"x"}, {}]>]>} : (tensor<8x2xi32>) -> tensor<8x2xi32>
+-  // CHECK-NEXT: return %1 : tensor<8x2xi32>
+-  %0 = sdy.named_computation<"baz">(%arg0) in_shardings=[<@mesh, [{}, {"y"}]>] out_shardings=[<@mesh, [{"x"}, {}]>] (%arg1: tensor<8x2xi32>) {
+-    %2 = stablehlo.multiply %arg1, %arg1 {mhlo.frontend_attributes = {_xla_compute_type = "host"}, sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"x", ?}, {"y", ?}]>]>} : tensor<8x2xi32>
+-    sdy.return %2 : tensor<8x2xi32>
+-  } : (tensor<8x2xi32>) -> tensor<8x2xi32>
+-  %1 = sdy.named_computation<"baz">(%arg0) in_shardings=[<@mesh, [{}, {"y"}]>] out_shardings=[<@mesh, [{"x"}, {}]>] (%arg1: tensor<8x2xi32>) {
+-    %3 = stablehlo.multiply %arg1, %arg1 {mhlo.frontend_attributes = {_xla_compute_type = "host"}, sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"x", ?}, {"y", ?}]>]>} : tensor<8x2xi32>
+-    sdy.return %3 : tensor<8x2xi32>
+-  } : (tensor<8x2xi32>) -> tensor<8x2xi32>
+-  return %1 : tensor<8x2xi32>
+-}
+-
+-// CHECK-LABEL: func private @baz(
+-// CHECK-SAME:    %arg0: tensor<8x2xi32> {sdy.sharding = #sdy.sharding<@mesh, [{}, {"y"}]>})
+-// CHECK-SAME:    -> (tensor<8x2xi32> {sdy.sharding = #sdy.sharding<@mesh, [{"x"}, {}]>})
+-// CHECK-SAME:  attributes {sdy.original_func_name = "baz"}
+-
+-// -----
+-
+-sdy.mesh @mesh = <["x"=2, "y"=2]>
+-
+-// CHECK-LABEL: func @multiple_same_named_computations_different_shardings(
+-func.func @multiple_same_named_computations_different_shardings(%arg0: tensor<8x2xi32> {sdy.sharding = #sdy.sharding<@mesh, [{}, {"y"}]>}) -> (tensor<8x2xi32> {sdy.sharding = #sdy.sharding<@mesh, [{"x"}, {"y"}]>}) {
+-  // CHECK-NEXT: %0 = call @baz(%arg0) {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"x"}, {}]>]>} : (tensor<8x2xi32>) -> tensor<8x2xi32>
+-  // CHECK-NEXT: %1 = call @baz_0(%arg0) {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"x"}, {"y"}]>]>} : (tensor<8x2xi32>) -> tensor<8x2xi32>
+-  // CHECK-NEXT: return %1 : tensor<8x2xi32>
+-  %0 = sdy.named_computation<"baz">(%arg0) in_shardings=[<@mesh, [{}, {"y"}]>] out_shardings=[<@mesh, [{"x"}, {}]>] (%arg1: tensor<8x2xi32>) {
+-    %2 = stablehlo.multiply %arg1, %arg1 {mhlo.frontend_attributes = {_xla_compute_type = "host"}, sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"x", ?}, {"y", ?}]>]>} : tensor<8x2xi32>
+-    sdy.return %2 : tensor<8x2xi32>
+-  } : (tensor<8x2xi32>) -> tensor<8x2xi32>
+-  %1 = sdy.named_computation<"baz">(%arg0) in_shardings=[<@mesh, [{}, {"y"}]>] out_shardings=[<@mesh, [{"x"}, {"y"}]>] (%arg1: tensor<8x2xi32>) {
+-    %3 = stablehlo.multiply %arg1, %arg1 {mhlo.frontend_attributes = {_xla_compute_type = "host"}, sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"x", ?}, {"y", ?}]>]>} : tensor<8x2xi32>
+-    sdy.return %3 : tensor<8x2xi32>
+-  } : (tensor<8x2xi32>) -> tensor<8x2xi32>
+-  return %1 : tensor<8x2xi32>
+-}
+-
+-// CHECK-LABEL: func private @baz(
+-// CHECK-SAME:    %arg0: tensor<8x2xi32> {sdy.sharding = #sdy.sharding<@mesh, [{}, {"y"}]>})
+-// CHECK-SAME:    -> (tensor<8x2xi32> {sdy.sharding = #sdy.sharding<@mesh, [{"x"}, {}]>})
+-// CHECK-SAME:  attributes {sdy.original_func_name = "baz"}
+-
+-// CHECK-LABEL: func private @baz_0(
+-// CHECK-SAME:    %arg0: tensor<8x2xi32> {sdy.sharding = #sdy.sharding<@mesh, [{}, {"y"}]>})
+-// CHECK-SAME:    -> (tensor<8x2xi32> {sdy.sharding = #sdy.sharding<@mesh, [{"x"}, {"y"}]>})
+-// CHECK-SAME:  attributes {sdy.original_func_name = "baz"}
+-
+-// -----
+-
+-sdy.mesh @mesh = <["x"=2, "y"=2]>
+-
+-// CHECK-LABEL: func @multiple_same_named_computations_same_shardings_named_computations_have_different_manual_computation_calls(
+-func.func @multiple_same_named_computations_same_shardings_named_computations_have_different_manual_computation_calls(%arg0: tensor<8x2xi32>) -> (tensor<8x2xi32> {sdy.sharding = #sdy.sharding<@mesh, [{"x"}, {"y"}]>}) {
+-  // CHECK-NEXT: %0 = call @baz(%arg0) {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{}, {}]>]>} : (tensor<8x2xi32>) -> tensor<8x2xi32>
+-  // CHECK-NEXT: %1 = call @baz_0(%arg0) {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{}, {}]>]>} : (tensor<8x2xi32>) -> tensor<8x2xi32>
+-  // CHECK-NEXT: %2 = call @baz_1(%arg0) {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{}, {}]>]>} : (tensor<8x2xi32>) -> tensor<8x2xi32>
+-  // CHECK-NEXT: return %2 : tensor<8x2xi32>
+-  %0 = sdy.named_computation<"baz">(%arg0) in_shardings=[<@mesh, [{}, {}]>] out_shardings=[<@mesh, [{}, {}]>] (%arg1: tensor<8x2xi32>) {
+-    %3 = func.call @xla.sdy.inlinable_manual_computation_body(%arg1) {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{}, {}]>]>} : (tensor<8x2xi32>) -> tensor<8x2xi32>
+-    sdy.return %3 : tensor<8x2xi32>
+-  } : (tensor<8x2xi32>) -> tensor<8x2xi32>
+-  %1 = sdy.named_computation<"baz">(%arg0) in_shardings=[<@mesh, [{}, {}]>] out_shardings=[<@mesh, [{}, {}]>] (%arg1: tensor<8x2xi32>) {
+-    %3 = func.call @xla.sdy.inlinable_manual_computation_body_0(%arg1) {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{}, {}]>]>} : (tensor<8x2xi32>) -> tensor<8x2xi32>
+-    sdy.return %3 : tensor<8x2xi32>
+-  } : (tensor<8x2xi32>) -> tensor<8x2xi32>
+-  %2 = sdy.named_computation<"baz">(%arg0) in_shardings=[<@mesh, [{}, {}]>] out_shardings=[<@mesh, [{}, {}]>] (%arg1: tensor<8x2xi32>) {
+-    %3 = func.call @xla.sdy.inlinable_manual_computation_body_1(%arg1) {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{}, {}]>]>} : (tensor<8x2xi32>) -> tensor<8x2xi32>
+-    sdy.return %3 : tensor<8x2xi32>
+-  } : (tensor<8x2xi32>) -> tensor<8x2xi32>
+-  return %2 : tensor<8x2xi32>
+-}
+-
+-// CHECK-LABEL: func @xla.sdy.inlinable_manual_computation_body(
+-func.func @xla.sdy.inlinable_manual_computation_body(
+-  %arg0: tensor<8x2xi32> {sdy.sharding = #sdy.sharding<@mesh, [{}, {}]>})
+- -> (tensor<8x2xi32> {sdy.sharding = #sdy.sharding<@mesh, [{}, {}]>}) {
+-  return %arg0 : tensor<8x2xi32>
+-}
+-
+-// CHECK:   func @xla.sdy.inlinable_manual_computation_body_0(
+-func.func @xla.sdy.inlinable_manual_computation_body_0(
+-  %arg0: tensor<8x2xi32> {sdy.sharding = #sdy.sharding<@mesh, [{}, {}]>})
+- -> (tensor<8x2xi32> {sdy.sharding = #sdy.sharding<@mesh, [{}, {}]>}) {
+-  return %arg0 : tensor<8x2xi32>
+-}
+-
+-// CHECK:   func @xla.sdy.inlinable_manual_computation_body_1(
+-func.func @xla.sdy.inlinable_manual_computation_body_1(
+-  %arg0: tensor<8x2xi32> {sdy.sharding = #sdy.sharding<@mesh, [{}, {}]>})
+- -> (tensor<8x2xi32> {sdy.sharding = #sdy.sharding<@mesh, [{}, {}]>}) {
+-  return %arg0 : tensor<8x2xi32>
+-}
+-
+-// CHECK-LABEL: func private @baz(
+-// CHECK-SAME:    %arg0: tensor<8x2xi32> {sdy.sharding = #sdy.sharding<@mesh, [{}, {}]>})
+-// CHECK-SAME:    -> (tensor<8x2xi32> {sdy.sharding = #sdy.sharding<@mesh, [{}, {}]>})
+-// CHECK-SAME:  attributes {sdy.original_func_name = "baz"}
+-
+-// -----
+-
+-sdy.mesh @mesh = <["x"=2, "y"=2]>
+-
+-// CHECK-LABEL: func @non_flat_nested_named_computations_same_shardings(
+-// CHECK-SAME:      %arg0: tensor<8xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"x"}]>}
+-// CHECK-SAME:      -> (tensor<8xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"x"}]>}) {
+-func.func @non_flat_nested_named_computations_same_shardings(%arg0: tensor<8xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"x"}]>}) -> (tensor<8xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"x"}]>}) {
+-  // CHECK: %0 = call @foo(%arg0) {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"x"}]>]>} : (tensor<8xf32>) -> tensor<8xf32>
+-  // CHECK-NEXT: %1 = stablehlo.negate %0 {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"x"}]>]>} : tensor<8xf32>
+-  // CHECK-NEXT: %2 = call @baz(%1) {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"x"}]>]>} : (tensor<8xf32>) -> tensor<8xf32>
+-  // CHECK-NEXT: %3 = call @bar_0(%2) {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"x"}]>]>} : (tensor<8xf32>) -> tensor<8xf32>
+-  // CHECK-NEXT: return %3 : tensor<8xf32>
+-  %0 = sdy.named_computation<"foo">(%arg0) in_shardings=[<@mesh, [{"x"}]>] out_shardings=[<@mesh, [{"x"}]>] (%arg1: tensor<8xf32>) {
+-    %1 = stablehlo.add %arg1, %arg1 {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"x"}]>]>} : tensor<8xf32>
+-    %2 = sdy.named_computation<"bar">(%1) in_shardings=[<@mesh, [{"x"}]>] out_shardings=[<@mesh, [{"x"}]>] (%arg2: tensor<8xf32>) {
+-      %3 = stablehlo.abs %arg2 {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"x"}]>]>} : tensor<8xf32>
+-      sdy.return %3 : tensor<8xf32>
+-    } : (tensor<8xf32>) -> tensor<8xf32>
+-    sdy.return %2 : tensor<8xf32>
+-  } : (tensor<8xf32>) -> tensor<8xf32>
+-  %4 = stablehlo.negate %0 {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"x"}]>]>} : tensor<8xf32>
+-  %5 = sdy.named_computation<"baz">(%4) in_shardings=[<@mesh, [{"x"}]>] out_shardings=[<@mesh, [{"x"}]>] (%arg1: tensor<8xf32>) {
+-    %6 = stablehlo.abs %arg1 {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"x"}]>]>} : tensor<8xf32>
+-    sdy.return %6 : tensor<8xf32>
+-  } : (tensor<8xf32>) -> tensor<8xf32>
+-  %7 = sdy.named_computation<"bar">(%5) in_shardings=[<@mesh, [{"x"}]>] out_shardings=[<@mesh, [{"x"}]>] (%arg1: tensor<8xf32>) {
+-    %8 = stablehlo.abs %arg1 {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"x"}]>]>} : tensor<8xf32>
+-    sdy.return %8 : tensor<8xf32>
+-  } : (tensor<8xf32>) -> tensor<8xf32>
+-  return %7 : tensor<8xf32>
+-}
+-
+-// CHECK-LABEL: func private @bar(
+-// CHECK-SAME:      %arg0: tensor<8xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"x"}]>}
+-// CHECK-SAME:      -> (tensor<8xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"x"}]>}) attributes {sdy.original_func_name = "bar"} {
+-// CHECK-NEXT:    %0 = stablehlo.abs %arg0 {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"x"}]>]>} : tensor<8xf32>
+-// CHECK-NEXT:    return %0 : tensor<8xf32>
+-// CHECK-NEXT:  }
+-
+-// CHECK-LABEL: func private @foo(
+-// CHECK-SAME:      %arg0: tensor<8xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"x"}]>}
+-// CHECK-SAME:      -> (tensor<8xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"x"}]>}) attributes {sdy.original_func_name = "foo"} {
+-// CHECK-NEXT:   %0 = stablehlo.add %arg0, %arg0 {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"x"}]>]>} : tensor<8xf32>
+-// CHECK-NEXT:   %1 = call @bar(%0) {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"x"}]>]>} : (tensor<8xf32>) -> tensor<8xf32>
+-// CHECK-NEXT:   return %1 : tensor<8xf32>
+-// CHECK-NEXT:  }
+-
+-// CHECK-LABEL: func private @baz(
+-// CHECK-SAME:      %arg0: tensor<8xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"x"}]>}
+-// CHECK-SAME:      -> (tensor<8xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"x"}]>}) attributes {sdy.original_func_name = "baz"} {
+-// CHECK-NEXT:    %0 = stablehlo.abs %arg0 {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"x"}]>]>} : tensor<8xf32>
+-// CHECK-NEXT:    return %0 : tensor<8xf32>
+-// CHECK-NEXT:  }
+-
+-// -----
+-
+-sdy.mesh @mesh = <["x"=2, "y"=2]>
+-
+-// CHECK-LABEL: func @non_flat_nested_named_computations_different_shardings(
+-// CHECK-SAME:      %arg0: tensor<8xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"x"}]>}
+-// CHECK-SAME:      -> (tensor<8xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"x"}]>}) {
+-func.func @non_flat_nested_named_computations_different_shardings(%arg0: tensor<8xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"x"}]>}) -> (tensor<8xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"x"}]>}) {
+-  // CHECK: %0 = call @foo(%arg0) {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"x"}]>]>} : (tensor<8xf32>) -> tensor<8xf32>
+-  // CHECK-NEXT: %1 = stablehlo.negate %0 {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"x"}]>]>} : tensor<8xf32>
+-  // CHECK-NEXT: %2 = call @baz(%1) {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"x"}]>]>} : (tensor<8xf32>) -> tensor<8xf32>
+-  // CHECK-NEXT: %3 = call @bar_0(%2) {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"y"}]>]>} : (tensor<8xf32>) -> tensor<8xf32>
+-  // CHECK-NEXT: return %3 : tensor<8xf32>
+-  %0 = sdy.named_computation<"foo">(%arg0) in_shardings=[<@mesh, [{"x"}]>] out_shardings=[<@mesh, [{"x"}]>] (%arg1: tensor<8xf32>) {
+-    %1 = stablehlo.add %arg1, %arg1 {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"x"}]>]>} : tensor<8xf32>
+-    %2 = sdy.named_computation<"bar">(%1) in_shardings=[<@mesh, [{"x"}]>] out_shardings=[<@mesh, [{"x"}]>] (%arg2: tensor<8xf32>) {
+-      %3 = stablehlo.abs %arg2 {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"x"}]>]>} : tensor<8xf32>
+-      sdy.return %3 : tensor<8xf32>
+-    } : (tensor<8xf32>) -> tensor<8xf32>
+-    sdy.return %2 : tensor<8xf32>
+-  } : (tensor<8xf32>) -> tensor<8xf32>
+-  %4 = stablehlo.negate %0 {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"x"}]>]>} : tensor<8xf32>
+-  %5 = sdy.named_computation<"baz">(%4) in_shardings=[<@mesh, [{"x"}]>] out_shardings=[<@mesh, [{"x"}]>] (%arg1: tensor<8xf32>) {
+-    %6 = stablehlo.abs %arg1 {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"x"}]>]>} : tensor<8xf32>
+-    sdy.return %6 : tensor<8xf32>
+-  } : (tensor<8xf32>) -> tensor<8xf32>
+-  %7 = sdy.named_computation<"bar">(%5) in_shardings=[<@mesh, [{"x"}]>] out_shardings=[<@mesh, [{"y"}]>] (%arg1: tensor<8xf32>) {
+-    %8 = stablehlo.abs %arg1 {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"y"}]>]>} : tensor<8xf32>
+-    sdy.return %8 : tensor<8xf32>
+-  } : (tensor<8xf32>) -> tensor<8xf32>
+-  return %7 : tensor<8xf32>
+-}
+-
+-// CHECK-LABEL: func private @bar(
+-// CHECK-SAME:      %arg0: tensor<8xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"x"}]>}
+-// CHECK-SAME:      -> (tensor<8xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"x"}]>}) attributes {sdy.original_func_name = "bar"} {
+-// CHECK-NEXT:    %0 = stablehlo.abs %arg0 {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"x"}]>]>} : tensor<8xf32>
+-// CHECK-NEXT:    return %0 : tensor<8xf32>
+-// CHECK-NEXT:  }
+-
+-// CHECK-LABEL: func private @foo(
+-// CHECK-SAME:      %arg0: tensor<8xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"x"}]>}
+-// CHECK-SAME:      -> (tensor<8xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"x"}]>}) attributes {sdy.original_func_name = "foo"} {
+-// CHECK-NEXT:    %0 = stablehlo.add %arg0, %arg0 {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"x"}]>]>} : tensor<8xf32>
+-// CHECK-NEXT:    %1 = call @bar(%0) {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"x"}]>]>} : (tensor<8xf32>) -> tensor<8xf32>
+-// CHECK-NEXT:    return %1 : tensor<8xf32>
+-// CHECK-NEXT:  }
+-
+-// CHECK-LABEL: func private @baz(
+-// CHECK-SAME:      %arg0: tensor<8xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"x"}]>}
+-// CHECK-SAME:      -> (tensor<8xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"x"}]>}) attributes {sdy.original_func_name = "baz"} {
+-// CHECK-NEXT:    %0 = stablehlo.abs %arg0 {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"x"}]>]>} : tensor<8xf32>
+-// CHECK-NEXT:    return %0 : tensor<8xf32>
+-// CHECK-NEXT:  }
+-
+-// CHECK-LABEL: func private @bar_0(
+-// CHECK-SAME:      %arg0: tensor<8xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"x"}]>}
+-// CHECK-SAME:      -> (tensor<8xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"y"}]>}) attributes {sdy.original_func_name = "bar"} {
+-// CHECK-NEXT:    %0 = stablehlo.abs %arg0 {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"y"}]>]>} : tensor<8xf32>
+-// CHECK-NEXT:    return %0 : tensor<8xf32>
+-// CHECK-NEXT:  }
+-
+-// -----
+-
+-sdy.mesh @mesh = <["x"=2, "y"=2]>
+-
+-// CHECK-LABEL: func @non_flat_nested_named_computations_mixed_shardings(
+-// CHECK-SAME:      %arg0: tensor<8xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"x"}]>}
+-// CHECK-SAME:      -> (tensor<8xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"x"}]>}) {
+-func.func @non_flat_nested_named_computations_mixed_shardings(%arg0: tensor<8xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"x"}]>}) -> (tensor<8xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"x"}]>}) {
+-  // CHECK: %0 = call @foo(%arg0) {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"x"}]>]>} : (tensor<8xf32>) -> tensor<8xf32>
+-  // CHECK-NEXT: %1 = stablehlo.negate %0 {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"x"}]>]>} : tensor<8xf32>
+-  // CHECK-NEXT: %2 = call @bar_0(%1) {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"x"}]>]>} : (tensor<8xf32>) -> tensor<8xf32>
+-  // CHECK-NEXT: %3 = call @bar_1(%2) {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"y"}]>]>} : (tensor<8xf32>) -> tensor<8xf32>
+-  // CHECK-NEXT: return %3 : tensor<8xf32>
+-  %0 = sdy.named_computation<"foo">(%arg0) in_shardings=[<@mesh, [{"x"}]>] out_shardings=[<@mesh, [{"x"}]>] (%arg1: tensor<8xf32>) {
+-    %1 = stablehlo.add %arg1, %arg1 {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"x"}]>]>} : tensor<8xf32>
+-    %2 = sdy.named_computation<"bar">(%1) in_shardings=[<@mesh, [{"x"}]>] out_shardings=[<@mesh, [{"x"}]>] (%arg2: tensor<8xf32>) {
+-      %3 = stablehlo.abs %arg2 {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"x"}]>]>} : tensor<8xf32>
+-      sdy.return %3 : tensor<8xf32>
+-    } : (tensor<8xf32>) -> tensor<8xf32>
+-    sdy.return %2 : tensor<8xf32>
+-  } : (tensor<8xf32>) -> tensor<8xf32>
+-  %4 = stablehlo.negate %0 {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"x"}]>]>} : tensor<8xf32>
+-  %5 = sdy.named_computation<"bar">(%4) in_shardings=[<@mesh, [{"x"}]>] out_shardings=[<@mesh, [{"x"}]>] (%arg1: tensor<8xf32>) {
+-    %6 = stablehlo.abs %arg1 {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"x"}]>]>} : tensor<8xf32>
+-    sdy.return %6 : tensor<8xf32>
+-  } : (tensor<8xf32>) -> tensor<8xf32>
+-  %7 = sdy.named_computation<"bar">(%5) in_shardings=[<@mesh, [{"x"}]>] out_shardings=[<@mesh, [{"y"}]>] (%arg1: tensor<8xf32>) {
+-    %8 = stablehlo.abs %arg1 {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"y"}]>]>} : tensor<8xf32>
+-    sdy.return %8 : tensor<8xf32>
+-  } : (tensor<8xf32>) -> tensor<8xf32>
+-  return %7 : tensor<8xf32>
+-}
+-
+-// CHECK-LABEL: func private @bar(
+-// CHECK-SAME:      %arg0: tensor<8xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"x"}]>}
+-// CHECK-SAME:      -> (tensor<8xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"x"}]>}) attributes {sdy.original_func_name = "bar"} {
+-// CHECK-NEXT:    %0 = stablehlo.abs %arg0 {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"x"}]>]>} : tensor<8xf32>
+-// CHECK-NEXT:    return %0 : tensor<8xf32>
+-// CHECK-NEXT:  }
+-
+-// CHECK-LABEL: func private @foo(
+-// CHECK-SAME:      %arg0: tensor<8xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"x"}]>}
+-// CHECK-SAME:      -> (tensor<8xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"x"}]>}) attributes {sdy.original_func_name = "foo"} {
+-// CHECK-NEXT:    %0 = stablehlo.add %arg0, %arg0 {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"x"}]>]>} : tensor<8xf32>
+-// CHECK-NEXT:    %1 = call @bar(%0) {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"x"}]>]>} : (tensor<8xf32>) -> tensor<8xf32>
+-// CHECK-NEXT:    return %1 : tensor<8xf32>
+-// CHECK-NEXT:  }
+-
+-// CHECK-LABEL: func private @bar_0(
+-// CHECK-SAME:      %arg0: tensor<8xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"x"}]>}
+-// CHECK-SAME:      -> (tensor<8xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"x"}]>}) attributes {sdy.original_func_name = "bar"} {
+-// CHECK-NEXT:    %0 = stablehlo.abs %arg0 {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"x"}]>]>} : tensor<8xf32>
+-// CHECK-NEXT:    return %0 : tensor<8xf32>
+-// CHECK-NEXT:  }
+-
+-// CHECK-LABEL: func private @bar_1(
+-// CHECK-SAME:      %arg0: tensor<8xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"x"}]>}
+-// CHECK-SAME:      -> (tensor<8xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"y"}]>}) attributes {sdy.original_func_name = "bar"} {
+-// CHECK-NEXT:    %0 = stablehlo.abs %arg0 {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"y"}]>]>} : tensor<8xf32>
+-// CHECK-NEXT:    return %0 : tensor<8xf32>
+-// CHECK-NEXT:  }
+-
+-// -----
+-
+-sdy.mesh @mesh = <["x"=2, "y"=2]>
+-
+-// CHECK-LABEL: func @named_computations_with_manual_axes_simple(
+-// CHECK-SAME:      %arg0: tensor<8xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"x", "y"}]>}
+-// CHECK-SAME:      -> (tensor<8xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"x", "y"}]>}) {
+-// CHECK:       %0 = sdy.manual_computation(%arg0) in_shardings=[<@mesh, [{"x", "y"}]>] out_shardings=[<@mesh, [{"x", "y"}]>] manual_axes={"x"} (%arg1: tensor<4xf32>) {
+-// CHECK-NEXT:    %1 = func.call @foo(%arg1) {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"y"}]>]>} : (tensor<4xf32>) -> tensor<4xf32>
+-// CHECK-NEXT:    sdy.return %1 : tensor<4xf32>
+-// CHECK-NEXT:  } : (tensor<8xf32>) -> tensor<8xf32>
+-// CHECK-NEXT:  return %0 : tensor<8xf32>
+-func.func @named_computations_with_manual_axes_simple(%arg0: tensor<8xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"x", "y"}]>}) -> (tensor<8xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"x", "y"}]>}) {
+-  %0 = sdy.manual_computation(%arg0) in_shardings=[<@mesh, [{"x", "y"}]>] out_shardings=[<@mesh, [{"x", "y"}]>] manual_axes={"x"} (%arg1: tensor<4xf32>) {
+-    %1 = sdy.named_computation<"foo">(%arg1) in_shardings=[<@mesh, [{"y"}]>] out_shardings=[<@mesh, [{"y"}]>] (%arg2: tensor<4xf32>) {
+-      %2 = stablehlo.abs %arg2 {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"y"}]>]>} : tensor<4xf32>
+-      sdy.return %2 : tensor<4xf32>
+-    } : (tensor<4xf32>) -> tensor<4xf32>
+-    sdy.return %1 : tensor<4xf32>
+-  } : (tensor<8xf32>) -> tensor<8xf32>
+-  return %0 : tensor<8xf32>
+-}
+-
+-// CHECK-LABEL: func private @foo(
+-// CHECK-SAME:      %arg0: tensor<4xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"y"}]>}
+-// CHECK-SAME:      -> (tensor<4xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"y"}]>}) attributes {sdy.original_func_name = "foo"} {
+-// CHECK-NEXT:    %0 = stablehlo.abs %arg0 {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"y"}]>]>} : tensor<4xf32>
+-// CHECK-NEXT:    return %0 : tensor<4xf32>
+-// CHECK-NEXT:  }
+-
+-// -----
+-
+-sdy.mesh @mesh = <["x"=2, "y"=2]>
+-
+-// CHECK-LABEL: func @named_computations_same_func_with_manual_axes(
+-// CHECK-SAME:      %arg0: tensor<8xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"x", "y"}]>}
+-// CHECK-SAME:      -> (tensor<8xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"x", "y"}]>}) {
+-// CHECK:       %0 = sdy.manual_computation(%arg0) in_shardings=[<@mesh, [{"x", "y"}]>] out_shardings=[<@mesh, [{"x", "y"}]>] manual_axes={"x"} (%arg1: tensor<4xf32>) {
+-// CHECK-NEXT:    %1 = func.call @foo(%arg1) {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"y"}]>]>} : (tensor<4xf32>) -> tensor<4xf32>
+-// CHECK-NEXT:    %2 = func.call @foo_0(%1) {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"y"}]>]>} : (tensor<4xf32>) -> tensor<4xf32>
+-// CHECK-NEXT:    sdy.return %2 : tensor<4xf32>
+-// CHECK-NEXT:  } : (tensor<8xf32>) -> tensor<8xf32>
+-// CHECK-NEXT:  return %0 : tensor<8xf32>
+-func.func @named_computations_same_func_with_manual_axes(%arg0: tensor<8xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"x", "y"}]>}) -> (tensor<8xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"x", "y"}]>}) {
+-  %0 = sdy.manual_computation(%arg0) in_shardings=[<@mesh, [{"x", "y"}]>] out_shardings=[<@mesh, [{"x", "y"}]>] manual_axes={"x"} (%arg1: tensor<4xf32>) {
+-    %1 = sdy.named_computation<"foo">(%arg1) in_shardings=[<@mesh, [{"y"}]>] out_shardings=[<@mesh, [{"y"}]>] (%arg2: tensor<4xf32>) {
+-      %2 = stablehlo.abs %arg2 {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"y"}]>]>} : tensor<4xf32>
+-      sdy.return %2 : tensor<4xf32>
+-    } : (tensor<4xf32>) -> tensor<4xf32>
+-    %3 = sdy.named_computation<"foo">(%1) in_shardings=[<@mesh, [{"y"}]>] out_shardings=[<@mesh, [{"y"}]>] (%arg2: tensor<4xf32>) {
+-      %4 = stablehlo.abs %arg2 {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"y"}]>]>} : tensor<4xf32>
+-      sdy.return %4 : tensor<4xf32>
+-    } : (tensor<4xf32>) -> tensor<4xf32>
+-    sdy.return %3 : tensor<4xf32>
+-  } : (tensor<8xf32>) -> tensor<8xf32>
+-  return %0 : tensor<8xf32>
+-}
+-
+-// CHECK-LABEL: func private @foo(
+-// CHECK-SAME:      %arg0: tensor<4xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"y"}]>}
+-// CHECK-SAME:      -> (tensor<4xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"y"}]>})
+-// CHECK-SAME:      attributes {sdy.original_func_name = "foo"} {
+-// CHECK-NEXT:    %0 = stablehlo.abs %arg0 {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"y"}]>]>} : tensor<4xf32>
+-// CHECK-NEXT:    return %0 : tensor<4xf32>
+-// CHECK-NEXT:  }
+-
+-// CHECK-LABEL: func private @foo_0(
+-// CHECK-SAME:      %arg0: tensor<4xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"y"}]>}
+-// CHECK-SAME:      -> (tensor<4xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"y"}]>})
+-// CHECK-SAME:       attributes {sdy.original_func_name = "foo"} {
+-// CHECK-NEXT:    %0 = stablehlo.abs %arg0 {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"y"}]>]>} : tensor<4xf32>
+-// CHECK-NEXT:    return %0 : tensor<4xf32>
+-// CHECK-NEXT:  }
+-
+-
+-// -----
+-
+-sdy.mesh @mesh = <["x"=2, "y"=2]>
+-
+-// CHECK-LABEL: func @named_computations_different_funcs_with_manual_axes_one_without(
+-// CHECK-SAME:      %arg0: tensor<8xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"x", "y"}]>}
+-// CHECK-SAME:      -> (tensor<8xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"x", "y"}]>}) {
+-// CHECK:       %[[MC:.*]] = sdy.manual_computation(%arg0) in_shardings=[<@mesh, [{"x", "y"}]>] out_shardings=[<@mesh, [{"x", "y"}]>] manual_axes={"x"} (%arg1: tensor<4xf32>) {
+-// CHECK-NEXT:    %[[CALL0:.*]] = func.call @foo(%arg1) {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"y"}]>]>} : (tensor<4xf32>) -> tensor<4xf32>
+-// CHECK-NEXT:    %[[CALL1:.*]] = func.call @foo_0(%[[CALL0]]) {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"y"}]>]>} : (tensor<4xf32>) -> tensor<4xf32>
+-// CHECK-NEXT:    sdy.return %[[CALL1]] : tensor<4xf32>
+-// CHECK-NEXT:  } : (tensor<8xf32>) -> tensor<8xf32>
+-// CHECK-NEXT:  %[[CALL2:.*]] = call @bar(%[[MC]]) {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"y"}]>]>} : (tensor<8xf32>) -> tensor<8xf32>
+-// CHECK-NEXT:  return %[[CALL2]] : tensor<8xf32>
+-func.func @named_computations_different_funcs_with_manual_axes_one_without(%arg0: tensor<8xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"x", "y"}]>}) -> (tensor<8xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"x", "y"}]>}) {
+-  %0 = sdy.manual_computation(%arg0) in_shardings=[<@mesh, [{"x", "y"}]>] out_shardings=[<@mesh, [{"x", "y"}]>] manual_axes={"x"} (%arg1: tensor<4xf32>) {
+-    %1 = sdy.named_computation<"foo">(%arg1) in_shardings=[<@mesh, [{"y"}]>] out_shardings=[<@mesh, [{"y"}]>] (%arg2: tensor<4xf32>) {
+-      %2 = stablehlo.abs %arg2 {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"y"}]>]>} : tensor<4xf32>
+-      sdy.return %2 : tensor<4xf32>
+-    } : (tensor<4xf32>) -> tensor<4xf32>
+-    %3 = sdy.named_computation<"foo">(%1) in_shardings=[<@mesh, [{"y"}]>] out_shardings=[<@mesh, [{"y"}]>] (%arg2: tensor<4xf32>) {
+-      %4 = stablehlo.abs %arg2 {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"y"}]>]>} : tensor<4xf32>
+-      sdy.return %4 : tensor<4xf32>
+-    } : (tensor<4xf32>) -> tensor<4xf32>
+-    sdy.return %3 : tensor<4xf32>
+-  } : (tensor<8xf32>) -> tensor<8xf32>
+-  %5 = sdy.named_computation<"bar">(%0) in_shardings=[<@mesh, [{"y"}]>] out_shardings=[<@mesh, [{"y"}]>] (%arg1: tensor<8xf32>) {
+-    %6 = stablehlo.abs %arg1 {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"y"}]>]>} : tensor<8xf32>
+-    sdy.return %6 : tensor<8xf32>
+-  } : (tensor<8xf32>) -> tensor<8xf32>
+-  return %5 : tensor<8xf32>
+-}
+-
+-// CHECK-LABEL: func private @foo(
+-// CHECK-SAME:      %arg0: tensor<4xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"y"}]>}
+-// CHECK-SAME:      -> (tensor<4xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"y"}]>})
+-// CHECK-SAME:       attributes {sdy.original_func_name = "foo"} {
+-// CHECK-NEXT:    %0 = stablehlo.abs %arg0 {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"y"}]>]>} : tensor<4xf32>
+-// CHECK-NEXT:    return %0 : tensor<4xf32>
+-// CHECK-NEXT:  }
+-
+-// CHECK-LABEL: func private @bar(
+-// CHECK-SAME:      %arg0: tensor<8xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"y"}]>}
+-// CHECK-SAME:      -> (tensor<8xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"y"}]>}) attributes {sdy.original_func_name = "bar"} {
+-// CHECK-NEXT:    %0 = stablehlo.abs %arg0 {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"y"}]>]>} : tensor<8xf32>
+-// CHECK-NEXT:    return %0 : tensor<8xf32>
+-// CHECK-NEXT:  }
+-
+-// -----
+-
+-sdy.mesh @mesh = <["x"=2, "y"=2]>
+-
+-// CHECK-LABEL: func @named_computations_same_funcs_with_manual_axes_one_without(
+-// CHECK-SAME:      %arg0: tensor<8xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"x", "y"}]>}
+-// CHECK-SAME:      -> (tensor<8xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"x", "y"}]>}) {
+-// CHECK:       %[[MC:.*]] = sdy.manual_computation(%arg0) in_shardings=[<@mesh, [{"x", "y"}]>] out_shardings=[<@mesh, [{"x", "y"}]>] manual_axes={"x"} (%arg1: tensor<4xf32>) {
+-// CHECK-NEXT:    %[[CALL0:.*]] = func.call @foo(%arg1) {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"y"}]>]>} : (tensor<4xf32>) -> tensor<4xf32>
+-// CHECK-NEXT:    %[[CALL1:.*]] = func.call @foo_0(%[[CALL0]]) {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"y"}]>]>} : (tensor<4xf32>) -> tensor<4xf32>
+-// CHECK-NEXT:    sdy.return %[[CALL1]] : tensor<4xf32>
+-// CHECK-NEXT:  } : (tensor<8xf32>) -> tensor<8xf32>
+-// CHECK-NEXT:  %[[CALL:.*]] = call @bar(%[[MC]]) {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"y"}]>]>} : (tensor<8xf32>) -> tensor<8xf32>
+-// CHECK-NEXT:  return %[[CALL]] : tensor<8xf32>
+-func.func @named_computations_same_funcs_with_manual_axes_one_without(%arg0: tensor<8xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"x", "y"}]>}) -> (tensor<8xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"x", "y"}]>}) {
+-  %0 = sdy.manual_computation(%arg0) in_shardings=[<@mesh, [{"x", "y"}]>] out_shardings=[<@mesh, [{"x", "y"}]>] manual_axes={"x"} (%arg1: tensor<4xf32>) {
+-    %1 = sdy.named_computation<"foo">(%arg1) in_shardings=[<@mesh, [{"y"}]>] out_shardings=[<@mesh, [{"y"}]>] (%arg2: tensor<4xf32>) {
+-      %2 = stablehlo.abs %arg2 {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"y"}]>]>} : tensor<4xf32>
+-      sdy.return %2 : tensor<4xf32>
+-    } : (tensor<4xf32>) -> tensor<4xf32>
+-    %3 = sdy.named_computation<"foo">(%1) in_shardings=[<@mesh, [{"y"}]>] out_shardings=[<@mesh, [{"y"}]>] (%arg2: tensor<4xf32>) {
+-      %4 = stablehlo.abs %arg2 {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"y"}]>]>} : tensor<4xf32>
+-      sdy.return %4 : tensor<4xf32>
+-    } : (tensor<4xf32>) -> tensor<4xf32>
+-    sdy.return %3 : tensor<4xf32>
+-  } : (tensor<8xf32>) -> tensor<8xf32>
+-  %5 = sdy.named_computation<"bar">(%0) in_shardings=[<@mesh, [{"y"}]>] out_shardings=[<@mesh, [{"y"}]>] (%arg1: tensor<8xf32>) {
+-    %6 = stablehlo.abs %arg1 {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"y"}]>]>} : tensor<8xf32>
+-    sdy.return %6 : tensor<8xf32>
+-  } : (tensor<8xf32>) -> tensor<8xf32>
+-  return %5 : tensor<8xf32>
+-}
+-
+-// CHECK-LABEL: func private @foo(
+-// CHECK-SAME:      %arg0: tensor<4xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"y"}]>}
+-// CHECK-SAME:      -> (tensor<4xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"y"}]>})
+-// CHECK-SAME:       attributes {sdy.original_func_name = "foo"} {
+-// CHECK-NEXT:    %0 = stablehlo.abs %arg0 {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"y"}]>]>} : tensor<4xf32>
+-// CHECK-NEXT:    return %0 : tensor<4xf32>
+-// CHECK-NEXT:  }
+-
+-// CHECK-LABEL: func private @bar(
+-// CHECK-SAME:      %arg0: tensor<8xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"y"}]>}
+-// CHECK-SAME:      -> (tensor<8xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"y"}]>}) attributes {sdy.original_func_name = "bar"} {
+-// CHECK-NEXT:    %0 = stablehlo.abs %arg0 {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"y"}]>]>} : tensor<8xf32>
+-// CHECK-NEXT:    return %0 : tensor<8xf32>
+-// CHECK-NEXT:  }
+-
+-// -----
+-
+-sdy.mesh @mesh = <["x"=2, "y"=2]>
+-
+-// CHECK-LABEL: func @named_computations_same_funcs_without_manual_axes_one_inside_manual_computation(
+-// CHECK-SAME:      %arg0: tensor<8xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"y"}]>}
+-// CHECK-SAME:      -> (tensor<8xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"y"}]>}) {
+-// CHECK:       %[[MC0:.*]] = sdy.manual_computation(%arg0) in_shardings=[<@mesh, [{"y"}]>] out_shardings=[<@mesh, [{"y"}]>] manual_axes={} (%arg1: tensor<8xf32>) {
+-// CHECK-NEXT:    %[[CALL0:.*]] = func.call @foo(%arg1) {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"y"}]>]>} : (tensor<8xf32>) -> tensor<8xf32>
+-// CHECK-NEXT:    sdy.return %[[CALL0]] : tensor<8xf32>
+-// CHECK-NEXT:  } : (tensor<8xf32>) -> tensor<8xf32>
+-// CHECK-NEXT:  %[[MC1:.*]] = sdy.manual_computation(%0) in_shardings=[<@mesh, [{"x", "y"}]>] out_shardings=[<@mesh, [{"x", "y"}]>] manual_axes={"x"} (%arg1: tensor<4xf32>) {
+-// CHECK-NEXT:    %[[CALL1:.*]] = func.call @bar(%arg1) {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"y"}]>]>} : (tensor<4xf32>) -> tensor<4xf32>
+-// CHECK-NEXT:    sdy.return %[[CALL1]] : tensor<4xf32>
+-// CHECK-NEXT:  } : (tensor<8xf32>) -> tensor<8xf32>
+-// CHECK-NEXT:  %[[CALL:.*]] = call @foo_0(%[[MC1]]) {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"y"}]>]>} : (tensor<8xf32>) -> tensor<8xf32>
+-// CHECK-NEXT:  return %[[CALL]] : tensor<8xf32>
+-func.func @named_computations_same_funcs_without_manual_axes_one_inside_manual_computation(%arg0: tensor<8xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"y"}]>}) -> (tensor<8xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"y"}]>}) {
+-  %0 = sdy.manual_computation(%arg0) in_shardings=[<@mesh, [{"y"}]>] out_shardings=[<@mesh, [{"y"}]>] manual_axes={} (%arg1: tensor<8xf32>) {
+-    %1 = sdy.named_computation<"foo">(%arg1) in_shardings=[<@mesh, [{"y"}]>] out_shardings=[<@mesh, [{"y"}]>] (%arg2: tensor<8xf32>) {
+-      %2 = stablehlo.abs %arg2 {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{}]>]>} : tensor<8xf32>
+-      sdy.return %2 : tensor<8xf32>
+-    } : (tensor<8xf32>) -> tensor<8xf32>
+-    sdy.return %1 : tensor<8xf32>
+-  } : (tensor<8xf32>) -> tensor<8xf32>
+-  %3 = sdy.manual_computation(%0) in_shardings=[<@mesh, [{"x", "y"}]>] out_shardings=[<@mesh, [{"x", "y"}]>] manual_axes={"x"} (%arg1: tensor<4xf32>) {
+-    %4 = sdy.named_computation<"bar">(%arg1) in_shardings=[<@mesh, [{"y"}]>] out_shardings=[<@mesh, [{"y"}]>] (%arg2: tensor<4xf32>) {
+-      %5 = stablehlo.abs %arg2 {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"y"}]>]>} : tensor<4xf32>
+-      sdy.return %5 : tensor<4xf32>
+-    } : (tensor<4xf32>) -> tensor<4xf32>
+-    sdy.return %4 : tensor<4xf32>
+-  } : (tensor<8xf32>) -> tensor<8xf32>
+-  %6 = sdy.named_computation<"foo">(%3) in_shardings=[<@mesh, [{"y"}]>] out_shardings=[<@mesh, [{"y"}]>] (%arg1: tensor<8xf32>) {
+-    %7 = stablehlo.abs %arg1 {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"y"}]>]>} : tensor<8xf32>
+-    sdy.return %7 : tensor<8xf32>
+-  } : (tensor<8xf32>) -> tensor<8xf32>
+-  return %6 : tensor<8xf32>
+-}
+-
+-// CHECK-LABEL: func private @foo(
+-// CHECK-SAME:      %arg0: tensor<8xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"y"}]>}
+-// CHECK-SAME:      -> (tensor<8xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"y"}]>}) attributes {sdy.original_func_name = "foo"} {
+-// CHECK-NEXT:    %0 = stablehlo.abs %arg0 {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{}]>]>} : tensor<8xf32>
+-// CHECK-NEXT:    return %0 : tensor<8xf32>
+-// CHECK-NEXT:  }
+-
+-// CHECK-LABEL: func private @foo_0(
+-// CHECK-SAME:      %arg0: tensor<8xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"y"}]>}
+-// CHECK-SAME:      -> (tensor<8xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"y"}]>}) attributes {sdy.original_func_name = "foo"} {
+-// CHECK-NEXT:    %0 = stablehlo.abs %arg0 {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"y"}]>]>} : tensor<8xf32>
+-// CHECK-NEXT:    return %0 : tensor<8xf32>
+-// CHECK-NEXT:  }
+-
+-// -----
+-
+-sdy.mesh @mesh = <["x"=2, "y"=2]>
+-
+-// CHECK-LABEL: func @named_computations_with_manual_axes(
+-// CHECK-SAME:      %arg0: tensor<8xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"x", "y"}]>}
+-// CHECK-SAME:      -> (tensor<8xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"x", "y"}]>}) {
+-// CHECK-NEXT: %[[MC:.*]] = sdy.manual_computation(%arg0) in_shardings=[<@mesh, [{"x", "y"}]>] out_shardings=[<@mesh, [{"x", "y"}]>] manual_axes={"x"} (%arg1: tensor<4xf32>) {
+-// CHECK-NEXT:   %[[CALL0:.*]] = func.call @bar(%arg1) {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"y"}]>]>} : (tensor<4xf32>) -> tensor<4xf32>
+-// CHECK-NEXT:   %[[CALL1:.*]] = func.call @bar_0(%[[CALL0]]) {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"y"}]>]>} : (tensor<4xf32>) -> tensor<4xf32>
+-// CHECK-NEXT:   sdy.return %[[CALL1]] : tensor<4xf32>
+-// CHECK-NEXT: } : (tensor<8xf32>) -> tensor<8xf32>
+-// CHECK-NEXT: %[[CALL0:.*]] = call @foo(%[[MC]]) {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"y"}]>]>} : (tensor<8xf32>) -> tensor<8xf32>
+-// CHECK-NEXT: %[[CALL1:.*]] = call @foo_1(%[[CALL0]]) {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"y"}]>]>} : (tensor<8xf32>) -> tensor<8xf32>
+-// CHECK-NEXT: %[[CALL2:.*]] = call @foo_2(%[[CALL1:.*]]) {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"x", "y"}]>]>} : (tensor<8xf32>) -> tensor<8xf32>
+-// CHECK-NEXT: return %[[CALL2]] : tensor<8xf32>
+-func.func @named_computations_with_manual_axes(%arg0: tensor<8xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"x", "y"}]>}) -> (tensor<8xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"x", "y"}]>}) {
+-  %0 = sdy.manual_computation(%arg0) in_shardings=[<@mesh, [{"x", "y"}]>] out_shardings=[<@mesh, [{"x", "y"}]>] manual_axes={"x"} (%arg1: tensor<4xf32>) {
+-    %1 = sdy.named_computation<"bar">(%arg1) in_shardings=[<@mesh, [{"y"}]>] out_shardings=[<@mesh, [{"y"}]>] (%arg2: tensor<4xf32>) {
+-      %2 = stablehlo.abs %arg2 {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"y"}]>]>} : tensor<4xf32>
+-      sdy.return %2 : tensor<4xf32>
+-    } : (tensor<4xf32>) -> tensor<4xf32>
+-    %3 = sdy.named_computation<"bar">(%1) in_shardings=[<@mesh, [{"y"}]>] out_shardings=[<@mesh, [{"y"}]>] (%arg2: tensor<4xf32>) {
+-      %4 = stablehlo.abs %arg2 {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"y"}]>]>} : tensor<4xf32>
+-      sdy.return %4 : tensor<4xf32>
+-    } : (tensor<4xf32>) -> tensor<4xf32>
+-    sdy.return %3 : tensor<4xf32>
+-  } : (tensor<8xf32>) -> tensor<8xf32>
+-  %5 = sdy.named_computation<"foo">(%0) in_shardings=[<@mesh, [{"y"}]>] out_shardings=[<@mesh, [{"y"}]>] (%arg1: tensor<8xf32>) {
+-    %6 = stablehlo.abs %arg1 {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"y"}]>]>} : tensor<8xf32>
+-    sdy.return %6 : tensor<8xf32>
+-  } : (tensor<8xf32>) -> tensor<8xf32>
+-  %7 = sdy.named_computation<"foo">(%5) in_shardings=[<@mesh, [{"y"}]>] out_shardings=[<@mesh, [{"y"}]>] (%arg1: tensor<8xf32>) {
+-    %8 = stablehlo.abs %arg1 {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"y"}]>]>} : tensor<8xf32>
+-    sdy.return %8 : tensor<8xf32>
+-  } : (tensor<8xf32>) -> tensor<8xf32>
+-  %9 = sdy.named_computation<"foo">(%7) in_shardings=[<@mesh, [{"x", "y"}]>] out_shardings=[<@mesh, [{"x", "y"}]>] (%arg1: tensor<8xf32>) {
+-    %10 = stablehlo.abs %arg1 {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"x", "y"}]>]>} : tensor<8xf32>
+-    sdy.return %10 : tensor<8xf32>
+-  } : (tensor<8xf32>) -> tensor<8xf32>
+-  return %9 : tensor<8xf32>
+-}
+-// CHECK-LABEL: func private @bar(
+-// CHECK-SAME:      %arg0: tensor<4xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"y"}]>}
+-// CHECK-SAME:      -> (tensor<4xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"y"}]>})
+-// CHECK-SAME:       attributes {sdy.original_func_name = "bar"} {
+-// CHECK-NEXT:    %0 = stablehlo.abs %arg0 {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"y"}]>]>} : tensor<4xf32>
+-// CHECK-NEXT:    return %0 : tensor<4xf32>
+-// CHECK-NEXT:  }
+-
+-// CHECK-LABEL: func private @bar_0(
+-// CHECK-SAME:      %arg0: tensor<4xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"y"}]>}
+-// CHECK-SAME:      -> (tensor<4xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"y"}]>})
+-// CHECK-SAME:       attributes {sdy.original_func_name = "bar"} {
+-// CHECK-NEXT:    %0 = stablehlo.abs %arg0 {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"y"}]>]>} : tensor<4xf32>
+-// CHECK-NEXT:    return %0 : tensor<4xf32>
+-// CHECK-NEXT:  }
+-
+-// CHECK-LABEL: func private @foo(
+-// CHECK-SAME:      %arg0: tensor<8xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"y"}]>}
+-// CHECK-SAME:      -> (tensor<8xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"y"}]>}) attributes {sdy.original_func_name = "foo"} {
+-// CHECK-NEXT:    %0 = stablehlo.abs %arg0 {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"y"}]>]>} : tensor<8xf32>
+-// CHECK-NEXT:    return %0 : tensor<8xf32>
+-// CHECK-NEXT:  }
+-
+-// CHECK-LABEL: func private @foo_1(
+-// CHECK-SAME:      %arg0: tensor<8xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"y"}]>}
+-// CHECK-SAME:      -> (tensor<8xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"y"}]>}) attributes {sdy.original_func_name = "foo"} {
+-// CHECK-NEXT:    %0 = stablehlo.abs %arg0 {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"y"}]>]>} : tensor<8xf32>
+-// CHECK-NEXT:    return %0 : tensor<8xf32>
+-// CHECK-NEXT:  }
+-
+-// CHECK-LABEL: func private @foo_2(
+-// CHECK-SAME:      %arg0: tensor<8xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"x", "y"}]>}
+-// CHECK-SAME:      -> (tensor<8xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"x", "y"}]>}) attributes {sdy.original_func_name = "foo"} {
+-// CHECK-NEXT:    %0 = stablehlo.abs %arg0 {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"x", "y"}]>]>} : tensor<8xf32>
+-// CHECK-NEXT:    return %0 : tensor<8xf32>
+-// CHECK-NEXT:  }
+-
+-// -----
+-
+-sdy.mesh @mesh = <["x"=2, "y"=2]>
+-
+-// CHECK-LABEL: func @named_computations_same_funcs_same_shardings_one_inside_manual_computation_without_manual_axes_and_one_outside(
+-// CHECK-SAME:      %arg0: tensor<8xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"y"}]>}
+-// CHECK-SAME:      -> (tensor<8xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"y"}]>}) {
+-// CHECK:       %0 = sdy.manual_computation(%arg0) in_shardings=[<@mesh, [{"y"}]>] out_shardings=[<@mesh, [{"y"}]>] manual_axes={} (%arg1: tensor<8xf32>) {
+-// CHECK-NEXT:    %2 = func.call @foo(%arg1) {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"y"}]>]>} : (tensor<8xf32>) -> tensor<8xf32>
+-// CHECK-NEXT:    sdy.return %2 : tensor<8xf32>
+-// CHECK-NEXT:  } : (tensor<8xf32>) -> tensor<8xf32>
+-// CHECK-NEXT:  %1 = call @foo_0(%0) {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"y"}]>]>} : (tensor<8xf32>) -> tensor<8xf32>
+-// CHECK-NEXT:  return %1 : tensor<8xf32>
+-func.func @named_computations_same_funcs_same_shardings_one_inside_manual_computation_without_manual_axes_and_one_outside(%arg0: tensor<8xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"y"}]>}) -> (tensor<8xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"y"}]>}) {
+-  %0 = sdy.manual_computation(%arg0) in_shardings=[<@mesh, [{"y"}]>] out_shardings=[<@mesh, [{"y"}]>] manual_axes={} (%arg1: tensor<8xf32>) {
+-    %1 = sdy.named_computation<"foo">(%arg1) in_shardings=[<@mesh, [{"y"}]>] out_shardings=[<@mesh, [{"y"}]>] (%arg2: tensor<8xf32>) {
+-      %2 = stablehlo.abs %arg2 {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"y"}]>]>} : tensor<8xf32>
+-      sdy.return %2 : tensor<8xf32>
+-    } : (tensor<8xf32>) -> tensor<8xf32>
+-    sdy.return %1 : tensor<8xf32>
+-  } : (tensor<8xf32>) -> tensor<8xf32>
+-  %3 = sdy.named_computation<"foo">(%0) in_shardings=[<@mesh, [{"y"}]>] out_shardings=[<@mesh, [{"y"}]>] (%arg1: tensor<8xf32>) {
+-    %4 = stablehlo.abs %arg1 {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"y"}]>]>} : tensor<8xf32>
+-    sdy.return %4 : tensor<8xf32>
+-  } : (tensor<8xf32>) -> tensor<8xf32>
+-  return %3 : tensor<8xf32>
+-}
+-
+-// CHECK-LABEL: func private @foo(
+-// CHECK-SAME:      %arg0: tensor<8xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"y"}]>}
+-// CHECK-SAME:      -> (tensor<8xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"y"}]>}) attributes {sdy.original_func_name = "foo"} {
+-// CHECK-NEXT:    %0 = stablehlo.abs %arg0 {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"y"}]>]>} : tensor<8xf32>
+-// CHECK-NEXT:    return %0 : tensor<8xf32>
+-// CHECK-NEXT:  }
+-
+-// CHECK-LABEL: func private @foo_0(
+-// CHECK-SAME:      %arg0: tensor<8xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"y"}]>}
+-// CHECK-SAME:      -> (tensor<8xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"y"}]>}) attributes {sdy.original_func_name = "foo"} {
+-// CHECK-NEXT:    %0 = stablehlo.abs %arg0 {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"y"}]>]>} : tensor<8xf32>
+-// CHECK-NEXT:    return %0 : tensor<8xf32>
+-// CHECK-NEXT:  }
+-
+-// -----
+-
+-sdy.mesh @mesh = <["x"=2, "y"=2]>
+-
+-// CHECK-LABEL: func @named_computations_same_funcs_same_shardings_inside_separate_manual_computation_without_manual_axes(
+-// CHECK-SAME:      %arg0: tensor<8xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"y"}]>}
+-// CHECK-SAME:      -> (tensor<8xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"y"}]>}) {
+-// CHECK:       %0 = sdy.manual_computation(%arg0) in_shardings=[<@mesh, [{"y"}]>] out_shardings=[<@mesh, [{"y"}]>] manual_axes={} (%arg1: tensor<8xf32>) {
+-// CHECK-NEXT:    %2 = func.call @foo(%arg1) {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"y"}]>]>} : (tensor<8xf32>) -> tensor<8xf32>
+-// CHECK-NEXT:    sdy.return %2 : tensor<8xf32>
+-// CHECK-NEXT:  } : (tensor<8xf32>) -> tensor<8xf32>
+-// CHECK-NEXT:  %1 = sdy.manual_computation(%0) in_shardings=[<@mesh, [{"y"}]>] out_shardings=[<@mesh, [{"y"}]>] manual_axes={} (%arg1: tensor<8xf32>) {
+-// CHECK-NEXT:    %2 = func.call @foo_0(%arg1) {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"y"}]>]>} : (tensor<8xf32>) -> tensor<8xf32>
+-// CHECK-NEXT:    sdy.return %2 : tensor<8xf32>
+-// CHECK-NEXT:  } : (tensor<8xf32>) -> tensor<8xf32>
+-// CHECK-NEXT:  return %1 : tensor<8xf32>
+-func.func @named_computations_same_funcs_same_shardings_inside_separate_manual_computation_without_manual_axes(%arg0: tensor<8xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"y"}]>}) -> (tensor<8xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"y"}]>}) {
+-  %0 = sdy.manual_computation(%arg0) in_shardings=[<@mesh, [{"y"}]>] out_shardings=[<@mesh, [{"y"}]>] manual_axes={} (%arg1: tensor<8xf32>) {
+-    %1 = sdy.named_computation<"foo">(%arg1) in_shardings=[<@mesh, [{"y"}]>] out_shardings=[<@mesh, [{"y"}]>] (%arg2: tensor<8xf32>) {
+-      %2 = stablehlo.abs %arg2 {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"y"}]>]>} : tensor<8xf32>
+-      sdy.return %2 : tensor<8xf32>
+-    } : (tensor<8xf32>) -> tensor<8xf32>
+-    sdy.return %1 : tensor<8xf32>
+-  } : (tensor<8xf32>) -> tensor<8xf32>
+-  %3 = sdy.manual_computation(%0) in_shardings=[<@mesh, [{"y"}]>] out_shardings=[<@mesh, [{"y"}]>] manual_axes={} (%arg1: tensor<8xf32>) {
+-    %1 = sdy.named_computation<"foo">(%arg1) in_shardings=[<@mesh, [{"y"}]>] out_shardings=[<@mesh, [{"y"}]>] (%arg2: tensor<8xf32>) {
+-      %2 = stablehlo.abs %arg2 {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"y"}]>]>} : tensor<8xf32>
+-      sdy.return %2 : tensor<8xf32>
+-    } : (tensor<8xf32>) -> tensor<8xf32>
+-    sdy.return %1 : tensor<8xf32>
+-  } : (tensor<8xf32>) -> tensor<8xf32>
+-  return %3 : tensor<8xf32>
+-}
+-
+-// CHECK-LABEL: func private @foo(
+-// CHECK-SAME:      %arg0: tensor<8xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"y"}]>}
+-// CHECK-SAME:      -> (tensor<8xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"y"}]>}) attributes {sdy.original_func_name = "foo"} {
+-// CHECK-NEXT:    %0 = stablehlo.abs %arg0 {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"y"}]>]>} : tensor<8xf32>
+-// CHECK-NEXT:    return %0 : tensor<8xf32>
+-// CHECK-NEXT:  }
+-
+-// CHECK-LABEL: func private @foo_0(
+-// CHECK-SAME:      %arg0: tensor<8xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"y"}]>}
+-// CHECK-SAME:      -> (tensor<8xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"y"}]>}) attributes {sdy.original_func_name = "foo"} {
+-// CHECK-NEXT:    %0 = stablehlo.abs %arg0 {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"y"}]>]>} : tensor<8xf32>
+-// CHECK-NEXT:    return %0 : tensor<8xf32>
+-// CHECK-NEXT:  }
+-
+-// -----
+-
+-sdy.mesh @mesh = <["x"=2, "y"=2]>
+-
+-// CHECK-LABEL: func @named_computations_same_funcs_same_shardings_inside_separate_manual_computation_with_manual_axes(
+-// CHECK-SAME:      %arg0: tensor<8xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"y"}]>}
+-// CHECK-SAME:      -> (tensor<8xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"y"}]>}) {
+-// CHECK:       %0 = sdy.manual_computation(%arg0) in_shardings=[<@mesh, [{"x", "y"}]>] out_shardings=[<@mesh, [{"x", "y"}]>] manual_axes={"x"} (%arg1: tensor<4xf32>) {
+-// CHECK-NEXT:    %2 = func.call @foo(%arg1) {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"y"}]>]>} : (tensor<4xf32>) -> tensor<4xf32>
+-// CHECK-NEXT:    sdy.return %2 : tensor<4xf32>
+-// CHECK-NEXT:  } : (tensor<8xf32>) -> tensor<8xf32>
+-// CHECK-NEXT:  %1 = sdy.manual_computation(%0) in_shardings=[<@mesh, [{"x", "y"}]>] out_shardings=[<@mesh, [{"x", "y"}]>] manual_axes={"x"} (%arg1: tensor<4xf32>) {
+-// CHECK-NEXT:    %2 = func.call @foo_0(%arg1) {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"y"}]>]>} : (tensor<4xf32>) -> tensor<4xf32>
+-// CHECK-NEXT:    sdy.return %2 : tensor<4xf32>
+-// CHECK-NEXT:  } : (tensor<8xf32>) -> tensor<8xf32>
+-// CHECK-NEXT:  return %1 : tensor<8xf32>
+-func.func @named_computations_same_funcs_same_shardings_inside_separate_manual_computation_with_manual_axes(%arg0: tensor<8xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"y"}]>}) -> (tensor<8xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"y"}]>}) {
+-  %0 = sdy.manual_computation(%arg0) in_shardings=[<@mesh, [{"x", "y"}]>] out_shardings=[<@mesh, [{"x", "y"}]>] manual_axes={"x"} (%arg1: tensor<4xf32>) {
+-    %4 = sdy.named_computation<"foo">(%arg1) in_shardings=[<@mesh, [{"y"}]>] out_shardings=[<@mesh, [{"y"}]>] (%arg2: tensor<4xf32>) {
+-      %5 = stablehlo.abs %arg2 {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"y"}]>]>} : tensor<4xf32>
+-      sdy.return %5 : tensor<4xf32>
+-    } : (tensor<4xf32>) -> tensor<4xf32>
+-    sdy.return %4 : tensor<4xf32>
+-  } : (tensor<8xf32>) -> tensor<8xf32>
+-  %3 = sdy.manual_computation(%0) in_shardings=[<@mesh, [{"x", "y"}]>] out_shardings=[<@mesh, [{"x", "y"}]>] manual_axes={"x"} (%arg1: tensor<4xf32>) {
+-    %4 = sdy.named_computation<"foo">(%arg1) in_shardings=[<@mesh, [{"y"}]>] out_shardings=[<@mesh, [{"y"}]>] (%arg2: tensor<4xf32>) {
+-      %5 = stablehlo.abs %arg2 {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"y"}]>]>} : tensor<4xf32>
+-      sdy.return %5 : tensor<4xf32>
+-    } : (tensor<4xf32>) -> tensor<4xf32>
+-    sdy.return %4 : tensor<4xf32>
+-  } : (tensor<8xf32>) -> tensor<8xf32>
+-  return %3 : tensor<8xf32>
+-}
+-
+-// CHECK-LABEL: func private @foo(
+-// CHECK-SAME:      %arg0: tensor<4xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"y"}]>}
+-// CHECK-SAME:      -> (tensor<4xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"y"}]>})
+-// CHECK-SAME:       attributes {sdy.original_func_name = "foo"} {
+-// CHECK-NEXT:    %0 = stablehlo.abs %arg0 {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"y"}]>]>} : tensor<4xf32>
+-// CHECK-NEXT:    return %0 : tensor<4xf32>
+-// CHECK-NEXT:  }
+-
+-
+-// -----
+-
+-sdy.mesh @mesh = <["x"=2, "y"=2]>
+-
+-// CHECK-LABEL: func @named_computations_same_funcs_same_shardings_one_nested_and_inside_manual_computation_without_manual_axes_and_one_outside(
+-// CHECK-SAME:      %arg0: tensor<8xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"y"}]>}
+-// CHECK-SAME:      -> (tensor<8xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"y"}]>}) {
+-// CHECK:       %0 = sdy.manual_computation(%arg0) in_shardings=[<@mesh, [{"y"}]>] out_shardings=[<@mesh, [{"y"}]>] manual_axes={} (%arg1: tensor<8xf32>) {
+-// CHECK-NEXT:    %2 = func.call @foo(%arg1) {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"y"}]>]>} : (tensor<8xf32>) -> tensor<8xf32>
+-// CHECK-NEXT:    sdy.return %2 : tensor<8xf32>
+-// CHECK-NEXT:  } : (tensor<8xf32>) -> tensor<8xf32>
+-// CHECK-NEXT:  %1 = call @bar_0(%0) {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"y"}]>]>} : (tensor<8xf32>) -> tensor<8xf32>
+-// CHECK-NEXT:  return %1 : tensor<8xf32>
+-func.func @named_computations_same_funcs_same_shardings_one_nested_and_inside_manual_computation_without_manual_axes_and_one_outside(%arg0: tensor<8xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"y"}]>}) -> (tensor<8xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"y"}]>}) {
+-  %0 = sdy.manual_computation(%arg0) in_shardings=[<@mesh, [{"y"}]>] out_shardings=[<@mesh, [{"y"}]>] manual_axes={} (%arg1: tensor<8xf32>) {
+-    %1 = sdy.named_computation<"foo">(%arg1) in_shardings=[<@mesh, [{"y"}]>] out_shardings=[<@mesh, [{"y"}]>] (%arg2: tensor<8xf32>) {
+-      %2 = sdy.named_computation<"bar">(%arg2) in_shardings=[<@mesh, [{"y"}]>] out_shardings=[<@mesh, [{"y"}]>] (%arg3: tensor<8xf32>) {
+-        %3 = stablehlo.abs %arg3 {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"y"}]>]>} : tensor<8xf32>
+-        sdy.return %3 : tensor<8xf32>
+-      } : (tensor<8xf32>) -> tensor<8xf32>
+-      sdy.return %2 : tensor<8xf32>
+-    } : (tensor<8xf32>) -> tensor<8xf32>
+-    sdy.return %1 : tensor<8xf32>
+-  } : (tensor<8xf32>) -> tensor<8xf32>
+-  %4 = sdy.named_computation<"bar">(%0) in_shardings=[<@mesh, [{"y"}]>] out_shardings=[<@mesh, [{"y"}]>] (%arg1: tensor<8xf32>) {
+-    %5 = stablehlo.abs %arg1 {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"y"}]>]>} : tensor<8xf32>
+-    sdy.return %5 : tensor<8xf32>
+-  } : (tensor<8xf32>) -> tensor<8xf32>
+-  return %4: tensor<8xf32>
+-}
+-
+-// CHECK-LABEL: func private @bar(
+-// CHECK-SAME:      %arg0: tensor<8xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"y"}]>}
+-// CHECK-SAME:      -> (tensor<8xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"y"}]>}) attributes {sdy.original_func_name = "bar"} {
+-// CHECK-NEXT:    %0 = stablehlo.abs %arg0 {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"y"}]>]>} : tensor<8xf32>
+-// CHECK-NEXT:    return %0 : tensor<8xf32>
+-// CHECK-NEXT:  }
+-
+-// CHECK-LABEL: func private @foo(
+-// CHECK-SAME:      %arg0: tensor<8xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"y"}]>}
+-// CHECK-SAME:      -> (tensor<8xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"y"}]>}) attributes {sdy.original_func_name = "foo"} {
+-// CHECK-NEXT:    %0 = call @bar(%arg0) {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"y"}]>]>} : (tensor<8xf32>) -> tensor<8xf32>
+-// CHECK-NEXT:    return %0 : tensor<8xf32>
+-// CHECK-NEXT:  }
+-
+-// CHECK-LABEL: func private @bar_0(
+-// CHECK-SAME:      %arg0: tensor<8xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"y"}]>}
+-// CHECK-SAME:      -> (tensor<8xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"y"}]>}) attributes {sdy.original_func_name = "bar"} {
+-// CHECK-NEXT:    %0 = stablehlo.abs %arg0 {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"y"}]>]>} : tensor<8xf32>
+-// CHECK-NEXT:    return %0 : tensor<8xf32>
+-// CHECK-NEXT:  }
+-
+-// -----
+-
+-sdy.mesh @mesh = <["x"=2, "y"=2]>
+-
+-// CHECK-LABEL: func @nested_manual_computations(
+-// CHECK-SAME:      %arg0: tensor<8xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"x", "y"}]>}
+-// CHECK-SAME:      -> (tensor<8xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"x", "y"}]>}) {
+-// CHECK-NEXT: %[[MC0:.*]] = sdy.manual_computation(%arg0) in_shardings=[<@mesh, [{"x", "y"}]>] out_shardings=[<@mesh, [{"x", "y"}]>] manual_axes={"x"} (%arg1: tensor<4xf32>) {
+-// CHECK-NEXT:   %[[MC1:.*]] = sdy.manual_computation(%arg1) in_shardings=[<@mesh, [{"y"}]>] out_shardings=[<@mesh, [{"y"}]>] manual_axes={"y"} (%arg2: tensor<2xf32>) {
+-// CHECK-NEXT:     %[[CALL0:.*]] = func.call @foo(%arg2) {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{}]>]>} : (tensor<2xf32>) -> tensor<2xf32>
+-// CHECK-NEXT:     sdy.return %[[CALL0]] : tensor<2xf32>
+-// CHECK-NEXT:   } : (tensor<4xf32>) -> tensor<4xf32>
+-// CHECK-NEXT:   %[[CALL1:.*]] = func.call @bar(%[[MC1]]) {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{}]>]>} : (tensor<4xf32>) -> tensor<4xf32>
+-// CHECK-NEXT:   sdy.return %[[CALL1]] : tensor<4xf32>
+-// CHECK-NEXT: } : (tensor<8xf32>) -> tensor<8xf32>
+-// CHECK-NEXT: %[[MC2:.*]] = sdy.manual_computation(%[[MC0]]) in_shardings=[<@mesh, [{"x", "y"}]>] out_shardings=[<@mesh, [{"x", "y"}]>] manual_axes={"x", "y"} (%arg1: tensor<2xf32>) {
+-// CHECK-NEXT:   %[[CALL2:.*]] = func.call @foo_0(%arg1) {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{}]>]>} : (tensor<2xf32>) -> tensor<2xf32>
+-// CHECK-NEXT:   sdy.return %[[CALL2]] : tensor<2xf32>
+-// CHECK-NEXT: } : (tensor<8xf32>) -> tensor<8xf32>
+-// CHECK-NEXT: %[[CALL2:.*]] = call @baz(%[[MC2]]) {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"x"}]>]>} : (tensor<8xf32>) -> tensor<8xf32>
+-// CHECK-NEXT: return %[[CALL2]] : tensor<8xf32>
+-func.func @nested_manual_computations(%arg0: tensor<8xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"x", "y"}]>}) -> (tensor<8xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"x", "y"}]>}) {
+-  %0 = sdy.manual_computation(%arg0) in_shardings=[<@mesh, [{"x", "y"}]>] out_shardings=[<@mesh, [{"x", "y"}]>] manual_axes={"x"} (%arg1: tensor<4xf32>) {
+-    %1 = sdy.manual_computation(%arg1) in_shardings=[<@mesh, [{"y"}]>] out_shardings=[<@mesh, [{"y"}]>] manual_axes={"y"} (%arg2: tensor<2xf32>) {
+-      %2 = sdy.named_computation<"foo">(%arg2) in_shardings=[<@mesh, [{}]>] out_shardings=[<@mesh, [{}]>] (%arg3: tensor<2xf32>) {
+-        %3 = stablehlo.abs %arg3 {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{}]>]>} : tensor<2xf32>
+-        sdy.return %3 : tensor<2xf32>
+-      } : (tensor<2xf32>) -> tensor<2xf32>
+-      sdy.return %2 : tensor<2xf32>
+-    } : (tensor<4xf32>) -> tensor<4xf32>
+-    %4 = sdy.named_computation<"bar">(%1) in_shardings=[<@mesh, [{}]>] out_shardings=[<@mesh, [{}]>] (%arg2: tensor<4xf32>) {
+-      %5 = stablehlo.abs %arg2 {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{}]>]>} : tensor<4xf32>
+-      sdy.return %5 : tensor<4xf32>
+-    } : (tensor<4xf32>) -> tensor<4xf32>
+-    sdy.return %4 : tensor<4xf32>
+-  } : (tensor<8xf32>) -> tensor<8xf32>
+-  %6 = sdy.manual_computation(%0) in_shardings=[<@mesh, [{"x", "y"}]>] out_shardings=[<@mesh, [{"x", "y"}]>] manual_axes={"x", "y"} (%arg1: tensor<2xf32>) {
+-    %7 = sdy.named_computation<"foo">(%arg1) in_shardings=[<@mesh, [{}]>] out_shardings=[<@mesh, [{}]>] (%arg2: tensor<2xf32>) {
+-      %8 = stablehlo.abs %arg2 {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{}]>]>} : tensor<2xf32>
+-      sdy.return %8 : tensor<2xf32>
+-    } : (tensor<2xf32>) -> tensor<2xf32>
+-    sdy.return %7 : tensor<2xf32>
+-  } : (tensor<8xf32>) -> tensor<8xf32>
+-  %9 = sdy.named_computation<"baz">(%6) in_shardings=[<@mesh, [{"x"}]>] out_shardings=[<@mesh, [{"x"}]>] (%arg1: tensor<8xf32>) {
+-    %10 = stablehlo.abs %arg1 {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"x"}]>]>} : tensor<8xf32>
+-    sdy.return %10 : tensor<8xf32>
+-  } : (tensor<8xf32>) -> tensor<8xf32>
+-  return %9 : tensor<8xf32>
+-}
+-
+-// CHECK-LABEL: func private @foo(
+-// CHECK-SAME:      %arg0: tensor<2xf32> {sdy.sharding = #sdy.sharding<@mesh, [{}]>}
+-// CHECK-SAME:      -> (tensor<2xf32> {sdy.sharding = #sdy.sharding<@mesh, [{}]>})
+-// CHECK-SAME:       attributes {sdy.original_func_name = "foo"} {
+-// CHECK-NEXT:    %0 = stablehlo.abs %arg0 {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{}]>]>} : tensor<2xf32>
+-// CHECK-NEXT:    return %0 : tensor<2xf32>
+-// CHECK-NEXT:  }
+-
+-// CHECK-LABEL: func private @bar(
+-// CHECK-SAME:      %arg0: tensor<4xf32> {sdy.sharding = #sdy.sharding<@mesh, [{}]>}
+-// CHECK-SAME:      -> (tensor<4xf32> {sdy.sharding = #sdy.sharding<@mesh, [{}]>})
+-// CHECK-SAME:       attributes {sdy.original_func_name = "bar"} {
+-// CHECK-NEXT:    %0 = stablehlo.abs %arg0 {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{}]>]>} : tensor<4xf32>
+-// CHECK-NEXT:    return %0 : tensor<4xf32>
+-// CHECK-NEXT:  }
+-
+-// CHECK-LABEL: func private @foo_0(
+-// CHECK-SAME:      %arg0: tensor<2xf32> {sdy.sharding = #sdy.sharding<@mesh, [{}]>}
+-// CHECK-SAME:      -> (tensor<2xf32> {sdy.sharding = #sdy.sharding<@mesh, [{}]>})
+-// CHECK-SAME:       attributes {sdy.original_func_name = "foo"} {
+-// CHECK-NEXT:    %0 = stablehlo.abs %arg0 {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{}]>]>} : tensor<2xf32>
+-// CHECK-NEXT:    return %0 : tensor<2xf32>
+-// CHECK-NEXT:  }
+-
+-// CHECK-LABEL: func private @baz(
+-// CHECK-SAME:      %arg0: tensor<8xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"x"}]>}
+-// CHECK-SAME:      -> (tensor<8xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"x"}]>}) attributes {sdy.original_func_name = "baz"} {
+-// CHECK-NEXT:    %0 = stablehlo.abs %arg0 {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"x"}]>]>} : tensor<8xf32>
+-// CHECK-NEXT:    return %0 : tensor<8xf32>
+-// CHECK-NEXT:  }
+-
+-// -----
+-
+-sdy.mesh @mesh = <["x"=2, "y"=2]>
+-
+-// CHECK-LABEL: func @named_computations_same_funcs_two_same_manual_axes_different_shardings_one_without_manual_axes(
+-// CHECK-SAME:      %arg0: tensor<8xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"x", "y"}]>}
+-// CHECK-SAME:      -> (tensor<8xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"x", "y"}]>}) {
+-// CHECK:       %[[MC:.*]] = sdy.manual_computation(%arg0) in_shardings=[<@mesh, [{"x", "y"}]>] out_shardings=[<@mesh, [{"x", "y"}]>] manual_axes={"x"} (%arg1: tensor<4xf32>) {
+-// CHECK-NEXT:    %[[CALL0:.*]] = func.call @foo(%arg1) {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"y"}]>]>} : (tensor<4xf32>) -> tensor<4xf32>
+-// CHECK-NEXT:    %[[CALL1:.*]] = func.call @foo_0(%[[CALL0]]) {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{}]>]>} : (tensor<4xf32>) -> tensor<4xf32>
+-// CHECK-NEXT:    sdy.return %[[CALL1]] : tensor<4xf32>
+-// CHECK-NEXT:  } : (tensor<8xf32>) -> tensor<8xf32>
+-// CHECK-NEXT:  %[[CALL2:.*]] = call @bar(%[[MC]]) {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"y"}]>]>} : (tensor<8xf32>) -> tensor<8xf32>
+-// CHECK-NEXT:  return %[[CALL2]] : tensor<8xf32>
+-func.func @named_computations_same_funcs_two_same_manual_axes_different_shardings_one_without_manual_axes(%arg0: tensor<8xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"x", "y"}]>}) -> (tensor<8xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"x", "y"}]>}) {
+-  %0 = sdy.manual_computation(%arg0) in_shardings=[<@mesh, [{"x", "y"}]>] out_shardings=[<@mesh, [{"x", "y"}]>] manual_axes={"x"} (%arg1: tensor<4xf32>) {
+-    %1 = sdy.named_computation<"foo">(%arg1) in_shardings=[<@mesh, [{"y"}]>] out_shardings=[<@mesh, [{"y"}]>] (%arg2: tensor<4xf32>) {
+-      %2 = stablehlo.abs %arg2 {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"y"}]>]>} : tensor<4xf32>
+-      sdy.return %2 : tensor<4xf32>
+-    } : (tensor<4xf32>) -> tensor<4xf32>
+-    %3 = sdy.named_computation<"foo">(%1) in_shardings=[<@mesh, [{}]>] out_shardings=[<@mesh, [{}]>] (%arg2: tensor<4xf32>) {
+-      %4 = stablehlo.abs %arg2 {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"y"}]>]>} : tensor<4xf32>
+-      sdy.return %4 : tensor<4xf32>
+-    } : (tensor<4xf32>) -> tensor<4xf32>
+-    sdy.return %3 : tensor<4xf32>
+-  } : (tensor<8xf32>) -> tensor<8xf32>
+-  %5 = sdy.named_computation<"bar">(%0) in_shardings=[<@mesh, [{"y"}]>] out_shardings=[<@mesh, [{"y"}]>] (%arg1: tensor<8xf32>) {
+-    %6 = stablehlo.abs %arg1 {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"y"}]>]>} : tensor<8xf32>
+-    sdy.return %6 : tensor<8xf32>
+-  } : (tensor<8xf32>) -> tensor<8xf32>
+-  return %5 : tensor<8xf32>
+-}
+-
+-// CHECK-LABEL: func private @foo(
+-// CHECK-SAME:      %arg0: tensor<4xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"y"}]>}
+-// CHECK-SAME:      -> (tensor<4xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"y"}]>})
+-// CHECK-SAME:       attributes {sdy.original_func_name = "foo"} {
+-// CHECK-NEXT:    %0 = stablehlo.abs %arg0 {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"y"}]>]>} : tensor<4xf32>
+-// CHECK-NEXT:    return %0 : tensor<4xf32>
+-// CHECK-NEXT:  }
+-
+-// CHECK-LABEL: func private @foo_0(
+-// CHECK-SAME:      %arg0: tensor<4xf32> {sdy.sharding = #sdy.sharding<@mesh, [{}]>}
+-// CHECK-SAME:      -> (tensor<4xf32> {sdy.sharding = #sdy.sharding<@mesh, [{}]>})
+-// CHECK-SAME:       attributes {sdy.original_func_name = "foo"} {
+-// CHECK-NEXT:    %0 = stablehlo.abs %arg0 {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"y"}]>]>} : tensor<4xf32>
+-// CHECK-NEXT:    return %0 : tensor<4xf32>
+-// CHECK-NEXT:  }
+-
+-// CHECK-LABEL: func private @bar(
+-// CHECK-SAME:      %arg0: tensor<8xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"y"}]>}
+-// CHECK-SAME:      -> (tensor<8xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"y"}]>}) attributes {sdy.original_func_name = "bar"} {
+-// CHECK-NEXT:    %0 = stablehlo.abs %arg0 {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"y"}]>]>} : tensor<8xf32>
+-// CHECK-NEXT:    return %0 : tensor<8xf32>
+-// CHECK-NEXT:  }
+-
+-// -----
+-
+-sdy.mesh @mesh = <["x"=2, "y"=2]>
+-
+-// CHECK-LABEL: func @single_named_computation_no_out_sharding(
+-func.func @single_named_computation_no_out_sharding(%arg0: tensor<8x2xi32> {sdy.sharding = #sdy.sharding<@mesh, [{}, {"y"}]>}) -> tensor<8x2xi32> {
+-  // CHECK-NEXT: %[[CALL:.*]] = call @baz(%arg0) : (tensor<8x2xi32>) -> tensor<8x2xi32>
+-  // CHECK-NEXT: %[[ADD:.*]] = stablehlo.add %[[CALL]], %arg0 : tensor<8x2xi32>
+-  // CHECK-NEXT: return %[[ADD]] : tensor<8x2xi32>
+-  %0 = sdy.named_computation<"baz">(%arg0) in_shardings=[<@mesh, [{}, {"y"}]>] (%arg1: tensor<8x2xi32>) {
+-    %2 = stablehlo.multiply %arg1, %arg1 {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"x", ?}, {?}]>]>} : tensor<8x2xi32>
+-    sdy.return %2 : tensor<8x2xi32>
+-  } : (tensor<8x2xi32>) -> tensor<8x2xi32>
+-  %1 = stablehlo.add %0, %arg0 : tensor<8x2xi32>
+-  return %1 : tensor<8x2xi32>
+-}
+-
+-// CHECK-LABEL: func private @baz(
+-// CHECK-SAME:    %arg0: tensor<8x2xi32> {sdy.sharding = #sdy.sharding<@mesh, [{}, {"y"}]>})
+-// CHECK-SAME:    -> tensor<8x2xi32>
+-// CHECK-SAME:  attributes {sdy.original_func_name = "baz"}
+-// CHECK-NEXT:  stablehlo.multiply %arg0, %arg0
+-// CHECK-SAME:  sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"x", ?}, {?}]>]>}
+-
+-// -----
+-
+-sdy.mesh @mesh = <["x"=2, "y"=2]>
+-
+-// CHECK-LABEL: func @same_named_computations_one_with_no_out_sharding(
+-func.func @same_named_computations_one_with_no_out_sharding(%arg0: tensor<8x2xi32> {sdy.sharding = #sdy.sharding<@mesh, [{}, {"y"}]>}) -> tensor<8x2xi32> {
+-  // CHECK-NEXT: %[[CALL0:.*]] = call @baz(%arg0) {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{}, {"y"}]>]>} : (tensor<8x2xi32>) -> tensor<8x2xi32>
+-  // CHECK-NEXT: %[[CALL1:.*]] = call @baz_0(%arg0) : (tensor<8x2xi32>) -> tensor<8x2xi32>
+-  // CHECK-NEXT: %[[ADD:.*]] = stablehlo.add %[[CALL0]], %[[CALL1]] : tensor<8x2xi32>
+-  // CHECK-NEXT: return %[[ADD]] : tensor<8x2xi32>
+-  %0 = sdy.named_computation<"baz">(%arg0) in_shardings=[<@mesh, [{}, {"y"}]>] out_shardings=[<@mesh, [{}, {"y"}]>] (%arg1: tensor<8x2xi32>) {
+-    %2 = stablehlo.multiply %arg1, %arg1 {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"x", ?}, {?}]>]>} : tensor<8x2xi32>
+-    sdy.return %2 : tensor<8x2xi32>
+-  } : (tensor<8x2xi32>) -> tensor<8x2xi32>
+-  %1 = sdy.named_computation<"baz">(%arg0) in_shardings=[<@mesh, [{}, {"y"}]>] (%arg1: tensor<8x2xi32>) {
+-    %2 = stablehlo.multiply %arg1, %arg1 {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"x", ?}, {?}]>]>} : tensor<8x2xi32>
+-    sdy.return %2 : tensor<8x2xi32>
+-  } : (tensor<8x2xi32>) -> tensor<8x2xi32>
+-  %2 = stablehlo.add %0, %1 : tensor<8x2xi32>
+-  return %2 : tensor<8x2xi32>
+-}
+-
+-// CHECK-LABEL: func private @baz(
+-// CHECK-SAME:    %arg0: tensor<8x2xi32> {sdy.sharding = #sdy.sharding<@mesh, [{}, {"y"}]>})
+-// CHECK-SAME:    -> (tensor<8x2xi32> {sdy.sharding = #sdy.sharding<@mesh, [{}, {"y"}]>})
+-// CHECK-SAME:  attributes {sdy.original_func_name = "baz"}
+-// CHECK-NEXT:  stablehlo.multiply %arg0, %arg0
+-// CHECK-SAME:  sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"x", ?}, {?}]>]>}
+-
+-// CHECK-LABEL: func private @baz_0(
+-// CHECK-SAME:    %arg0: tensor<8x2xi32> {sdy.sharding = #sdy.sharding<@mesh, [{}, {"y"}]>})
+-// CHECK-SAME:    -> tensor<8x2xi32>
+-// CHECK-SAME:  attributes {sdy.original_func_name = "baz"}
+-// CHECK-NEXT:  stablehlo.multiply %arg0, %arg0
+-// CHECK-SAME:  sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"x", ?}, {?}]>]>}
+-
+-// -----
+-
+-sdy.mesh @mesh = <["x"=2, "y"=2]>
+-
+-// CHECK-LABEL: func @same_named_computations_one_with_no_out_sharding_one_fully_replicated(
+-func.func @same_named_computations_one_with_no_out_sharding_one_fully_replicated(%arg0: tensor<8x2xi32> {sdy.sharding = #sdy.sharding<@mesh, [{}, {"y"}]>}) -> tensor<8x2xi32> {
+-  // CHECK-NEXT: %[[CALL0:.*]] = call @baz(%arg0) {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{}, {}]>]>} : (tensor<8x2xi32>) -> tensor<8x2xi32>
+-  // CHECK-NEXT: %[[CALL1:.*]] = call @baz_0(%arg0) : (tensor<8x2xi32>) -> tensor<8x2xi32>
+-  // CHECK-NEXT: %[[ADD:.*]] = stablehlo.add %[[CALL0]], %[[CALL1]] : tensor<8x2xi32>
+-  // CHECK-NEXT: return %[[ADD]] : tensor<8x2xi32>
+-  %0 = sdy.named_computation<"baz">(%arg0) in_shardings=[<@mesh, [{}, {"y"}]>] out_shardings=[<@mesh, [{}, {}]>] (%arg1: tensor<8x2xi32>) {
+-    %2 = stablehlo.multiply %arg1, %arg1 {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"x", ?}, {?}]>]>} : tensor<8x2xi32>
+-    sdy.return %2 : tensor<8x2xi32>
+-  } : (tensor<8x2xi32>) -> tensor<8x2xi32>
+-  %1 = sdy.named_computation<"baz">(%arg0) in_shardings=[<@mesh, [{}, {"y"}]>] (%arg1: tensor<8x2xi32>) {
+-    %2 = stablehlo.multiply %arg1, %arg1 {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"x", ?}, {?}]>]>} : tensor<8x2xi32>
+-    sdy.return %2 : tensor<8x2xi32>
+-  } : (tensor<8x2xi32>) -> tensor<8x2xi32>
+-  %2 = stablehlo.add %0, %1 : tensor<8x2xi32>
+-  return %2 : tensor<8x2xi32>
+-}
+-
+-// CHECK-LABEL: func private @baz(
+-// CHECK-SAME:    %arg0: tensor<8x2xi32> {sdy.sharding = #sdy.sharding<@mesh, [{}, {"y"}]>})
+-// CHECK-SAME:    -> (tensor<8x2xi32> {sdy.sharding = #sdy.sharding<@mesh, [{}, {}]>})
+-// CHECK-SAME:  attributes {sdy.original_func_name = "baz"}
+-// CHECK-NEXT:  stablehlo.multiply %arg0, %arg0
+-// CHECK-SAME:  sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"x", ?}, {?}]>]>}
+-
+-// CHECK-LABEL: func private @baz_0(
+-// CHECK-SAME:    %arg0: tensor<8x2xi32> {sdy.sharding = #sdy.sharding<@mesh, [{}, {"y"}]>})
+-// CHECK-SAME:    -> tensor<8x2xi32>
+-// CHECK-SAME:  attributes {sdy.original_func_name = "baz"}
+-// CHECK-NEXT:  stablehlo.multiply %arg0, %arg0
+-// CHECK-SAME:  sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"x", ?}, {?}]>]>}
+-
+-// -----
+-
+-sdy.mesh @mesh = <["x"=2, "y"=2]>
+-
+-// CHECK-LABEL: func @three_named_computations_same_origin_func_with_one_call_results_no_out_sharding(
+-func.func @three_named_computations_same_origin_func_with_one_call_results_no_out_sharding(%arg0: tensor<8x2xi32> {sdy.sharding = #sdy.sharding<@mesh, [{}, {"y"}]>}) -> tensor<8x2xi32> {
+-  // CHECK-NEXT: %0 = call @baz(%arg0) {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{}, {"y"}]>]>}
+-  // CHECK-NEXT: %1 = call @baz_0(%arg0) {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{}, {"y"}]>]>}
+-  // CHECK-NEXT: %2 = call @baz_1(%arg0) :
+-  // CHECK-NEXT: %3 = stablehlo.add %0, %1 : tensor<8x2xi32>
+-  %0 = sdy.named_computation<"baz">(%arg0) in_shardings=[<@mesh, [{}, {"y"}]>] out_shardings=[<@mesh, [{}, {"y"}]>] (%arg1: tensor<8x2xi32>) {
+-    %2 = stablehlo.multiply %arg1, %arg1 {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"x", ?}, {?}]>]>} : tensor<8x2xi32>
+-    sdy.return %2 : tensor<8x2xi32>
+-  } : (tensor<8x2xi32>) -> tensor<8x2xi32>
+-  %1 = sdy.named_computation<"baz">(%arg0) in_shardings=[<@mesh, [{}, {"y"}]>] out_shardings=[<@mesh, [{}, {"y"}]>] (%arg1: tensor<8x2xi32>) {
+-    %2 = stablehlo.multiply %arg1, %arg1 {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"x", ?}, {?}]>]>} : tensor<8x2xi32>
+-    sdy.return %2 : tensor<8x2xi32>
+-  } : (tensor<8x2xi32>) -> tensor<8x2xi32>
+-  %2 = sdy.named_computation<"baz">(%arg0) in_shardings=[<@mesh, [{}, {"y"}]>](%arg1: tensor<8x2xi32>) {
+-    %2 = stablehlo.multiply %arg1, %arg1 {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"x", ?}, {?}]>]>} : tensor<8x2xi32>
+-    sdy.return %2 : tensor<8x2xi32>
+-  } : (tensor<8x2xi32>) -> tensor<8x2xi32>
+-  %3 = stablehlo.add %0, %1 : tensor<8x2xi32>
+-  return %3 : tensor<8x2xi32>
+-}
+-
+-// CHECK-LABEL: func private @baz(
+-// CHECK-SAME:    %arg0: tensor<8x2xi32> {sdy.sharding = #sdy.sharding<@mesh, [{}, {"y"}]>})
+-// CHECK-SAME:    -> (tensor<8x2xi32> {sdy.sharding = #sdy.sharding<@mesh, [{}, {"y"}]>})
+-// CHECK-SAME:  attributes {sdy.original_func_name = "baz"}
+-// CHECK-NEXT:  stablehlo.multiply %arg0, %arg0
+-// CHECK-SAME:  sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"x", ?}, {?}]>]>}
+-
+-// CHECK-LABEL: func private @baz_0(
+-// CHECK-SAME:    %arg0: tensor<8x2xi32> {sdy.sharding = #sdy.sharding<@mesh, [{}, {"y"}]>})
+-// CHECK-SAME:    -> (tensor<8x2xi32> {sdy.sharding = #sdy.sharding<@mesh, [{}, {"y"}]>})
+-// CHECK-SAME:  attributes {sdy.original_func_name = "baz"}
+-// CHECK-NEXT:  stablehlo.multiply %arg0, %arg0
+-// CHECK-SAME:  sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"x", ?}, {?}]>]>}
+-
+-// CHECK-LABEL: func private @baz_1(
+-// CHECK-SAME:    %arg0: tensor<8x2xi32> {sdy.sharding = #sdy.sharding<@mesh, [{}, {"y"}]>})
+-// CHECK-SAME:    -> tensor<8x2xi32>
+-// CHECK-SAME:  attributes {sdy.original_func_name = "baz"}
+-// CHECK-NEXT:  stablehlo.multiply %arg0, %arg0
+-// CHECK-SAME:  sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"x", ?}, {?}]>]>}
+-
+-// -----
+-
+-sdy.mesh @mesh = <["x"=2, "y"=2]>
+-
+-// CHECK-LABEL: func @three_named_computations_same_origin_func_with_two_calls_results_no_out_sharding(
+-func.func @three_named_computations_same_origin_func_with_two_calls_results_no_out_sharding(%arg0: tensor<8x2xi32> {sdy.sharding = #sdy.sharding<@mesh, [{}, {"y"}]>}) -> tensor<8x2xi32> {
+-  // CHECK-NEXT: %0 = call @baz(%arg0) {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{}, {"y"}]>]>}
+-  // CHECK-NEXT: %1 = call @baz_0(%arg0) :
+-  // CHECK-NEXT: %2 = call @baz_1(%arg0) :
+-  // CHECK-NEXT: %3 = stablehlo.add %0, %1 : tensor<8x2xi32>
+-  %0 = sdy.named_computation<"baz">(%arg0) in_shardings=[<@mesh, [{}, {"y"}]>] out_shardings=[<@mesh, [{}, {"y"}]>] (%arg1: tensor<8x2xi32>) {
+-    %2 = stablehlo.multiply %arg1, %arg1 {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"x", ?}, {?}]>]>} : tensor<8x2xi32>
+-    sdy.return %2 : tensor<8x2xi32>
+-  } : (tensor<8x2xi32>) -> tensor<8x2xi32>
+-  %1 = sdy.named_computation<"baz">(%arg0) in_shardings=[<@mesh, [{}, {"y"}]>] (%arg1: tensor<8x2xi32>) {
+-    %2 = stablehlo.multiply %arg1, %arg1 {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"x", ?}, {?}]>]>} : tensor<8x2xi32>
+-    sdy.return %2 : tensor<8x2xi32>
+-  } : (tensor<8x2xi32>) -> tensor<8x2xi32>
+-  %2 = sdy.named_computation<"baz">(%arg0) in_shardings=[<@mesh, [{}, {"y"}]>] (%arg1: tensor<8x2xi32>) {
+-    %2 = stablehlo.multiply %arg1, %arg1 {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"x", ?}, {?}]>]>} : tensor<8x2xi32>
+-    sdy.return %2 : tensor<8x2xi32>
+-  } : (tensor<8x2xi32>) -> tensor<8x2xi32>
+-  %3 = stablehlo.add %0, %1 : tensor<8x2xi32>
+-  return %3 : tensor<8x2xi32>
+-}
+-
+-// CHECK-LABEL: func private @baz(
+-// CHECK-SAME:    %arg0: tensor<8x2xi32> {sdy.sharding = #sdy.sharding<@mesh, [{}, {"y"}]>})
+-// CHECK-SAME:    -> (tensor<8x2xi32> {sdy.sharding = #sdy.sharding<@mesh, [{}, {"y"}]>})
+-// CHECK-SAME:  attributes {sdy.original_func_name = "baz"}
+-// CHECK-NEXT:  stablehlo.multiply %arg0, %arg0
+-// CHECK-SAME:  sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"x", ?}, {?}]>]>}
+-
+-// CHECK-LABEL: func private @baz_0(
+-// CHECK-SAME:    %arg0: tensor<8x2xi32> {sdy.sharding = #sdy.sharding<@mesh, [{}, {"y"}]>})
+-// CHECK-SAME:    -> tensor<8x2xi32>
+-// CHECK-SAME:  attributes {sdy.original_func_name = "baz"}
+-// CHECK-NEXT:  stablehlo.multiply %arg0, %arg0
+-// CHECK-SAME:  sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"x", ?}, {?}]>]>}
+-
+-// CHECK-LABEL: func private @baz_1(
+-// CHECK-SAME:    %arg0: tensor<8x2xi32> {sdy.sharding = #sdy.sharding<@mesh, [{}, {"y"}]>})
+-// CHECK-SAME:    -> tensor<8x2xi32>
+-// CHECK-SAME:  attributes {sdy.original_func_name = "baz"}
+-// CHECK-NEXT:  stablehlo.multiply %arg0, %arg0
+-// CHECK-SAME:  sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"x", ?}, {?}]>]>}
+-
+-// -----
+-
+-sdy.mesh @mesh = <["x"=2, "y"=2]>
+-
+-// CHECK-LABEL: func @three_named_computations_same_origin_func_with_one_call_results_no_out_sharding(
+-func.func @three_named_computations_same_origin_func_with_one_call_results_no_out_sharding(%arg0: tensor<8x2xi32> {sdy.sharding = #sdy.sharding<@mesh, [{}, {"y"}]>}) -> tensor<8x2xi32> {
+-  // CHECK-NEXT: %0 = call @baz(%arg0) {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{}, {"y"}]>]>}
+-  // CHECK-NEXT: %1 = call @baz_0(%arg0) {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{}, {"y"}]>]>}
+-  // CHECK-NEXT: %2 = call @baz_1(%arg0) :
+-  // CHECK-NEXT: %3 = stablehlo.add %0, %1 : tensor<8x2xi32>
+-  %0 = sdy.named_computation<"baz">(%arg0) in_shardings=[<@mesh, [{}, {"y"}]>] out_shardings=[<@mesh, [{}, {"y"}]>] (%arg1: tensor<8x2xi32>) {
+-    %2 = stablehlo.multiply %arg1, %arg1 {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"x", ?}, {?}]>]>} : tensor<8x2xi32>
+-    sdy.return %2 : tensor<8x2xi32>
+-  } : (tensor<8x2xi32>) -> tensor<8x2xi32>
+-  %1 = sdy.named_computation<"baz">(%arg0) in_shardings=[<@mesh, [{}, {"y"}]>] out_shardings=[<@mesh, [{}, {"y"}]>] (%arg1: tensor<8x2xi32>) {
+-    %2 = stablehlo.multiply %arg1, %arg1 {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"x", ?}, {?}]>]>} : tensor<8x2xi32>
+-    sdy.return %2 : tensor<8x2xi32>
+-  } : (tensor<8x2xi32>) -> tensor<8x2xi32>
+-  %2 = sdy.named_computation<"baz">(%arg0) in_shardings=[<@mesh, [{}, {"y"}]>](%arg1: tensor<8x2xi32>) {
+-    %2 = stablehlo.multiply %arg1, %arg1 {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"x", ?}, {?}]>]>} : tensor<8x2xi32>
+-    sdy.return %2 : tensor<8x2xi32>
+-  } : (tensor<8x2xi32>) -> tensor<8x2xi32>
+-  %3 = stablehlo.add %0, %1 : tensor<8x2xi32>
+-  return %3 : tensor<8x2xi32>
+-}
+-
+-// CHECK-LABEL: func private @baz(
+-// CHECK-SAME:    %arg0: tensor<8x2xi32> {sdy.sharding = #sdy.sharding<@mesh, [{}, {"y"}]>})
+-// CHECK-SAME:    -> (tensor<8x2xi32> {sdy.sharding = #sdy.sharding<@mesh, [{}, {"y"}]>})
+-// CHECK-NEXT:  stablehlo.multiply %arg0, %arg0
+-// CHECK-SAME:  sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"x", ?}, {?}]>]>}
+-
+-// CHECK-LABEL: func private @baz_0(
+-// CHECK-SAME:    %arg0: tensor<8x2xi32> {sdy.sharding = #sdy.sharding<@mesh, [{}, {"y"}]>})
+-// CHECK-SAME:    -> (tensor<8x2xi32> {sdy.sharding = #sdy.sharding<@mesh, [{}, {"y"}]>})
+-// CHECK-NEXT:  stablehlo.multiply %arg0, %arg0
+-// CHECK-SAME:  sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"x", ?}, {?}]>]>}
+-
+-// CHECK-LABEL: func private @baz_1(
+-// CHECK-SAME:    %arg0: tensor<8x2xi32> {sdy.sharding = #sdy.sharding<@mesh, [{}, {"y"}]>})
+-// CHECK-SAME:    -> tensor<8x2xi32>
+-// CHECK-NEXT:  stablehlo.multiply %arg0, %arg0
+-// CHECK-SAME:  sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"x", ?}, {?}]>]>}
+-
+-// -----
+-
+-sdy.mesh @mesh = <["x"=2, "y"=2]>
+-
+-// CHECK-LABEL: func @three_named_computations_same_origin_func_with_two_calls_results_no_out_sharding(
+-func.func @three_named_computations_same_origin_func_with_two_calls_results_no_out_sharding(%arg0: tensor<8x2xi32> {sdy.sharding = #sdy.sharding<@mesh, [{}, {"y"}]>}) -> tensor<8x2xi32> {
+-  // CHECK-NEXT: %0 = call @baz(%arg0) {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{}, {"y"}]>]>}
+-  // CHECK-NEXT: %1 = call @baz_0(%arg0) :
+-  // CHECK-NEXT: %2 = call @baz_1(%arg0) :
+-  // CHECK-NEXT: %3 = stablehlo.add %0, %1 : tensor<8x2xi32>
+-  %0 = sdy.named_computation<"baz">(%arg0) in_shardings=[<@mesh, [{}, {"y"}]>] out_shardings=[<@mesh, [{}, {"y"}]>] (%arg1: tensor<8x2xi32>) {
+-    %2 = stablehlo.multiply %arg1, %arg1 {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"x", ?}, {?}]>]>} : tensor<8x2xi32>
+-    sdy.return %2 : tensor<8x2xi32>
+-  } : (tensor<8x2xi32>) -> tensor<8x2xi32>
+-  %1 = sdy.named_computation<"baz">(%arg0) in_shardings=[<@mesh, [{}, {"y"}]>] (%arg1: tensor<8x2xi32>) {
+-    %2 = stablehlo.multiply %arg1, %arg1 {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"x", ?}, {?}]>]>} : tensor<8x2xi32>
+-    sdy.return %2 : tensor<8x2xi32>
+-  } : (tensor<8x2xi32>) -> tensor<8x2xi32>
+-  %2 = sdy.named_computation<"baz">(%arg0) in_shardings=[<@mesh, [{}, {"y"}]>] (%arg1: tensor<8x2xi32>) {
+-    %2 = stablehlo.multiply %arg1, %arg1 {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"x", ?}, {?}]>]>} : tensor<8x2xi32>
+-    sdy.return %2 : tensor<8x2xi32>
+-  } : (tensor<8x2xi32>) -> tensor<8x2xi32>
+-  %3 = stablehlo.add %0, %1 : tensor<8x2xi32>
+-  return %3 : tensor<8x2xi32>
+-}
+-
+-// CHECK-LABEL: func private @baz(
+-// CHECK-SAME:    %arg0: tensor<8x2xi32> {sdy.sharding = #sdy.sharding<@mesh, [{}, {"y"}]>})
+-// CHECK-SAME:    -> (tensor<8x2xi32> {sdy.sharding = #sdy.sharding<@mesh, [{}, {"y"}]>})
+-// CHECK-SAME:  attributes {sdy.original_func_name = "baz"}
+-// CHECK-NEXT:  stablehlo.multiply %arg0, %arg0
+-// CHECK-SAME:  sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"x", ?}, {?}]>]>}
+-
+-// CHECK-LABEL: func private @baz_0(
+-// CHECK-SAME:    %arg0: tensor<8x2xi32> {sdy.sharding = #sdy.sharding<@mesh, [{}, {"y"}]>})
+-// CHECK-SAME:    -> tensor<8x2xi32>
+-// CHECK-SAME:  attributes {sdy.original_func_name = "baz"}
+-// CHECK-NEXT:  stablehlo.multiply %arg0, %arg0
+-// CHECK-SAME:  sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"x", ?}, {?}]>]>}
+-
+-// CHECK-LABEL: func private @baz_1(
+-// CHECK-SAME:    %arg0: tensor<8x2xi32> {sdy.sharding = #sdy.sharding<@mesh, [{}, {"y"}]>})
+-// CHECK-SAME:    -> tensor<8x2xi32>
+-// CHECK-SAME:  attributes {sdy.original_func_name = "baz"}
+-// CHECK-NEXT:  stablehlo.multiply %arg0, %arg0
+-// CHECK-SAME:  sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"x", ?}, {?}]>]>}
+diff --git a/third_party/llvm/generated.patch b/third_party/llvm/generated.patch
+index 509398d..79901c4 100644
+--- a/third_party/llvm/generated.patch
++++ b/third_party/llvm/generated.patch
+@@ -1 +1,163 @@
+ Auto generated patch. Do not edit or delete it, even if empty.
++diff -ruN --strip-trailing-cr a/llvm/lib/Transforms/Vectorize/VPlan.cpp b/llvm/lib/Transforms/Vectorize/VPlan.cpp
++--- a/llvm/lib/Transforms/Vectorize/VPlan.cpp
+++++ b/llvm/lib/Transforms/Vectorize/VPlan.cpp
++@@ -962,9 +962,9 @@
++   if (hasEarlyExit()) {
++     // Fix up LoopInfo for extra dispatch blocks when vectorizing loops with
++     // early exits. For dispatch blocks, we need to find the smallest common
++-    // loop of all successors. Note: we only need to update loop info for blocks
++-    // after the middle block, but there is no easy way to get those at this
++-    // point.
+++    // loop of all successors that are in a loop. Note: we only need to update
+++    // loop info for blocks after the middle block, but there is no easy way to
+++    // get those at this point.
++     for (VPBlockBase *VPB : reverse(RPOT)) {
++       auto *VPBB = dyn_cast<VPBasicBlock>(VPB);
++       if (!VPBB || isa<VPIRBasicBlock>(VPBB))
++@@ -974,11 +974,18 @@
++       if (!L || any_of(successors(BB),
++                        [L](BasicBlock *Succ) { return L->contains(Succ); }))
++         continue;
++-      // Find the innermost loop containing all successors.
++-      Loop *Target = State->LI->getLoopFor(*succ_begin(BB));
++-      for (BasicBlock *Succ : drop_begin(successors(BB)))
++-        Target = State->LI->getSmallestCommonLoop(Target,
++-                                                  State->LI->getLoopFor(Succ));
+++      // Find the innermost loop containing all successors that are in a loop.
+++      // Successors not in any loop don't constrain the target loop.
+++      Loop *Target = nullptr;
+++      for (BasicBlock *Succ : successors(BB)) {
+++        Loop *SuccLoop = State->LI->getLoopFor(Succ);
+++        if (!SuccLoop)
+++          continue;
+++        if (!Target)
+++          Target = SuccLoop;
+++        else
+++          Target = State->LI->getSmallestCommonLoop(Target, SuccLoop);
+++      }
++       State->LI->removeBlock(BB);
++       if (Target)
++         Target->addBasicBlockToLoop(BB, *State->LI);
++diff -ruN --strip-trailing-cr a/llvm/test/Transforms/LoopVectorize/early_exit_with_outer_loop.ll b/llvm/test/Transforms/LoopVectorize/early_exit_with_outer_loop.ll
++--- a/llvm/test/Transforms/LoopVectorize/early_exit_with_outer_loop.ll
+++++ b/llvm/test/Transforms/LoopVectorize/early_exit_with_outer_loop.ll
++@@ -415,3 +415,118 @@
++ early.exit.3:
++   ret i32 2
++ }
+++
+++; Tests that dispatch blocks are correctly placed in the outermost loop when
+++; the innermost loop has two uncountable early exits at different loop depths:
+++; one to the outer loop and one outside all loops.
+++define i64 @multi_early_exit_to_outer_and_outside(ptr dereferenceable(1024) %p1, ptr dereferenceable(1024) %p2, i1 %c) {
+++; CHECK-LABEL: Loop info for function 'multi_early_exit_to_outer_and_outside':
+++; CHECK-NEXT: Loop at depth 1 containing: %loop.outer<header>,%loop.middle,%loop.inner.end,%loop.middle.end,%loop.inner.found,%loop.outer.latch<latch><exiting>,%vector.ph,%vector.body,%vector.body.interim,%middle.block,%vector.early.exit.0,%vector.early.exit.check<exiting>
+++; CHECK-NEXT:    Loop at depth 2 containing: %loop.middle<header>,%loop.inner.end<latch><exiting>,%vector.ph,%vector.body<exiting>,%vector.body.interim,%middle.block
+++; CHECK-NEXT:        Loop at depth 3 containing: %vector.body<header><exiting>,%vector.body.interim<latch><exiting>
+++entry:
+++  br label %loop.outer
+++
+++loop.outer:
+++  %outer.iv = phi i64 [ 0, %entry ], [ %outer.iv.next, %loop.outer.latch ]
+++  br label %loop.middle
+++
+++loop.middle:
+++  br label %loop.inner
+++
+++loop.inner:
+++  %iv = phi i64 [ 0, %loop.middle ], [ %iv.next, %loop.inner.inc ]
+++  %gep1 = getelementptr inbounds i8, ptr %p1, i64 %iv
+++  %ld1 = load i8, ptr %gep1, align 1
+++  %cmp.early1 = icmp eq i8 %ld1, 0
+++  br i1 %cmp.early1, label %loop.inner.found, label %loop.inner.body
+++
+++loop.inner.body:
+++  %gep2 = getelementptr inbounds i8, ptr %p2, i64 %iv
+++  %ld2 = load i8, ptr %gep2, align 1
+++  %cmp.early2 = icmp eq i8 %ld2, 0
+++  br i1 %cmp.early2, label %exit, label %loop.inner.inc
+++
+++loop.inner.inc:
+++  %iv.next = add nuw nsw i64 %iv, 1
+++  %exitcond = icmp eq i64 %iv.next, 1024
+++  br i1 %exitcond, label %loop.inner.end, label %loop.inner
+++
+++loop.inner.found:
+++  br label %loop.outer.latch
+++
+++loop.inner.end:
+++  br i1 %c, label %loop.middle, label %loop.middle.end
+++
+++loop.middle.end:
+++  br label %loop.outer.latch
+++
+++loop.outer.latch:
+++  %res = phi i64 [ 0, %loop.middle.end ], [ 42, %loop.inner.found ]
+++  %outer.iv.next = add i64 %outer.iv, 1
+++  %outer.cond = icmp eq i64 %outer.iv.next, 100
+++  br i1 %outer.cond, label %loop.outer.end, label %loop.outer
+++
+++loop.outer.end:
+++  ret i64 %res
+++
+++exit:
+++  ret i64 1
+++}
+++
+++; Same as above but with early exits reversed: the first early exit goes outside
+++; all loops and the second goes to the outer loop.
+++define i64 @multi_early_exit_to_outside_and_outer(ptr dereferenceable(1024) %p1, ptr dereferenceable(1024) %p2, i1 %c) {
+++; CHECK-LABEL: Loop info for function 'multi_early_exit_to_outside_and_outer':
+++; CHECK-NEXT: Loop at depth 1 containing: %loop.outer<header>,%loop.middle,%loop.inner.end,%loop.middle.end,%loop.inner.found,%loop.outer.latch<latch><exiting>,%vector.ph,%vector.body,%vector.body.interim,%middle.block,%vector.early.exit.1,%vector.early.exit.check<exiting>
+++; CHECK-NEXT:    Loop at depth 2 containing: %loop.middle<header>,%loop.inner.end<latch><exiting>,%vector.ph,%vector.body<exiting>,%vector.body.interim,%middle.block
+++; CHECK-NEXT:        Loop at depth 3 containing: %vector.body<header><exiting>,%vector.body.interim<latch><exiting>
+++entry:
+++  br label %loop.outer
+++
+++loop.outer:
+++  %outer.iv = phi i64 [ 0, %entry ], [ %outer.iv.next, %loop.outer.latch ]
+++  br label %loop.middle
+++
+++loop.middle:
+++  br label %loop.inner
+++
+++loop.inner:
+++  %iv = phi i64 [ 0, %loop.middle ], [ %iv.next, %loop.inner.inc ]
+++  %gep1 = getelementptr inbounds i8, ptr %p1, i64 %iv
+++  %ld1 = load i8, ptr %gep1, align 1
+++  %cmp.early1 = icmp eq i8 %ld1, 0
+++  br i1 %cmp.early1, label %exit, label %loop.inner.body
+++
+++loop.inner.body:
+++  %gep2 = getelementptr inbounds i8, ptr %p2, i64 %iv
+++  %ld2 = load i8, ptr %gep2, align 1
+++  %cmp.early2 = icmp eq i8 %ld2, 0
+++  br i1 %cmp.early2, label %loop.inner.found, label %loop.inner.inc
+++
+++loop.inner.inc:
+++  %iv.next = add nuw nsw i64 %iv, 1
+++  %exitcond = icmp eq i64 %iv.next, 1024
+++  br i1 %exitcond, label %loop.inner.end, label %loop.inner
+++
+++loop.inner.found:
+++  br label %loop.outer.latch
+++
+++loop.inner.end:
+++  br i1 %c, label %loop.middle, label %loop.middle.end
+++
+++loop.middle.end:
+++  br label %loop.outer.latch
+++
+++loop.outer.latch:
+++  %res = phi i64 [ 0, %loop.middle.end ], [ 42, %loop.inner.found ]
+++  %outer.iv.next = add i64 %outer.iv, 1
+++  %outer.cond = icmp eq i64 %outer.iv.next, 100
+++  br i1 %outer.cond, label %loop.outer.end, label %loop.outer
+++
+++loop.outer.end:
+++  ret i64 %res
+++
+++exit:
+++  ret i64 1
+++}
 diff --git a/third_party/llvm/workspace.bzl b/third_party/llvm/workspace.bzl
-index 21ba653..0012897 100644
+index 0012897..10bd7ea 100644
 --- a/third_party/llvm/workspace.bzl
 +++ b/third_party/llvm/workspace.bzl
 @@ -4,8 +4,8 @@ load("//third_party:repo.bzl", "tf_http_archive")
  
  def repo(name):
      """Imports LLVM."""
--    LLVM_COMMIT = "7ccd92e5e6e5c622b2b571d396fff9016241a8f1"
--    LLVM_SHA256 = "0365ff939e7ba4876437f45318ac4140e7b278fd8b2c5dc1e78c4dd04104c831"
-+    LLVM_COMMIT = "293623ce99d4d6819378311c1506c5ab08d1d860"
-+    LLVM_SHA256 = "47c15c7f86cff0d482eaf3cbe16fad52b5a21d2b9ab20b4d3ee701414dbc4505"
+-    LLVM_COMMIT = "293623ce99d4d6819378311c1506c5ab08d1d860"
+-    LLVM_SHA256 = "47c15c7f86cff0d482eaf3cbe16fad52b5a21d2b9ab20b4d3ee701414dbc4505"
++    LLVM_COMMIT = "5e14916fa6ab8dbafd06f4d3b7b8f9eb3abb767d"
++    LLVM_SHA256 = "e70dc4fa7f0f138b1385d6bb684a9ebfc1ae9cdb0b995b2df3d4689c1b640e4b"
  
      tf_http_archive(
          name = name,
+diff --git a/third_party/stablehlo/temporary.patch b/third_party/stablehlo/temporary.patch
+index f64aa01..8341fcc 100755
+--- a/third_party/stablehlo/temporary.patch
++++ b/third_party/stablehlo/temporary.patch
+@@ -1,3 +1,731 @@
++diff --ruN a/stablehlo/stablehlo/dialect/Base.h b/stablehlo/stablehlo/dialect/Base.h
++--- stablehlo/stablehlo/dialect/Base.h
+++++ stablehlo/stablehlo/dialect/Base.h
++@@ -456,7 +456,7 @@
++   static LogicalResult inferReturnTypes(
++       MLIRContext* /*context*/, std::optional<Location> location,
++       ValueRange operands, DictionaryAttr /*attributes*/,
++-      OpaqueProperties /*properties*/, RegionRange /*regions*/,
+++      PropertyRef /*properties*/, RegionRange /*regions*/,
++       SmallVectorImpl<Type>& inferredReturnTypes) {
++     // TODO(b/231358795): Review the use of InferTypeOpInterface for ops that
++     // support quantization or sparsity.
++@@ -478,7 +478,7 @@
++   static LogicalResult inferReturnTypeComponentsFromOperands(
++       MLIRContext* context, std::optional<Location> location,
++       ValueShapeRange operands, DictionaryAttr attributes,
++-      OpaqueProperties properties, RegionRange regions,
+++      PropertyRef properties, RegionRange regions,
++       SmallVectorImpl<ShapedTypeComponents>& inferredReturnShapes) {
++     SmallVector<Type> inferredReturnTypes;
++     if (failed(inferReturnTypes(context, location, operands.getValues(),
++diff --ruN a/stablehlo/stablehlo/dialect/ChloOps.cpp b/stablehlo/stablehlo/dialect/ChloOps.cpp
++--- stablehlo/stablehlo/dialect/ChloOps.cpp
+++++ stablehlo/stablehlo/dialect/ChloOps.cpp
++@@ -71,7 +71,7 @@
++   LogicalResult Op::inferReturnTypeComponents(                        \
++       MLIRContext* context, std::optional<Location> location,         \
++       ValueShapeRange operands, DictionaryAttr attributes,            \
++-      OpaqueProperties properties, RegionRange regions,               \
+++      PropertyRef properties, RegionRange regions,                    \
++       SmallVectorImpl<ShapedTypeComponents>& inferredReturnShapes) {  \
++     return inferReturnTypeComponentsFromOperands(                     \
++         context, location, operands, attributes, properties, regions, \
++@@ -199,7 +199,7 @@
++ 
++ LogicalResult InferBroadcastBinaryOpReturnTypeComponents(
++     MLIRContext* context, std::optional<Location> location, ValueRange operands,
++-    DictionaryAttr attributes, OpaqueProperties properties,
+++    DictionaryAttr attributes, PropertyRef properties,
++     std::optional<ArrayRef<int64_t>> broadcastDimensions, Type elementType,
++     SmallVectorImpl<ShapedTypeComponents>& inferredReturnShapes) {
++   // Handle unranked.
++@@ -252,8 +252,8 @@
++ 
++ LogicalResult BroadcastComplexOp::inferReturnTypeComponents(
++     MLIRContext* context, std::optional<Location> location,
++-    ValueShapeRange operands, DictionaryAttr attributes,
++-    OpaqueProperties properties, RegionRange regions,
+++    ValueShapeRange operands, DictionaryAttr attributes, PropertyRef properties,
+++    RegionRange regions,
++     SmallVectorImpl<ShapedTypeComponents>& inferredReturnShapes) {
++   ShapedType lhsType = cast<ShapedType>(operands[0].getType());
++   Type elementType = ComplexType::get(lhsType.getElementType());
++@@ -287,8 +287,8 @@
++ 
++ LogicalResult BroadcastCompareOp::inferReturnTypeComponents(
++     MLIRContext* context, std::optional<Location> location,
++-    ValueShapeRange operands, DictionaryAttr attributes,
++-    OpaqueProperties properties, RegionRange regions,
+++    ValueShapeRange operands, DictionaryAttr attributes, PropertyRef properties,
+++    RegionRange regions,
++     SmallVectorImpl<ShapedTypeComponents>& inferredReturnShapes) {
++   Type elementType = IntegerType::get(context, 1);
++   Adaptor adaptor(operands, attributes, properties, regions);
++@@ -317,7 +317,7 @@
++ 
++ LogicalResult IsInfOp::inferReturnTypes(
++     MLIRContext* /*ctx*/, std::optional<Location>, ValueRange operands,
++-    DictionaryAttr, OpaqueProperties, RegionRange,
+++    DictionaryAttr, PropertyRef, RegionRange,
++     SmallVectorImpl<Type>& inferredReturnTypes) {
++   inferredReturnTypes.push_back(getIsInfLikeReturnType(operands.front()));
++   return success();
++@@ -329,7 +329,7 @@
++ 
++ LogicalResult IsNegInfOp::inferReturnTypes(
++     MLIRContext* /*ctx*/, std::optional<Location>, ValueRange operands,
++-    DictionaryAttr, OpaqueProperties, RegionRange,
+++    DictionaryAttr, PropertyRef, RegionRange,
++     SmallVectorImpl<Type>& inferredReturnTypes) {
++   inferredReturnTypes.push_back(getIsInfLikeReturnType(operands.front()));
++   return success();
++@@ -341,7 +341,7 @@
++ 
++ LogicalResult IsPosInfOp::inferReturnTypes(
++     MLIRContext* /*ctx*/, std::optional<Location>, ValueRange operands,
++-    DictionaryAttr, OpaqueProperties, RegionRange,
+++    DictionaryAttr, PropertyRef, RegionRange,
++     SmallVectorImpl<Type>& inferredReturnTypes) {
++   inferredReturnTypes.push_back(getIsInfLikeReturnType(operands.front()));
++   return success();
++@@ -355,7 +355,7 @@
++   LogicalResult Op::inferReturnTypeComponents(                              \
++       MLIRContext* context, std::optional<Location> location,               \
++       ValueShapeRange operands, DictionaryAttr attributes,                  \
++-      OpaqueProperties properties, RegionRange regions,                     \
+++      PropertyRef properties, RegionRange regions,                          \
++       SmallVectorImpl<ShapedTypeComponents>& inferredReturnShapes) {        \
++     Adaptor adaptor(operands.getValues(), attributes, properties, regions); \
++     return InferBroadcastBinaryOpReturnTypeComponents(                      \
++@@ -400,8 +400,8 @@
++ 
++ LogicalResult ConstantLikeOp::inferReturnTypeComponents(
++     MLIRContext* /*context*/, std::optional<Location> location,
++-    ValueShapeRange operands, DictionaryAttr attributes,
++-    OpaqueProperties properties, RegionRange /*regions*/,
+++    ValueShapeRange operands, DictionaryAttr attributes, PropertyRef properties,
+++    RegionRange /*regions*/,
++     SmallVectorImpl<ShapedTypeComponents>& inferredReturnShapes) {
++   ConstantLikeOp::Adaptor op(operands, attributes, properties);
++   if (failed(op.verify(location.value()))) return failure();
++@@ -437,7 +437,7 @@
++ 
++ LogicalResult BroadcastSelectOp::inferReturnTypeComponents(
++     MLIRContext*, std::optional<Location> location, ValueShapeRange operands,
++-    DictionaryAttr, OpaqueProperties, RegionRange,
+++    DictionaryAttr, PropertyRef, RegionRange,
++     SmallVectorImpl<ShapedTypeComponents>& inferredReturnShapes) {
++   BroadcastSelectOp::Adaptor op(operands.getValues());
++   auto onTrueType = cast<ShapedType>(op.getOnTrue().getType());
++@@ -757,8 +757,8 @@
++ 
++ LogicalResult TopKOp::inferReturnTypeComponents(
++     MLIRContext* context, std::optional<Location> location,
++-    ValueShapeRange operands, DictionaryAttr attributes,
++-    OpaqueProperties properties, RegionRange regions,
+++    ValueShapeRange operands, DictionaryAttr attributes, PropertyRef properties,
+++    RegionRange regions,
++     SmallVectorImpl<ShapedTypeComponents>& inferredReturnShapes) {
++   TopKOp::Adaptor adaptor(operands, attributes, properties, regions);
++   return hlo::inferTopKOp(location, adaptor.getOperand(), adaptor.getK(),
++@@ -773,7 +773,7 @@
++ 
++ LogicalResult ConstantOp::inferReturnTypes(
++     MLIRContext*, std::optional<Location>, ValueRange operands,
++-    DictionaryAttr attributes, OpaqueProperties properties, RegionRange regions,
+++    DictionaryAttr attributes, PropertyRef properties, RegionRange regions,
++     SmallVectorImpl<Type>& inferredReturnTypes) {
++   Adaptor adaptor(operands, attributes, properties, regions);
++   Type type = cast<TypedAttr>(adaptor.getValueAttr()).getType();
++@@ -787,7 +787,7 @@
++ 
++ LogicalResult ScanOp::inferReturnTypeComponents(
++     MLIRContext*, std::optional<Location> location, ValueShapeRange operands,
++-    DictionaryAttr attributes, OpaqueProperties properties, RegionRange regions,
+++    DictionaryAttr attributes, PropertyRef properties, RegionRange regions,
++     SmallVectorImpl<ShapedTypeComponents>& inferredReturnShapes) {
++   ScanOp::Adaptor adaptor(operands, attributes, properties, regions);
++   if (regions.empty() || regions.front()->empty()) {
++diff --ruN a/stablehlo/stablehlo/dialect/StablehloOps.cpp b/stablehlo/stablehlo/dialect/StablehloOps.cpp
++--- stablehlo/stablehlo/dialect/StablehloOps.cpp
+++++ stablehlo/stablehlo/dialect/StablehloOps.cpp
++@@ -216,7 +216,7 @@
++   LogicalResult Op::inferReturnTypeComponents(                        \
++       MLIRContext* context, std::optional<Location> location,         \
++       ValueShapeRange operands, DictionaryAttr attributes,            \
++-      OpaqueProperties properties, RegionRange regions,               \
+++      PropertyRef properties, RegionRange regions,                    \
++       SmallVectorImpl<ShapedTypeComponents>& inferredReturnShapes) {  \
++     return inferReturnTypeComponentsFromOperands(                     \
++         context, location, operands, attributes, properties, regions, \
++@@ -267,8 +267,8 @@
++ 
++ LogicalResult AddOp::inferReturnTypeComponents(
++     MLIRContext* context, std::optional<Location> location,
++-    ValueShapeRange operands, DictionaryAttr attributes,
++-    OpaqueProperties properties, RegionRange regions,
+++    ValueShapeRange operands, DictionaryAttr attributes, PropertyRef properties,
+++    RegionRange regions,
++     SmallVectorImpl<ShapedTypeComponents>& inferredReturnShapes) {
++   SmallVector<Type> inferredReturnTypes;
++   if (failed(inferReturnTypes(context, location, operands.getValues(),
++@@ -293,7 +293,7 @@
++ 
++ LogicalResult AfterAllOp::inferReturnTypes(
++     MLIRContext* context, std::optional<Location> location, ValueRange operands,
++-    DictionaryAttr attributes, OpaqueProperties properties, RegionRange regions,
+++    DictionaryAttr attributes, PropertyRef properties, RegionRange regions,
++     SmallVectorImpl<Type>& inferredReturnTypes) {
++   return hlo::inferAfterAllOp(getStablehloDialect(context), location,
++                               inferredReturnTypes);
++@@ -357,7 +357,7 @@
++ 
++ LogicalResult ConstantOp::inferReturnTypes(
++     MLIRContext*, std::optional<Location> location, ValueRange operands,
++-    DictionaryAttr attributes, OpaqueProperties properties, RegionRange,
+++    DictionaryAttr attributes, PropertyRef properties, RegionRange,
++     SmallVectorImpl<Type>& inferredReturnTypes) {
++   ConstantOpAdaptor adaptor(operands, attributes, properties);
++   return hlo::inferConstantOp(location, adaptor.getValue(),
++@@ -391,7 +391,7 @@
++ 
++ LogicalResult CreateTokenOp::inferReturnTypes(
++     MLIRContext* context, std::optional<Location> location, ValueRange operands,
++-    DictionaryAttr attributes, OpaqueProperties properties, RegionRange regions,
+++    DictionaryAttr attributes, PropertyRef properties, RegionRange regions,
++     SmallVectorImpl<Type>& inferredReturnTypes) {
++   return hlo::inferCreateTokenOp(getStablehloDialect(context), location,
++                                  inferredReturnTypes);
++@@ -729,7 +729,7 @@
++ 
++ LogicalResult CholeskyOp::inferReturnTypeComponents(
++     MLIRContext*, std::optional<Location> location, ValueShapeRange operands,
++-    DictionaryAttr attributes, OpaqueProperties properties, RegionRange regions,
+++    DictionaryAttr attributes, PropertyRef properties, RegionRange regions,
++     SmallVectorImpl<ShapedTypeComponents>& inferredReturnShapes) {
++   CholeskyOp::Adaptor adaptor(operands, attributes, properties, regions);
++   return hlo::inferCholeskyOp(location, adaptor.getA(), inferredReturnShapes);
++@@ -746,7 +746,7 @@
++ 
++ LogicalResult DotOp::inferReturnTypeComponents(
++     MLIRContext*, std::optional<Location> location, ValueShapeRange operands,
++-    DictionaryAttr attributes, OpaqueProperties properties, RegionRange regions,
+++    DictionaryAttr attributes, PropertyRef properties, RegionRange regions,
++     SmallVectorImpl<ShapedTypeComponents>& inferredReturnShapes) {
++   DotOp::Adaptor adaptor(operands, attributes, properties, regions);
++   auto lhsType = mlir::cast<RankedTensorType>(adaptor.getLhs().getType());
++@@ -885,7 +885,7 @@
++ 
++ LogicalResult DotGeneralOp::inferReturnTypeComponents(
++     MLIRContext*, std::optional<Location> location, ValueShapeRange operands,
++-    DictionaryAttr attributes, OpaqueProperties properties, RegionRange regions,
+++    DictionaryAttr attributes, PropertyRef properties, RegionRange regions,
++     SmallVectorImpl<ShapedTypeComponents>& inferredReturnShapes) {
++   DotGeneralOp::Adaptor adaptor(operands, attributes, properties, regions);
++   LLVM_DEBUG(llvm::dbgs() << "DotGeneralOp::inferReturnTypeComponents\n");
++@@ -1183,7 +1183,7 @@
++ 
++ LogicalResult FftOp::inferReturnTypeComponents(
++     MLIRContext*, std::optional<Location> location, ValueShapeRange operands,
++-    DictionaryAttr attributes, OpaqueProperties properties, RegionRange regions,
+++    DictionaryAttr attributes, PropertyRef properties, RegionRange regions,
++     SmallVectorImpl<ShapedTypeComponents>& inferredReturnShapes) {
++   FftOp::Adaptor adaptor(operands, attributes, properties, regions);
++   return hlo::inferFftOp(location, adaptor.getOperand(),
++@@ -1304,8 +1304,8 @@
++ 
++ LogicalResult GatherOp::inferReturnTypeComponents(
++     MLIRContext* context, std::optional<Location> location,
++-    ValueShapeRange operands, DictionaryAttr attributes,
++-    OpaqueProperties properties, RegionRange regions,
+++    ValueShapeRange operands, DictionaryAttr attributes, PropertyRef properties,
+++    RegionRange regions,
++     SmallVectorImpl<ShapedTypeComponents>& inferredReturnShapes) {
++   GatherOp::Adaptor adaptor(operands, attributes, properties, regions);
++   return hlo::inferGatherOp(
++@@ -1345,8 +1345,8 @@
++ 
++ LogicalResult DynamicGatherOp::inferReturnTypeComponents(
++     MLIRContext* context, std::optional<Location> location,
++-    ValueShapeRange operands, DictionaryAttr attributes,
++-    OpaqueProperties properties, RegionRange regions,
+++    ValueShapeRange operands, DictionaryAttr attributes, PropertyRef properties,
+++    RegionRange regions,
++     SmallVectorImpl<ShapedTypeComponents>& inferredReturnShapes) {
++   DynamicGatherOp::Adaptor adaptor(operands, attributes, properties, regions);
++   return hlo::inferDynamicGatherOp(
++@@ -1365,7 +1365,7 @@
++ 
++ LogicalResult GetDimensionSizeOp::inferReturnTypeComponents(
++     MLIRContext*, std::optional<Location> location, ValueShapeRange operands,
++-    DictionaryAttr attributes, OpaqueProperties properties, RegionRange regions,
+++    DictionaryAttr attributes, PropertyRef properties, RegionRange regions,
++     SmallVectorImpl<ShapedTypeComponents>& inferredReturnShapes) {
++   GetDimensionSizeOp::Adaptor adaptor(operands, attributes, properties,
++                                       regions);
++@@ -1435,7 +1435,7 @@
++ 
++ LogicalResult DynamicUpdateSliceOp::inferReturnTypeComponents(
++     MLIRContext*, std::optional<Location> location, ValueShapeRange operands,
++-    DictionaryAttr attributes, OpaqueProperties properties, RegionRange regions,
+++    DictionaryAttr attributes, PropertyRef properties, RegionRange regions,
++     SmallVectorImpl<ShapedTypeComponents>& inferredReturnShapes) {
++   DynamicUpdateSliceOp::Adaptor adaptor(operands, attributes, properties,
++                                         regions);
++@@ -1450,7 +1450,7 @@
++ 
++ LogicalResult AbsOp::inferReturnTypes(
++     MLIRContext*, std::optional<Location> location, ValueRange operands,
++-    DictionaryAttr attributes, OpaqueProperties properties, RegionRange regions,
+++    DictionaryAttr attributes, PropertyRef properties, RegionRange regions,
++     SmallVectorImpl<Type>& inferredReturnTypes) {
++   AbsOp::Adaptor adaptor(operands, attributes, properties, regions);
++   return hlo::inferAbsOp(location, adaptor.getOperand(), inferredReturnTypes);
++@@ -1470,7 +1470,7 @@
++ 
++ LogicalResult CollectiveBroadcastOp::inferReturnTypes(
++     MLIRContext* /*context*/, std::optional<Location> location,
++-    ValueRange operands, DictionaryAttr attributes, OpaqueProperties properties,
+++    ValueRange operands, DictionaryAttr attributes, PropertyRef properties,
++     RegionRange regions, SmallVectorImpl<Type>& inferredReturnTypes) {
++   CollectiveBroadcastOp::Adaptor adaptor(operands, attributes, properties,
++                                          regions);
++@@ -1480,8 +1480,8 @@
++ 
++ LogicalResult CollectiveBroadcastOp::inferReturnTypeComponents(
++     MLIRContext* context, std::optional<Location> location,
++-    ValueShapeRange operands, DictionaryAttr attributes,
++-    OpaqueProperties properties, RegionRange regions,
+++    ValueShapeRange operands, DictionaryAttr attributes, PropertyRef properties,
+++    RegionRange regions,
++     SmallVectorImpl<ShapedTypeComponents>& inferredReturnShapes) {
++   SmallVector<Type> inferredReturnTypes;
++   CollectiveBroadcastOp::Adaptor adaptor(operands, attributes, properties,
++@@ -1513,7 +1513,7 @@
++ 
++ LogicalResult CollectivePermuteOp::inferReturnTypes(
++     MLIRContext* /*context*/, std::optional<Location> location,
++-    ValueRange operands, DictionaryAttr attributes, OpaqueProperties properties,
+++    ValueRange operands, DictionaryAttr attributes, PropertyRef properties,
++     RegionRange regions, SmallVectorImpl<Type>& inferredReturnTypes) {
++   CollectivePermuteOp::Adaptor adaptor(operands, attributes, properties,
++                                        regions);
++@@ -1523,8 +1523,8 @@
++ 
++ LogicalResult CollectivePermuteOp::inferReturnTypeComponents(
++     MLIRContext* context, std::optional<Location> location,
++-    ValueShapeRange operands, DictionaryAttr attributes,
++-    OpaqueProperties properties, RegionRange regions,
+++    ValueShapeRange operands, DictionaryAttr attributes, PropertyRef properties,
+++    RegionRange regions,
++     SmallVectorImpl<ShapedTypeComponents>& inferredReturnShapes) {
++   SmallVector<Type> inferredReturnTypes;
++   CollectivePermuteOp::Adaptor adaptor(operands, attributes, properties,
++@@ -1634,7 +1634,7 @@
++ 
++ LogicalResult AllToAllOp::inferReturnTypeComponents(
++     MLIRContext*, std::optional<Location> location, ValueShapeRange operands,
++-    DictionaryAttr attributes, OpaqueProperties properties, RegionRange regions,
+++    DictionaryAttr attributes, PropertyRef properties, RegionRange regions,
++     SmallVectorImpl<ShapedTypeComponents>& inferredReturnShapes) {
++   AllToAllOp::Adaptor adaptor(operands, attributes, properties, regions);
++   return hlo::inferAllToAllOp(
++@@ -1736,7 +1736,7 @@
++ 
++ LogicalResult AllReduceOp::inferReturnTypeComponents(
++     MLIRContext*, std::optional<Location> location, ValueShapeRange operands,
++-    DictionaryAttr attributes, OpaqueProperties properties, RegionRange regions,
+++    DictionaryAttr attributes, PropertyRef properties, RegionRange regions,
++     SmallVectorImpl<ShapedTypeComponents>& inferredReturnShapes) {
++   AllReduceOp::Adaptor adaptor(operands, attributes, properties, regions);
++   return hlo::inferAllReduceOp(location, adaptor.getOperands(),
++@@ -1752,7 +1752,7 @@
++ // async_start references stablehlo.futures.
++ LogicalResult AsyncStartOp::inferReturnTypes(
++     MLIRContext* context, std::optional<Location> location, ValueRange operands,
++-    DictionaryAttr attributes, OpaqueProperties properties, RegionRange regions,
+++    DictionaryAttr attributes, PropertyRef properties, RegionRange regions,
++     SmallVectorImpl<Type>& inferredReturnTypes) {
++   if (regions.empty()) {
++     return emitOptionalError(
++@@ -1820,7 +1820,7 @@
++ // TODO: Move to TypeInference.h and TypeInference.cpp. See TODO above.
++ LogicalResult AsyncDoneOp::inferReturnTypes(
++     MLIRContext* context, std::optional<Location> location, ValueRange operands,
++-    DictionaryAttr attributes, OpaqueProperties properties, RegionRange regions,
+++    DictionaryAttr attributes, PropertyRef properties, RegionRange regions,
++     SmallVectorImpl<Type>& inferredReturnTypes) {
++   auto futureType = dyn_cast<FutureType>(operands[0].getType());
++   if (!futureType) {
++@@ -1845,8 +1845,8 @@
++ 
++ LogicalResult BatchNormGradOp::inferReturnTypeComponents(
++     MLIRContext* context, std::optional<Location> location,
++-    ValueShapeRange operands, DictionaryAttr attributes,
++-    OpaqueProperties properties, RegionRange regions,
+++    ValueShapeRange operands, DictionaryAttr attributes, PropertyRef properties,
+++    RegionRange regions,
++     SmallVectorImpl<ShapedTypeComponents>& inferredReturnShapes) {
++   BatchNormGradOp::Adaptor adaptor(operands, attributes, properties, regions);
++   return hlo::inferBatchNormGradOp(
++@@ -1861,8 +1861,8 @@
++ 
++ LogicalResult BatchNormTrainingOp::inferReturnTypeComponents(
++     MLIRContext* context, std::optional<Location> location,
++-    ValueShapeRange operands, DictionaryAttr attributes,
++-    OpaqueProperties properties, RegionRange regions,
+++    ValueShapeRange operands, DictionaryAttr attributes, PropertyRef properties,
+++    RegionRange regions,
++     SmallVectorImpl<ShapedTypeComponents>& inferredReturnShapes) {
++   BatchNormTrainingOp::Adaptor adaptor(operands, attributes, properties,
++                                        regions);
++@@ -1877,8 +1877,8 @@
++ 
++ LogicalResult BatchNormInferenceOp::inferReturnTypeComponents(
++     MLIRContext* context, std::optional<Location> location,
++-    ValueShapeRange operands, DictionaryAttr attributes,
++-    OpaqueProperties properties, RegionRange regions,
+++    ValueShapeRange operands, DictionaryAttr attributes, PropertyRef properties,
+++    RegionRange regions,
++     SmallVectorImpl<ShapedTypeComponents>& inferredReturnShapes) {
++   BatchNormInferenceOp::Adaptor adaptor(operands, attributes, properties,
++                                         regions);
++@@ -1937,7 +1937,7 @@
++ 
++ LogicalResult BroadcastOp::inferReturnTypeComponents(
++     MLIRContext*, std::optional<Location> location, ValueShapeRange operands,
++-    DictionaryAttr attributes, OpaqueProperties properties, RegionRange regions,
+++    DictionaryAttr attributes, PropertyRef properties, RegionRange regions,
++     SmallVectorImpl<ShapedTypeComponents>& inferredReturnShapes) {
++   BroadcastOp::Adaptor adaptor(operands, attributes, properties, regions);
++   return hlo::inferBroadcastOp(location, adaptor.getOperand(),
++@@ -2117,7 +2117,7 @@
++ 
++ LogicalResult ClampOp::inferReturnTypeComponents(
++     MLIRContext*, std::optional<Location> location, ValueShapeRange operands,
++-    DictionaryAttr attributes, OpaqueProperties properties, RegionRange regions,
+++    DictionaryAttr attributes, PropertyRef properties, RegionRange regions,
++     SmallVectorImpl<ShapedTypeComponents>& inferredReturnShapes) {
++   ClampOp::Adaptor adaptor(operands, attributes, properties, regions);
++   return hlo::inferClampOp(location, adaptor.getMin(), adaptor.getOperand(),
++@@ -2138,7 +2138,7 @@
++ 
++ LogicalResult ComplexOp::inferReturnTypes(
++     MLIRContext*, std::optional<Location> location, ValueRange operands,
++-    DictionaryAttr attributes, OpaqueProperties properties, RegionRange regions,
+++    DictionaryAttr attributes, PropertyRef properties, RegionRange regions,
++     SmallVectorImpl<Type>& inferredReturnTypes) {
++   ComplexOp::Adaptor adaptor(operands, attributes, properties, regions);
++   return hlo::inferComplexOp(location, adaptor.getLhs(), inferredReturnTypes);
++@@ -2150,7 +2150,7 @@
++ 
++ LogicalResult ImagOp::inferReturnTypes(
++     MLIRContext*, std::optional<Location> location, ValueRange operands,
++-    DictionaryAttr attributes, OpaqueProperties properties, RegionRange regions,
+++    DictionaryAttr attributes, PropertyRef properties, RegionRange regions,
++     SmallVectorImpl<Type>& inferredReturnTypes) {
++   ImagOp::Adaptor adaptor(operands, attributes, properties, regions);
++   return hlo::inferImagOp(location, adaptor.getOperand(), inferredReturnTypes);
++@@ -2162,7 +2162,7 @@
++ 
++ LogicalResult IsFiniteOp::inferReturnTypes(
++     MLIRContext* ctx, std::optional<Location> location, ValueRange operands,
++-    DictionaryAttr attributes, OpaqueProperties properties, RegionRange regions,
+++    DictionaryAttr attributes, PropertyRef properties, RegionRange regions,
++     SmallVectorImpl<Type>& inferredReturnTypes) {
++   IsFiniteOp::Adaptor adaptor(operands, attributes, properties, regions);
++   return hlo::inferIsFiniteOp(ctx, location, adaptor.getX(),
++@@ -2175,7 +2175,7 @@
++ 
++ LogicalResult RealOp::inferReturnTypes(
++     MLIRContext*, std::optional<Location> location, ValueRange operands,
++-    DictionaryAttr attributes, OpaqueProperties properties, RegionRange regions,
+++    DictionaryAttr attributes, PropertyRef properties, RegionRange regions,
++     SmallVectorImpl<Type>& inferredReturnTypes) {
++   RealOp::Adaptor adaptor(operands, attributes, properties, regions);
++   return hlo::inferRealOp(location, adaptor.getOperand(), inferredReturnTypes);
++@@ -2187,7 +2187,7 @@
++ 
++ LogicalResult ConcatenateOp::inferReturnTypes(
++     MLIRContext*, std::optional<Location> location, ValueRange operands,
++-    DictionaryAttr attributes, OpaqueProperties properties, RegionRange regions,
+++    DictionaryAttr attributes, PropertyRef properties, RegionRange regions,
++     SmallVectorImpl<Type>& inferredReturnTypes) {
++   ConcatenateOp::Adaptor adaptor(operands, attributes, properties, regions);
++   return hlo::inferConcatenateOp(location, adaptor.getInputs().getTypes(),
++@@ -2283,7 +2283,7 @@
++ 
++ LogicalResult DynamicSliceOp::inferReturnTypeComponents(
++     MLIRContext*, std::optional<Location> location, ValueShapeRange operands,
++-    DictionaryAttr attributes, OpaqueProperties properties, RegionRange regions,
+++    DictionaryAttr attributes, PropertyRef properties, RegionRange regions,
++     SmallVectorImpl<ShapedTypeComponents>& inferredReturnShapes) {
++   DynamicSliceOp::Adaptor adaptor(operands, attributes, properties, regions);
++   return hlo::inferDynamicSliceOp(location, adaptor.getOperand().getType(),
++@@ -2367,7 +2367,7 @@
++ 
++ LogicalResult MapOp::inferReturnTypeComponents(
++     MLIRContext*, std::optional<Location> location, ValueShapeRange operands,
++-    DictionaryAttr attributes, OpaqueProperties properties, RegionRange regions,
+++    DictionaryAttr attributes, PropertyRef properties, RegionRange regions,
++     SmallVectorImpl<ShapedTypeComponents>& inferredReturnShapes) {
++   MapOp::Adaptor adaptor(operands, attributes, properties, regions);
++   return hlo::inferMapOp(location, adaptor.getInputs(), adaptor.getDimensions(),
++@@ -2399,7 +2399,7 @@
++ 
++ LogicalResult OutfeedOp::inferReturnTypes(
++     MLIRContext* context, std::optional<Location> location, ValueRange operands,
++-    DictionaryAttr attributes, OpaqueProperties properties, RegionRange regions,
+++    DictionaryAttr attributes, PropertyRef properties, RegionRange regions,
++     SmallVectorImpl<Type>& inferredReturnTypes) {
++   return hlo::inferOutfeedOp(getStablehloDialect(context), location,
++                              inferredReturnTypes);
++@@ -2411,7 +2411,7 @@
++ 
++ LogicalResult SendOp::inferReturnTypes(
++     MLIRContext* context, std::optional<Location> location, ValueRange operands,
++-    DictionaryAttr attributes, OpaqueProperties properties, RegionRange regions,
+++    DictionaryAttr attributes, PropertyRef properties, RegionRange regions,
++     SmallVectorImpl<Type>& inferredReturnTypes) {
++   SendOp::Adaptor adaptor(operands, attributes, properties, regions);
++   bool isDeviceToDevice = adaptor.getChannelHandle().getType() == 1;
++@@ -2439,7 +2439,7 @@
++ 
++ LogicalResult ReduceWindowOp::inferReturnTypeComponents(
++     MLIRContext*, std::optional<Location> location, ValueShapeRange operands,
++-    DictionaryAttr attributes, OpaqueProperties properties, RegionRange regions,
+++    DictionaryAttr attributes, PropertyRef properties, RegionRange regions,
++     SmallVectorImpl<ShapedTypeComponents>& inferredReturnShapes) {
++   ReduceWindowOp::Adaptor adaptor(operands, attributes, properties, regions);
++   return hlo::inferReduceWindowOp(
++@@ -2535,7 +2535,7 @@
++ 
++ LogicalResult ReduceOp::inferReturnTypeComponents(
++     MLIRContext*, std::optional<Location> location, ValueShapeRange operands,
++-    DictionaryAttr attributes, OpaqueProperties properties, RegionRange regions,
+++    DictionaryAttr attributes, PropertyRef properties, RegionRange regions,
++     SmallVectorImpl<ShapedTypeComponents>& inferredReturnShapes) {
++   ReduceOp::Adaptor adaptor(operands, attributes, properties, regions);
++   return hlo::inferReduceOp(location, adaptor.getInputs().getTypes(),
++@@ -2555,8 +2555,8 @@
++   Attribute encoding;
++   ReduceOp::Adaptor adaptor(
++       odsState.operands,
++-      odsState.attributes.getDictionary(odsState.getContext()), {},
++-      odsState.regions);
+++      odsState.attributes.getDictionary(odsState.getContext()),
+++      ::mlir::PropertyRef{}, odsState.regions);
++ 
++   auto inputArgTensorTypes =
++       llvm::map_to_vector(adaptor.getInputs().getTypes(),
++@@ -2626,7 +2626,7 @@
++ //===----------------------------------------------------------------------===//
++ LogicalResult OptimizationBarrierOp::inferReturnTypes(
++     MLIRContext*, std::optional<Location> location, ValueRange operands,
++-    DictionaryAttr attributes, OpaqueProperties properties, RegionRange,
+++    DictionaryAttr attributes, PropertyRef properties, RegionRange,
++     SmallVectorImpl<Type>& inferredReturnTypes) {
++   OptimizationBarrierOp::Adaptor adaptor(operands, attributes, properties);
++   return hlo::inferOptimizationBarrierOp(location, adaptor.getOperand(),
++@@ -2642,7 +2642,7 @@
++ 
++ LogicalResult ReverseOp::inferReturnTypes(
++     MLIRContext* /*context*/, std::optional<Location> location,
++-    ValueRange operands, DictionaryAttr attributes, OpaqueProperties properties,
+++    ValueRange operands, DictionaryAttr attributes, PropertyRef properties,
++     RegionRange regions, SmallVectorImpl<Type>& inferredReturnTypes) {
++   ReverseOp::Adaptor adaptor(operands, attributes, properties, regions);
++   return hlo::inferReverseOp(location, adaptor.getOperand().getType(),
++@@ -2672,8 +2672,8 @@
++ 
++ LogicalResult RngOp::inferReturnTypeComponents(
++     MLIRContext* context, std::optional<Location> location,
++-    ValueShapeRange operands, DictionaryAttr attributes,
++-    OpaqueProperties properties, RegionRange regions,
+++    ValueShapeRange operands, DictionaryAttr attributes, PropertyRef properties,
+++    RegionRange regions,
++     SmallVectorImpl<ShapedTypeComponents>& inferredReturnShapes) {
++   RngOp::Adaptor adaptor(operands, attributes, properties, regions);
++   return hlo::inferRngOp(
++@@ -2697,7 +2697,7 @@
++ 
++ LogicalResult SelectOp::inferReturnTypeComponents(
++     MLIRContext*, std::optional<Location> location, ValueShapeRange operands,
++-    DictionaryAttr attributes, OpaqueProperties properties, RegionRange,
+++    DictionaryAttr attributes, PropertyRef properties, RegionRange,
++     SmallVectorImpl<ShapedTypeComponents>& inferredReturnShapes) {
++   SelectOp::Adaptor op(operands, attributes);
++   return hlo::inferSelectOp(location, op.getPred(), op.getOnTrue(),
++@@ -2718,8 +2718,8 @@
++ 
++ LogicalResult SetDimensionSizeOp::inferReturnTypeComponents(
++     MLIRContext* context, std::optional<Location> location,
++-    ValueShapeRange operands, DictionaryAttr attributes,
++-    OpaqueProperties properties, RegionRange regions,
+++    ValueShapeRange operands, DictionaryAttr attributes, PropertyRef properties,
+++    RegionRange regions,
++     SmallVectorImpl<ShapedTypeComponents>& inferredReturnShapes) {
++   SetDimensionSizeOp::Adaptor adaptor(operands, attributes, properties,
++                                       regions);
++@@ -2762,7 +2762,7 @@
++ 
++ LogicalResult PadOp::inferReturnTypes(
++     MLIRContext*, std::optional<Location> location, ValueRange operands,
++-    DictionaryAttr attributes, OpaqueProperties properties, RegionRange regions,
+++    DictionaryAttr attributes, PropertyRef properties, RegionRange regions,
++     SmallVectorImpl<Type>& inferredReturnTypes) {
++   PadOp::Adaptor adaptor(operands, attributes, properties, regions);
++   return hlo::inferPadOp(location, adaptor.getOperand().getType(),
++@@ -2917,7 +2917,7 @@
++ 
++ LogicalResult ReplicaIdOp::inferReturnTypes(
++     MLIRContext* context, std::optional<Location> location, ValueRange operands,
++-    DictionaryAttr, OpaqueProperties, RegionRange,
+++    DictionaryAttr, PropertyRef, RegionRange,
++     SmallVectorImpl<Type>& inferredReturnTypes) {
++   return hlo::inferReplicaIdOp(context, location, inferredReturnTypes);
++ }
++@@ -2928,7 +2928,7 @@
++ 
++ LogicalResult PartitionIdOp::inferReturnTypes(
++     MLIRContext* context, std::optional<Location> location,
++-    ValueRange /*operands*/, DictionaryAttr, OpaqueProperties, RegionRange,
+++    ValueRange /*operands*/, DictionaryAttr, PropertyRef, RegionRange,
++     SmallVectorImpl<Type>& inferredReturnTypes) {
++   return hlo::inferPartitionIdOp(context, location, inferredReturnTypes);
++ }
++@@ -2939,7 +2939,7 @@
++ 
++ LogicalResult IfOp::inferReturnTypes(
++     MLIRContext*, std::optional<Location> location, ValueRange operands,
++-    DictionaryAttr attributes, OpaqueProperties properties, RegionRange regions,
+++    DictionaryAttr attributes, PropertyRef properties, RegionRange regions,
++     SmallVectorImpl<Type>& inferredReturnTypes) {
++   IfOp::Adaptor adaptor(operands, attributes, properties, regions);
++   return hlo::inferIfOp(location, adaptor.getPred(), adaptor.getRegions(),
++@@ -2952,7 +2952,7 @@
++ 
++ LogicalResult CaseOp::inferReturnTypes(
++     MLIRContext*, std::optional<Location> location, ValueRange operands,
++-    DictionaryAttr attributes, OpaqueProperties properties, RegionRange regions,
+++    DictionaryAttr attributes, PropertyRef properties, RegionRange regions,
++     SmallVectorImpl<Type>& inferredReturnTypes) {
++   CaseOp::Adaptor adaptor(operands, attributes, properties, regions);
++   return hlo::inferCaseOp(location, adaptor.getIndex(), adaptor.getRegions(),
++@@ -2997,7 +2997,7 @@
++ 
++ LogicalResult SliceOp::inferReturnTypes(
++     MLIRContext* context, std::optional<Location> location, ValueRange operands,
++-    DictionaryAttr attributes, OpaqueProperties properties, RegionRange regions,
+++    DictionaryAttr attributes, PropertyRef properties, RegionRange regions,
++     SmallVectorImpl<Type>& inferredReturnTypes) {
++   SliceOpAdaptor adaptor(operands, attributes, properties);
++   return hlo::inferSliceOp(location, adaptor.getOperand().getType(),
++@@ -3022,7 +3022,7 @@
++ 
++ LogicalResult SortOp::inferReturnTypeComponents(
++     MLIRContext*, std::optional<Location> location, ValueShapeRange operands,
++-    DictionaryAttr attributes, OpaqueProperties properties, RegionRange regions,
+++    DictionaryAttr attributes, PropertyRef properties, RegionRange regions,
++     SmallVectorImpl<ShapedTypeComponents>& inferredReturnShapes) {
++   SortOp::Adaptor adaptor(operands, attributes, properties, regions);
++   return hlo::inferSortOp(location, adaptor.getInputs(), inferredReturnShapes);
++@@ -3074,7 +3074,7 @@
++ 
++ LogicalResult TransposeOp::inferReturnTypes(
++     MLIRContext*, std::optional<Location> loc, ValueRange operands,
++-    DictionaryAttr attributes, OpaqueProperties properties, RegionRange regions,
+++    DictionaryAttr attributes, PropertyRef properties, RegionRange regions,
++     SmallVectorImpl<Type>& inferredReturnTypes) {
++   TransposeOp::Adaptor adaptor(operands, attributes, properties, regions);
++   return hlo::inferTransposeOp(loc, adaptor.getOperand(),
++@@ -3100,7 +3100,7 @@
++ 
++ LogicalResult TriangularSolveOp::inferReturnTypeComponents(
++     MLIRContext*, std::optional<Location> location, ValueShapeRange operands,
++-    DictionaryAttr attributes, OpaqueProperties properties, RegionRange regions,
+++    DictionaryAttr attributes, PropertyRef properties, RegionRange regions,
++     SmallVectorImpl<ShapedTypeComponents>& inferredReturnShapes) {
++   TriangularSolveOp::Adaptor adaptor(operands, attributes, properties, regions);
++   bool isTransposeAInvalid =
++@@ -3133,7 +3133,7 @@
++ 
++ LogicalResult GetTupleElementOp::inferReturnTypes(
++     MLIRContext*, std::optional<Location> location, ValueRange operands,
++-    DictionaryAttr attributes, OpaqueProperties properties, RegionRange regions,
+++    DictionaryAttr attributes, PropertyRef properties, RegionRange regions,
++     SmallVectorImpl<Type>& inferredReturnTypes) {
++   GetTupleElementOp::Adaptor adaptor(operands, attributes, properties, regions);
++   return hlo::inferGetTupleElementOp(location, adaptor.getOperand(),
++@@ -3146,7 +3146,7 @@
++ 
++ LogicalResult TupleOp::inferReturnTypes(
++     MLIRContext* context, std::optional<Location> location, ValueRange operands,
++-    DictionaryAttr attributes, OpaqueProperties properties, RegionRange regions,
+++    DictionaryAttr attributes, PropertyRef properties, RegionRange regions,
++     SmallVectorImpl<Type>& inferredReturnTypes) {
++   TupleOp::Adaptor adaptor(operands, attributes, properties, regions);
++   return hlo::inferTupleOp(context, location, adaptor.getVal(),
++@@ -3171,8 +3171,8 @@
++ 
++ LogicalResult CompareOp::inferReturnTypeComponents(
++     MLIRContext* context, std::optional<Location> location,
++-    ValueShapeRange operands, DictionaryAttr attributes,
++-    OpaqueProperties properties, RegionRange regions,
+++    ValueShapeRange operands, DictionaryAttr attributes, PropertyRef properties,
+++    RegionRange regions,
++     SmallVectorImpl<ShapedTypeComponents>& inferredReturnShapes) {
++   CompareOp::Adaptor adaptor(operands, attributes, properties, regions);
++   return hlo::inferCompareOp(context, location, adaptor.getLhs(),
++@@ -3192,7 +3192,7 @@
++ 
++ LogicalResult SelectAndScatterOp::inferReturnTypes(
++     MLIRContext*, std::optional<Location> location, ValueRange operands,
++-    DictionaryAttr attributes, OpaqueProperties properties, RegionRange regions,
+++    DictionaryAttr attributes, PropertyRef properties, RegionRange regions,
++     SmallVectorImpl<Type>& inferredReturnTypes) {
++   SelectAndScatterOp::Adaptor adaptor(operands, attributes, properties,
++                                       regions);
++@@ -3214,7 +3214,7 @@
++ 
++ LogicalResult ScatterOp::inferReturnTypes(
++     MLIRContext*, std::optional<Location> location, ValueRange operands,
++-    DictionaryAttr attributes, OpaqueProperties properties, RegionRange regions,
+++    DictionaryAttr attributes, PropertyRef properties, RegionRange regions,
++     SmallVectorImpl<Type>& inferredReturnTypes) {
++   ScatterOp::Adaptor adaptor(operands, attributes, properties, regions);
++   return hlo::inferScatterOp(location, adaptor.getInputs(),
++@@ -3255,7 +3255,7 @@
++ 
++ LogicalResult WhileOp::inferReturnTypes(
++     MLIRContext*, std::optional<Location> location, ValueRange operands,
++-    DictionaryAttr attributes, OpaqueProperties properties, RegionRange regions,
+++    DictionaryAttr attributes, PropertyRef properties, RegionRange regions,
++     SmallVectorImpl<Type>& inferredReturnTypes) {
++   WhileOp::Adaptor adaptor(operands, attributes, properties, regions);
++   return hlo::inferWhileOp(location, adaptor.getOperand(), inferredReturnTypes);
++@@ -3279,7 +3279,7 @@
++ 
++ LogicalResult UniformDequantizeOp::inferReturnTypeComponents(
++     MLIRContext*, std::optional<Location> location, ValueShapeRange operands,
++-    DictionaryAttr attributes, OpaqueProperties properties, RegionRange regions,
+++    DictionaryAttr attributes, PropertyRef properties, RegionRange regions,
++     SmallVectorImpl<ShapedTypeComponents>& inferredReturnShapes) {
++   UniformDequantizeOp::Adaptor adaptor(operands, attributes, properties,
++                                        regions);
++diff --ruN a/stablehlo/stablehlo/dialect/StablehloOps.td b/stablehlo/stablehlo/dialect/StablehloOps.td
++--- stablehlo/stablehlo/dialect/StablehloOps.td
+++++ stablehlo/stablehlo/dialect/StablehloOps.td
++@@ -850,7 +850,7 @@
++     static LogicalResult inferReturnTypes(
++         MLIRContext * /*context*/, std::optional<Location> location,
++         ValueRange operands, DictionaryAttr /*attributes*/,
++-        OpaqueProperties /*properties*/, RegionRange /*regions*/,
+++        PropertyRef /*properties*/, RegionRange /*regions*/,
++         SmallVectorImpl<Type> &inferredReturnTypes) {
++       if (operands.empty())
++         return emitOptionalError(
+ diff --ruN a/stablehlo/stablehlo/integrations/c/StablehloTypes.cpp b/stablehlo/stablehlo/integrations/c/StablehloTypes.cpp
+ --- stablehlo/stablehlo/integrations/c/StablehloTypes.cpp
+ +++ stablehlo/stablehlo/integrations/c/StablehloTypes.cpp
+diff --git a/third_party/stablehlo/workspace.bzl b/third_party/stablehlo/workspace.bzl
+index a943648..4b29aed 100644
+--- a/third_party/stablehlo/workspace.bzl
++++ b/third_party/stablehlo/workspace.bzl
+@@ -4,8 +4,8 @@ load("//third_party:repo.bzl", "tf_http_archive", "tf_mirror_urls")
+ 
+ def repo():
+     #
+-    STABLEHLO_COMMIT = "05fdca09eefdcacaa32a27823e258aeb935b56d0"
+-    STABLEHLO_SHA256 = "3d119dad5288d1b87f9c467b386b26d4906f9117a2a924407f53adcd3b1b5c2a"
++    STABLEHLO_COMMIT = "fef90093ed233adae94ca41f07abde51d962d1c0"
++    STABLEHLO_SHA256 = "ffb10b078c2f59c6c498d54bcf017993975daa51f6dee4e24d862193a75a42a0"
+     #
+ 
+     tf_http_archive(

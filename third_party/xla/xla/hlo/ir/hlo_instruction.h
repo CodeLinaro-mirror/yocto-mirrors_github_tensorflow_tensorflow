@@ -2942,6 +2942,16 @@ bool HloPredicateIsNotOp(const HloInstruction* instruction) {
   }
 }
 
+// Returns true if the "is_constant" frontend attribute is set to "true".
+inline bool IsParameterConstant(const HloInstruction* instruction) {
+  return instruction->get_frontend_attribute("is_constant") == "true";
+}
+
+// Sets the "is_constant" frontend attribute to "true".
+inline void SetParameterConstant(HloInstruction* instruction) {
+  instruction->set_frontend_attribute("is_constant", "true");
+}
+
 }  // namespace xla
 
 #endif  // XLA_HLO_IR_HLO_INSTRUCTION_H_

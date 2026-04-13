@@ -2017,6 +2017,16 @@ std::tuple<HloSharding, HloSharding, int64_t> CreateSplitShardingTuple(
   return {std::move(split_source), std::move(split_target), dim};
 }
 
+int64_t GetReplicationFactor(const HloSharding& s) {
+  if (s.UseNamedShardingLeaf()) {
+    int64_t sharded_dims_product =
+        absl::c_accumulate(s.dimensions(), 1LL, std::multiplies<int64_t>());
+    return s.num_devices() / sharded_dims_product;
+  }
+  return s.HasPartialReplication() ? s.dimension(s.SubgroupReplicationDim())
+                                   : 1;
+}
+
 // Matching the following patterns, where X and Y cannot be 1.
 // 1. [..,X,..,Y,..] <-> [..,X*Y,..,1,..]
 // 2. [..,Y,..,X,..] <-> [..,1,..,X*Y,..]
@@ -2039,15 +2049,7 @@ PatternMatchMergeOrSplitSharding(const Shape& base_shape,
     return std::nullopt;
   }
   if (source.HasPartialReplication()) {
-    auto get_repl_factor = [](const HloSharding& s) {
-      if (s.UseNamedShardingLeaf()) {
-        int64_t sharded_dims_product =
-            absl::c_accumulate(s.dimensions(), 1LL, std::multiplies<int64_t>());
-        return s.num_devices() / sharded_dims_product;
-      }
-      return s.dimensions()[s.TiledDataRank()];
-    };
-    if (get_repl_factor(source) != get_repl_factor(target)) {
+    if (GetReplicationFactor(source) != GetReplicationFactor(target)) {
       return std::nullopt;
     }
   }
@@ -2104,24 +2106,37 @@ PatternMatchMergeOrSplitSharding(const Shape& base_shape,
 // targets instead.
 std::optional<HloSharding> PatternMatchPartiallyReplicateDim(
     const HloSharding& source, const HloSharding& target) {
-  if (!target.ReplicateOnLastTileDim()) {
+  std::optional<HloSharding> v2_source;
+  std::optional<HloSharding> v2_target;
+  const HloSharding* source_sharding = &source;
+  const HloSharding* target_sharding = &target;
+
+  if (source.UseNamedShardingLeaf() != target.UseNamedShardingLeaf()) {
+    if (source.UseNamedShardingLeaf()) {
+      v2_source = HloSharding::V3ToV2Sharding(source.named_sharding());
+      source_sharding = &v2_source.value();
+    } else {
+      v2_target = HloSharding::V3ToV2Sharding(target.named_sharding());
+      target_sharding = &v2_target.value();
+    }
+  }
+
+  if (!target_sharding->HasPartialReplication()) {
     return std::nullopt;
   }
-  const int64_t target_replicated_dim = target.SubgroupReplicationDim();
-  const int64_t source_replicated_size =
-      source.HasPartialReplication()
-          ? source.dimension(source.SubgroupReplicationDim())
-          : 1;
-  CHECK_NE(target_replicated_dim, -1) << "Expected replicated dim";
-  for (int i = 0; i < source.TiledDataRank(); ++i) {
-    if (source.dimension(i) == 1 ||
-        source.dimension(i) * source_replicated_size !=
-            target.dimension(target_replicated_dim)) {
+
+  const int64_t target_replicated_size = GetReplicationFactor(*target_sharding);
+  const int64_t source_replicated_size = GetReplicationFactor(*source_sharding);
+
+  for (int i = 0; i < source_sharding->TiledDataRank(); ++i) {
+    if (source_sharding->dimension(i) == 1 ||
+        source_sharding->dimension(i) * source_replicated_size !=
+            target_replicated_size) {
       continue;
     }
-    auto replicated_sharding =
-        hlo_sharding_util::PartiallyReplicateTiledShardingOnDims(source, {i});
-    return replicated_sharding;
+
+    return hlo_sharding_util::PartiallyReplicateTiledShardingOnDims(
+        *source_sharding, {i});
   }
   return std::nullopt;
 }

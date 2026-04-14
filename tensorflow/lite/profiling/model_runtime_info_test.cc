@@ -24,6 +24,7 @@ limitations under the License.
 #include <memory>
 #include <string>
 #include <tuple>
+#include <utility>
 #include <vector>
 
 #include <gtest/gtest.h>
@@ -43,7 +44,8 @@ namespace profiling {
 // XNNPACK will fuse the pad op into the conv op while TFLite on CPU will not.
 class PadAndConv2DModel : public MultiOpModel {
  public:
-  explicit PadAndConv2DModel(TfLiteDelegate* delegate = nullptr) {
+  explicit PadAndConv2DModel(Interpreter::TfLiteDelegatePtr delegate = {
+                                 nullptr, [](TfLiteDelegate*) {}}) {
     input_ = AddInput({TensorType_FLOAT32, {1, 3, 3, 1}});
     int pad_out = AddInnerTensor<float>({TensorType_FLOAT32, {1, 5, 5, 1}});
     output_ = AddOutput({TensorType_FLOAT32, {1, 5, 5, 1}});
@@ -63,7 +65,7 @@ class PadAndConv2DModel : public MultiOpModel {
         CreateConv2DOptions(builder_, tflite::Padding_SAME, 1, 1).Union(),
         {pad_out, conv_filter_, conv_bias_}, {output_});
 
-    SetDelegate(delegate);
+    SetDelegate(std::move(delegate));
     BuildInterpreter({GetShape(input_)}, /*num_threads=*/-1,
                      /*allow_fp32_relax_to_fp16=*/false,
                      /*apply_delegate=*/delegate != nullptr,
@@ -332,7 +334,7 @@ ModelRuntimeDetails CreateExpectedModelRuntimeDetails(
 TEST(MODEL_RUNTIME_INFO_TEST, PadAndConv2DNoDelegate) {
   auto profiler = std::make_unique<profiling::BufferedProfiler>(1024, false);
 
-  PadAndConv2DModel model(nullptr);
+  PadAndConv2DModel model;
   model.Initialize(profiler.get());
   model.ResetProfilerAndInvoke(profiler.get());
 
@@ -365,7 +367,7 @@ TEST(MODEL_RUNTIME_INFO_TEST, PadAndConv2DWithXnnpackDelegate) {
       xnnpack_delegate(TfLiteXNNPackDelegateCreate(nullptr),
                        TfLiteXNNPackDelegateDelete);
 
-  PadAndConv2DModel xnnpack_model(xnnpack_delegate.get());
+  PadAndConv2DModel xnnpack_model(std::move(xnnpack_delegate));
   xnnpack_model.Initialize(profiler.get());
   xnnpack_model.ResetProfilerAndInvoke(profiler.get());
 

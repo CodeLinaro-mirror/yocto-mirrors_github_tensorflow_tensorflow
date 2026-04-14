@@ -17,11 +17,13 @@ limitations under the License.
 #include <sys/mman.h>
 
 #include <initializer_list>
+#include <utility>
 #include <vector>
 
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 #include "tensorflow/lite/core/c/common.h"
+#include "tensorflow/lite/core/interpreter.h"
 #include "tensorflow/lite/kernels/test_util.h"
 #include "tensorflow/lite/schema/schema_generated.h"
 
@@ -43,27 +45,21 @@ class SingleOpModelWithNnapiDelegateCApi : public SingleOpModel {
     options_.disallow_nnapi_cpu = false;
   }
 
-  ~SingleOpModelWithNnapiDelegateCApi() {
-    if (nnapi_delegate_) {
-      TfLiteNnapiDelegateDelete(nnapi_delegate_);
-    }
-    nnapi_delegate_ = nullptr;
-  }
+  ~SingleOpModelWithNnapiDelegateCApi() = default;
 
  protected:
   void BuildInterpreterWithNNAPI(std::vector<std::vector<int>> input_shapes) {
-    if (nnapi_delegate_) {
-      TfLiteNnapiDelegateDelete(nnapi_delegate_);
-    }
-    nnapi_delegate_ = TfLiteNnapiDelegateCreate(&options_);
-    SetDelegate(nnapi_delegate_);
+    nnapi_delegate_ = tflite::Interpreter::TfLiteDelegatePtr{
+        TfLiteNnapiDelegateCreate(&options_), TfLiteNnapiDelegateDelete};
+    SetDelegate(std::move(nnapi_delegate_));
     BuildInterpreter(input_shapes, /*num_threads=*/-1, options_.allow_fp16,
                      /*apply_delegate=*/true, /*allocate_and_delegate=*/true);
   }
 
  private:
   TfLiteNnapiDelegateOptions options_;
-  TfLiteDelegate* nnapi_delegate_ = nullptr;
+  tflite::Interpreter::TfLiteDelegatePtr nnapi_delegate_{
+      nullptr, [](TfLiteDelegate*) {}};
 };
 
 class FloatAddOpModel : public SingleOpModelWithNnapiDelegateCApi {

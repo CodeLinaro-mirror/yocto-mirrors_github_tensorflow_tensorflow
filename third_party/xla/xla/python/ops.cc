@@ -629,7 +629,7 @@ NB_MODULE(_ops, m) {
   m.def("MultiCollectivePermute", &MultiCollectivePermute, nb::arg("operands"),
         nb::arg("source_target_pairs"), nb::arg("channel_id") = std::nullopt,
         nb::arg("inplace") = false);
-  m.def("NextAfter", &NextAfter, nb::arg("from"), nb::arg("to"));
+  m.def("NextAfter", &NextAfter, nb::arg("from_"), nb::arg("to"));
   m.def("OutfeedWithToken", &OutfeedWithToken, nb::arg("operand"),
         nb::arg("token"), nb::arg("shape_with_layout"),
         nb::arg("outfeed_config") = "");

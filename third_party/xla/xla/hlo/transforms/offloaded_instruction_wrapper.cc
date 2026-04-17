@@ -15,6 +15,7 @@ limitations under the License.
 
 #include "xla/hlo/transforms/offloaded_instruction_wrapper.h"
 
+#include <cstdint>
 #include <utility>
 #include <vector>
 
@@ -86,7 +87,7 @@ FindAndWrapOffloadedComputations(
     }
   }
 
-  std::vector<std::pair<HloInstruction*, HloCallInstruction*>>
+  std::vector<std::pair<HloInstruction*, int64_t>>
       offloaded_instructions_and_calls;
   // On each iteration of the outer loop, try to create one offloaded
   // computation out of a connected set of offloaded instructions.
@@ -198,7 +199,7 @@ FindAndWrapOffloadedComputations(
       break;
     }
     offloaded_instructions_and_calls.push_back(
-        std::pair(offloaded_instr, offloaded_call_instr));
+        std::pair(offloaded_instr, offloaded_call_instr->unique_id()));
 
     for (HloInstruction* instr : computation.instructions()) {
       // If an offloaded instruction is a Sharding custom call or has control
@@ -218,7 +219,22 @@ FindAndWrapOffloadedComputations(
     VLOG(6) << "After offloading computation after DCE:";
     XLA_VLOG_LINES(6, computation.parent()->ToString());
   }
-  return offloaded_instructions_and_calls;
+
+  // Filter out any offloaded call instructions that were removed by HloDCE.
+  // Since HloDCE deletes instructions and subsequent iterations of the while
+  // loop may allocate new ones reusing the same pointer address, we must use
+  // unique_id() to safely check if the instruction is still in the computation.
+  std::vector<std::pair<HloInstruction*, HloCallInstruction*>> alive_calls;
+  for (const auto& pair : offloaded_instructions_and_calls) {
+    for (HloInstruction* instr : computation.instructions()) {
+      if (instr->unique_id() == pair.second) {
+        alive_calls.push_back(
+            {pair.first, absl::down_cast<HloCallInstruction*>(instr)});
+        break;
+      }
+    }
+  }
+  return alive_calls;
 }
 
 }  // namespace xla::offloader_util

@@ -284,6 +284,152 @@ TEST_F(AlgebraicSimplifierTest, AddZero) {
   EXPECT_EQ(root, param0);
 }
 
+TEST_F(AlgebraicSimplifierTest, AddSubSame) {
+  auto m = CreateNewVerifiedModule();
+  Shape r0f32 = ShapeUtil::MakeShape(F32, {});
+  HloComputation::Builder builder(TestName());
+  HloInstruction* x =
+      builder.AddInstruction(HloInstruction::CreateParameter(0, r0f32, "x"));
+  HloInstruction* y =
+      builder.AddInstruction(HloInstruction::CreateParameter(1, r0f32, "y"));
+  HloInstruction* sub = builder.AddInstruction(
+      HloInstruction::CreateBinary(r0f32, HloOpcode::kSubtract, y, x));
+  builder.AddInstruction(
+      HloInstruction::CreateBinary(r0f32, HloOpcode::kAdd, x, sub));
+
+  auto computation = m->AddEntryComputationWithLayouts(builder.Build());
+  HloInstruction* root = computation->root_instruction();
+  EXPECT_EQ(root->opcode(), HloOpcode::kAdd);
+
+  // By default enable_fast_math is false.
+  EXPECT_FALSE(AlgebraicSimplifier(default_options_).Run(m.get()).value());
+
+  // Set enable_fast_math to true.
+  AlgebraicSimplifierOptions options = default_options_;
+  options.set_enable_fast_math(true);
+  EXPECT_TRUE(AlgebraicSimplifier(options).Run(m.get()).value());
+  root = computation->root_instruction();
+  EXPECT_THAT(root, GmockMatch(m::Parameter(1)));
+}
+
+TEST_F(AlgebraicSimplifierTest, AddSubSameCommutative) {
+  auto m = CreateNewVerifiedModule();
+  Shape r0f32 = ShapeUtil::MakeShape(F32, {});
+  HloComputation::Builder builder(TestName());
+  HloInstruction* x =
+      builder.AddInstruction(HloInstruction::CreateParameter(0, r0f32, "x"));
+  HloInstruction* y =
+      builder.AddInstruction(HloInstruction::CreateParameter(1, r0f32, "y"));
+  HloInstruction* sub = builder.AddInstruction(
+      HloInstruction::CreateBinary(r0f32, HloOpcode::kSubtract, y, x));
+  builder.AddInstruction(
+      HloInstruction::CreateBinary(r0f32, HloOpcode::kAdd, sub, x));
+
+  auto computation = m->AddEntryComputationWithLayouts(builder.Build());
+  HloInstruction* root = computation->root_instruction();
+  EXPECT_EQ(root->opcode(), HloOpcode::kAdd);
+
+  AlgebraicSimplifierOptions options = default_options_;
+  options.set_enable_fast_math(true);
+  EXPECT_TRUE(AlgebraicSimplifier(options).Run(m.get()).value());
+  root = computation->root_instruction();
+  EXPECT_THAT(root, GmockMatch(m::Parameter(1)));
+}
+
+TEST_F(AlgebraicSimplifierTest, AddSubSameInt) {
+  auto m = CreateNewVerifiedModule();
+  Shape r0s32 = ShapeUtil::MakeShape(S32, {});
+  HloComputation::Builder builder(TestName());
+  HloInstruction* x =
+      builder.AddInstruction(HloInstruction::CreateParameter(0, r0s32, "x"));
+  HloInstruction* y =
+      builder.AddInstruction(HloInstruction::CreateParameter(1, r0s32, "y"));
+  HloInstruction* sub = builder.AddInstruction(
+      HloInstruction::CreateBinary(r0s32, HloOpcode::kSubtract, y, x));
+  builder.AddInstruction(
+      HloInstruction::CreateBinary(r0s32, HloOpcode::kAdd, x, sub));
+
+  auto computation = m->AddEntryComputationWithLayouts(builder.Build());
+  HloInstruction* root = computation->root_instruction();
+  EXPECT_EQ(root->opcode(), HloOpcode::kAdd);
+
+  EXPECT_TRUE(AlgebraicSimplifier(default_options_).Run(m.get()).value());
+  root = computation->root_instruction();
+  EXPECT_THAT(root, GmockMatch(m::Parameter(1)));
+}
+
+TEST_F(AlgebraicSimplifierTest, SubSubSame) {
+  auto m = CreateNewVerifiedModule();
+  Shape r0f32 = ShapeUtil::MakeShape(F32, {});
+  HloComputation::Builder builder(TestName());
+  HloInstruction* x =
+      builder.AddInstruction(HloInstruction::CreateParameter(0, r0f32, "x"));
+  HloInstruction* y =
+      builder.AddInstruction(HloInstruction::CreateParameter(1, r0f32, "y"));
+  HloInstruction* sub_inner = builder.AddInstruction(
+      HloInstruction::CreateBinary(r0f32, HloOpcode::kSubtract, x, y));
+  builder.AddInstruction(
+      HloInstruction::CreateBinary(r0f32, HloOpcode::kSubtract, x, sub_inner));
+
+  auto computation = m->AddEntryComputationWithLayouts(builder.Build());
+  HloInstruction* root = computation->root_instruction();
+  EXPECT_EQ(root->opcode(), HloOpcode::kSubtract);
+
+  AlgebraicSimplifierOptions options = default_options_;
+  options.set_enable_fast_math(true);
+  EXPECT_TRUE(AlgebraicSimplifier(options).Run(m.get()).value());
+  root = computation->root_instruction();
+  EXPECT_THAT(root, GmockMatch(m::Parameter(1)));
+}
+
+TEST_F(AlgebraicSimplifierTest, SubAddSame) {
+  auto m = CreateNewVerifiedModule();
+  Shape r0f32 = ShapeUtil::MakeShape(F32, {});
+  HloComputation::Builder builder(TestName());
+  HloInstruction* x =
+      builder.AddInstruction(HloInstruction::CreateParameter(0, r0f32, "x"));
+  HloInstruction* y =
+      builder.AddInstruction(HloInstruction::CreateParameter(1, r0f32, "y"));
+  HloInstruction* add = builder.AddInstruction(
+      HloInstruction::CreateBinary(r0f32, HloOpcode::kAdd, x, y));
+  builder.AddInstruction(
+      HloInstruction::CreateBinary(r0f32, HloOpcode::kSubtract, x, add));
+
+  auto computation = m->AddEntryComputationWithLayouts(builder.Build());
+  HloInstruction* root = computation->root_instruction();
+  EXPECT_EQ(root->opcode(), HloOpcode::kSubtract);
+
+  AlgebraicSimplifierOptions options = default_options_;
+  options.set_enable_fast_math(true);
+  EXPECT_TRUE(AlgebraicSimplifier(options).Run(m.get()).value());
+  root = computation->root_instruction();
+  EXPECT_THAT(root, GmockMatch(m::Negate(m::Parameter(1))));
+}
+
+TEST_F(AlgebraicSimplifierTest, AddSubSame2) {
+  auto m = CreateNewVerifiedModule();
+  Shape r0f32 = ShapeUtil::MakeShape(F32, {});
+  HloComputation::Builder builder(TestName());
+  HloInstruction* x =
+      builder.AddInstruction(HloInstruction::CreateParameter(0, r0f32, "x"));
+  HloInstruction* y =
+      builder.AddInstruction(HloInstruction::CreateParameter(1, r0f32, "y"));
+  HloInstruction* add = builder.AddInstruction(
+      HloInstruction::CreateBinary(r0f32, HloOpcode::kAdd, x, y));
+  builder.AddInstruction(
+      HloInstruction::CreateBinary(r0f32, HloOpcode::kSubtract, add, x));
+
+  auto computation = m->AddEntryComputationWithLayouts(builder.Build());
+  HloInstruction* root = computation->root_instruction();
+  EXPECT_EQ(root->opcode(), HloOpcode::kSubtract);
+
+  AlgebraicSimplifierOptions options = default_options_;
+  options.set_enable_fast_math(true);
+  EXPECT_TRUE(AlgebraicSimplifier(options).Run(m.get()).value());
+  root = computation->root_instruction();
+  EXPECT_THAT(root, GmockMatch(m::Parameter(1)));
+}
+
 TEST_F(AlgebraicSimplifierTest, FactorIntegerAddition) {
   constexpr absl::string_view kModuleStr = R"(
     HloModule m

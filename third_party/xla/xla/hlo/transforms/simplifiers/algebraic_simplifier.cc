@@ -937,6 +937,19 @@ absl::Status AlgebraicSimplifierVisitor::HandleAdd(HloInstruction* add) {
                                           sum_of_constants, a));
   }
 
+  // x + (y - x) => y
+  HloInstruction *x, *y, *x2;
+  if (Match(add,
+            m::AddAnyOrder(m::Op(&x), m::Subtract(m::Op(&y), m::Op(&x2)))) &&
+      x == x2 &&
+      (ShapeUtil::ElementIsIntegral(add->shape()) ||
+       options_.enable_fast_math())) {
+    VLOG(10) << "trying transform [x + (y - x) => y]: " << add->ToString();
+    if (ReplaceInstructionIfCompatible(add, y)) {
+      return absl::OkStatus();
+    }
+  }
+
   // Convert add with fullshape into add with partial shape when a
   // portion of add is effective:
   //             zero (fullshape)   rhs (partialshape)
@@ -2307,6 +2320,44 @@ absl::Status AlgebraicSimplifierVisitor::HandleSubtract(HloInstruction* sub) {
     return ReplaceWithNewInstruction(
         sub, HloInstruction::CreateBinary(sub->shape(), HloOpcode::kAdd, lhs,
                                           negative_const));
+  }
+
+  // x - (x - y) => y
+  if (Match(sub, m::Subtract(m::Op(&lhs),
+                             m::Subtract(m::Op().Is(lhs), m::Op(&rhs)))) &&
+      (ShapeUtil::ElementIsIntegral(sub->shape()) ||
+       options_.enable_fast_math())) {
+    VLOG(10) << "trying transform [x - (x - y) => y]: " << sub->ToString();
+    if (ReplaceInstructionIfCompatible(sub, rhs)) {
+      return absl::OkStatus();
+    }
+  }
+
+  // x - (x + y) => -y
+  // x - (y + x) => -y
+  if (Match(sub, m::Subtract(m::Op(&lhs),
+                             m::AddAnyOrder(m::Op().Is(lhs), m::Op(&rhs)))) &&
+      (ShapeUtil::ElementIsIntegral(sub->shape()) ||
+       options_.enable_fast_math())) {
+    VLOG(10) << "trying transform [x - (x + y) => -y]: " << sub->ToString();
+    return ReplaceWithNewInstruction(
+        sub,
+        HloInstruction::CreateUnary(sub->shape(), HloOpcode::kNegate, rhs));
+  }
+
+  // (x + y) - x => y
+  // (y + x) - x => y
+  HloInstruction* x3;
+  if (Match(sub, m::Subtract(m::AddAnyOrder(m::Op(&lhs), m::Op(&rhs)),
+                             m::Op(&x3))) &&
+      (lhs == x3 || rhs == x3) &&
+      (ShapeUtil::ElementIsIntegral(sub->shape()) ||
+       options_.enable_fast_math())) {
+    VLOG(10) << "trying transform [(x + y) - x => y]: " << sub->ToString();
+    HloInstruction* operand_to_replace_with = (lhs == x3) ? rhs : lhs;
+    if (ReplaceInstructionIfCompatible(sub, operand_to_replace_with)) {
+      return absl::OkStatus();
+    }
   }
 
   // A - A => 0 for integer A.

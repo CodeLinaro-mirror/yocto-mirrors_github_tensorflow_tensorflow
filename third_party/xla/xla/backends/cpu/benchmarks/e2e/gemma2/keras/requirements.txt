@@ -1,5 +1,5 @@
-keras==3.13.2
-keras_nlp==0.18.1
-tensorflow==2.18.0
-jax==0.4.38
-torch==2.7.0
+keras>=3.14
+keras_nlp>=0.28
+tensorflow>=2.20.1
+jax>=0.10.0
+torch>=2.11.0

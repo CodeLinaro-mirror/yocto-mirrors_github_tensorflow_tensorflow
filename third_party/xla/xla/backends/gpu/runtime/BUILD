@@ -3948,6 +3948,7 @@ cc_library(
         ":ragged_all_to_all_thunk",
         ":recv_thunk",
         ":replica_id_thunk",
+        ":select_k_thunk",
         ":send_thunk",
         ":sequential_thunk",
         ":thunk",

@@ -43,7 +43,8 @@ void MatchSameOpcodeInstructions(
     const std::vector<const HloInstructionNode*>& left_instructions,
     const std::vector<const HloInstructionNode*>& right_instructions,
     HloGumgraphMappings& mappings, const MatcherType& matcher_type,
-    MapByPositionMode map_by_position = MapByPositionMode::kNever);
+    MapByPositionMode map_by_position = MapByPositionMode::kNever,
+    double phase_zero_threshold = 0.0);
 
 // Find optimal matches between the left and right instruction lists.
 // Sort the instructions by opcode and call MatchSameOpcodeInstructions for each
@@ -53,7 +54,8 @@ void MatchInstructions(
     const std::vector<HloInstructionNode*>& left_instructions,
     const std::vector<HloInstructionNode*>& right_instructions,
     HloGumgraphMappings& mappings, const MatcherType& matcher_type,
-    MapByPositionMode map_by_position = MapByPositionMode::kNever);
+    MapByPositionMode map_by_position = MapByPositionMode::kNever,
+    double phase_zero_threshold = 0.0);
 
 }  // namespace hlo_diff
 }  // namespace xla

@@ -202,8 +202,11 @@ CollectiveConfig GetCollectiveConfig(
 }
 
 CollectiveThunk::CollectiveThunk(Kind kind, ThunkInfo thunk_info,
+                                 std::vector<Buffer> buffers,
                                  CommunicationId communication_id)
-    : Thunk(kind, thunk_info), communication_id_(communication_id) {}
+    : Thunk(kind, thunk_info),
+      buffers_(std::move(buffers)),
+      communication_id_(communication_id) {}
 
 absl::StatusOr<GpuCliqueKey> GetCollectiveGpuCliqueKey(
     const CollectiveParams& params, const CollectiveConfig& collective_config,
@@ -321,6 +324,17 @@ absl::Status CollectiveThunk::Prepare(const PrepareParams& params) {
 
   RETURN_IF_ERROR(params.collective_clique_requests->RequestClique(
       clique_key, *device_groups_, GetCliqueRequirements(clique_key)));
+
+  if (CanUseSymmetricBuffer() && config().use_symmetric_buffer) {
+    for (const Buffer& buffer : buffers_) {
+      TF_RETURN_IF_ERROR(
+          params.collective_memory_requests->RequestSymmetricAllocation(
+              clique_key, buffer.source_buffer.slice.index()));
+      TF_RETURN_IF_ERROR(
+          params.collective_memory_requests->RequestSymmetricAllocation(
+              clique_key, buffer.destination_buffer.slice.index()));
+    }
+  }
 
   return PrepareCollective(params, clique_key);
 }

@@ -75,17 +75,15 @@ AllGatherThunk::AllGatherThunk(ThunkInfo thunk_info,
                                const HloAllGatherInstruction* inst,
                                std::vector<Buffer> buffers,
                                bool p2p_memcpy_enabled)
-    : CollectiveThunk(Thunk::kAllGather, thunk_info),
-      config_(GetAllGatherConfig(inst)),
-      buffers_(std::move(buffers)) {
+    : CollectiveThunk(Thunk::kAllGather, thunk_info, std::move(buffers)),
+      config_(GetAllGatherConfig(inst)) {
   CHECK_EQ(config_.config.operand_element_type.size(), buffers_.size());
 }
 
 AllGatherThunk::AllGatherThunk(ThunkInfo thunk_info, CollectiveConfig config,
                                std::vector<Buffer> buffers)
-    : CollectiveThunk(Thunk::kAllGather, thunk_info),
-      config_(AllGatherConfig{std::move(config)}),
-      buffers_(std::move(buffers)) {}
+    : CollectiveThunk(Thunk::kAllGather, thunk_info, std::move(buffers)),
+      config_(AllGatherConfig{std::move(config)}) {}
 
 /*static*/ absl::Status AllGatherThunk::CheckImplementable(
     const HloAllGatherInstruction* inst, int64_t replica_count,
@@ -147,8 +145,6 @@ absl::Status RunAllGather(std::vector<DeviceBufferPair>& buffers,
                           bool use_symmetric_buffer) {
   int device_ordinal = stream.parent()->device_ordinal();
   XLA_VLOG_DEVICE(3, device_ordinal) << "Performing all-gather";
-  RETURN_IF_ERROR(MaybeRegisterBuffers(stream.parent(), buffers, &comm,
-                                       use_symmetric_buffer));
   auto* gpu_comm = tsl::down_cast<GpuCommunicator*>(&comm);
   Future<> future = gpu_comm->GroupExecute(
       [&buffers, &stream](GpuCommunicator* comm) -> absl::Status {

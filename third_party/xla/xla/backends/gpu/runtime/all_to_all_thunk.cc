@@ -81,9 +81,8 @@ struct BufferRendezvousValue {
 AllToAllThunk::AllToAllThunk(ThunkInfo thunk_info, const AllToAllConfig& config,
                              std::vector<CollectiveThunk::Buffer> buffers,
                              bool p2p_memcpy_enabled)
-    : CollectiveThunk(Thunk::kAllToAll, thunk_info),
+    : CollectiveThunk(Thunk::kAllToAll, thunk_info, std::move(buffers)),
       config_(config),
-      buffers_(std::move(buffers)),
       p2p_memcpy_enabled_(p2p_memcpy_enabled) {
   CHECK_EQ(config_.config.operand_element_type.size(), buffers_.size());
 }
@@ -92,9 +91,8 @@ AllToAllThunk::AllToAllThunk(ThunkInfo thunk_info,
                              const HloAllToAllInstruction* instr,
                              std::vector<CollectiveThunk::Buffer> buffers,
                              bool p2p_memcpy_enabled)
-    : CollectiveThunk(Thunk::kAllToAll, thunk_info),
+    : CollectiveThunk(Thunk::kAllToAll, thunk_info, std::move(buffers)),
       config_(GetAllToAllConfig(instr)),
-      buffers_(std::move(buffers)),
       p2p_memcpy_enabled_(p2p_memcpy_enabled) {
   CHECK_EQ(config_.config.operand_element_type.size(), buffers_.size());
 }
@@ -318,8 +316,6 @@ absl::Status RunAllToAll(bool has_split_dimension,
   int device_ordinal = stream.parent()->device_ordinal();
   XLA_VLOG_DEVICE(3, device_ordinal)
       << "Performing all-to-all, has_split_dimension: " << has_split_dimension;
-  TF_RETURN_IF_ERROR(MaybeRegisterBuffers(stream.parent(), buffers, &comm,
-                                          use_symmetric_buffer));
 
   TF_ASSIGN_OR_RETURN(int32_t num_ranks, comm.NumRanks());
 

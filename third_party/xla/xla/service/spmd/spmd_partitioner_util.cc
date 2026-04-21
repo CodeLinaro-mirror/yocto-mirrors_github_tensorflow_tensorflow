@@ -2787,6 +2787,23 @@ const HloInstruction* SkipCopyOperands(const HloInstruction* operand,
 
 }  // namespace
 
+// Tries to translate a V2 sharding with non-trivial transpose to a V3 sharding
+// with iota tiling by using reshape_dims as axes sizes and mapping tensor
+HloSharding CanonicalizeSharding(const HloSharding& sharding) {
+  if (sharding.IsTuple()) {
+    std::vector<HloSharding> v3_elements;
+    v3_elements.reserve(sharding.tuple_elements().size());
+    for (const HloSharding& element : sharding.tuple_elements()) {
+      v3_elements.push_back(CanonicalizeSharding(element));
+    }
+    return HloSharding::FlatTuple(std::move(v3_elements));
+  }
+
+  // HloSharding::ToNamedSharding now handles translation of V1/V2 shardings
+  // to iota mesh based V3 shardings where possible.
+  return HloSharding(HloSharding::ToNamedSharding(sharding));
+}
+
 std::optional<int64_t> FindRotateRightPattern(const HloInstruction* concat) {
   if (concat->operand_count() != 2) {
     return std::nullopt;
@@ -2987,8 +3004,6 @@ std::optional<Mesh> GetMeshFromSharding(const HloSharding& sharding) {
   }
 
   // For V2 shardings, create the mesh from the tile assignment.
-  // TODO(b/477733507): Translate the sharding and tiling to a mesh with iota
-  // device assignment when possible.
   if (sharding.tile_assignment().iota().has_value()) {
     TileAssignment device_assignment = sharding.tile_assignment();
     std::vector<std::string> axis_names(device_assignment.dimensions().size());
@@ -3137,21 +3152,23 @@ GetMeshAxesPartitionGroupsForReplication(
 
 std::unique_ptr<CollectiveDeviceListBase> GetPartitionGroupsForReplication(
     const HloSharding& sharding, absl::Span<const int64_t> replication_dims) {
+  HloSharding canonical_sharding = xla::spmd::CanonicalizeSharding(sharding);
   std::unique_ptr<CollectiveDeviceListBase> partition_groups;
-  auto mesh_axes_groups =
-      GetMeshAxesPartitionGroupsForReplication(sharding, replication_dims);
+  auto mesh_axes_groups = GetMeshAxesPartitionGroupsForReplication(
+      canonical_sharding, replication_dims);
   if (mesh_axes_groups.has_value()) {
     return std::make_unique<MeshAxesReplicaGroupList>(*mesh_axes_groups);
   }
 
-  auto iota_groups =
-      GetIotaPartitionGroupsForReplication(sharding, replication_dims);
+  auto iota_groups = GetIotaPartitionGroupsForReplication(canonical_sharding,
+                                                          replication_dims);
   if (iota_groups.has_value()) {
     return std::make_unique<IotaReplicaGroupList>(*iota_groups);
   }
 
   return std::make_unique<CollectiveDeviceList>(
-      GetListOfListsPartitionGroupsForReplication(sharding, replication_dims));
+      GetListOfListsPartitionGroupsForReplication(canonical_sharding,
+                                                  replication_dims));
 }
 
 CollectiveDeviceList GetListOfListsPartitionGroupsAcrossTargetDims(
@@ -3363,19 +3380,20 @@ GetMeshAxesPartitionGroupsAcrossTargetDims(
 std::unique_ptr<CollectiveDeviceListBase> GetPartitionGroupsAcrossTargetDims(
     const HloSharding& sharding, absl::Span<const int64_t> target_dims,
     absl::Span<const int64_t> group_sizes) {
+  HloSharding canonical_sharding = xla::spmd::CanonicalizeSharding(sharding);
   if (std::optional<MeshAxesReplicaGroupList> mesh_axes_groups =
-          GetMeshAxesPartitionGroupsAcrossTargetDims(sharding, target_dims,
-                                                     group_sizes)) {
+          GetMeshAxesPartitionGroupsAcrossTargetDims(
+              canonical_sharding, target_dims, group_sizes)) {
     return std::make_unique<MeshAxesReplicaGroupList>(*mesh_axes_groups);
   }
   if (std::optional<IotaReplicaGroupList> iota_groups =
-          GetIotaPartitionGroupsAcrossTargetDims(sharding, target_dims,
-                                                 group_sizes)) {
+          GetIotaPartitionGroupsAcrossTargetDims(canonical_sharding,
+                                                 target_dims, group_sizes)) {
     return std::make_unique<IotaReplicaGroupList>(*iota_groups);
   }
   return std::make_unique<CollectiveDeviceList>(
-      GetListOfListsPartitionGroupsAcrossTargetDims(sharding, target_dims,
-                                                    group_sizes));
+      GetListOfListsPartitionGroupsAcrossTargetDims(canonical_sharding,
+                                                    target_dims, group_sizes));
 }
 
 // Expands partition group list across all replicas. Expects that provided

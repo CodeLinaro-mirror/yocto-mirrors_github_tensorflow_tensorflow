@@ -386,7 +386,7 @@ TEST_F(GemmRewriteTest, DotWithoutBias) {
 using ParameterizedGemmRewriteTest =
     HloPjRtInterpreterReferenceMixin<ParameterizedGemmRewriteTestBase>;
 
-TEST_P(ParameterizedGemmRewriteTest, Simple) {
+TEST_F(ParameterizedGemmRewriteTest, Simple) {
   const char* hlo_text = R"(
 HloModule test
 
@@ -405,7 +405,7 @@ ENTRY test {
 ; CHECK-DAG:     [[P0:%[^ ]+]] = f32[2,3]{1,0} parameter(0)
 ; CHECK-DAG:     [[P1:%[^ ]+]] = f32[3,4]{1,0} parameter(1)
 ; CHECK:         [[GEMM:%[^ ]+]] = {{.*}} custom-call([[P0]], [[P1]]),
-; CHECK:           custom_call_target="<<CUBLAS_CUSTOM_CALL_TARGET_PLACEHOLDER>>",
+; CHECK:           custom_call_target="__cublas$lt$matmul",
 ; CHECK:           backend_config={
 ; CHECK-DAG:         "alpha_real":1
 ; CHECK-DAG:         "alpha_imag":0
@@ -424,7 +424,7 @@ ENTRY test {
 )");
 }
 
-TEST_P(ParameterizedGemmRewriteTest, SimpleRewrite) {
+TEST_F(ParameterizedGemmRewriteTest, SimpleRewrite) {
   const char* hlo_text = R"(
 HloModule SimpleGemm
 
@@ -443,7 +443,7 @@ ENTRY AddDotsFunc {
 ; CHECK-DAG:     [[P0:%[^ ]+]] = f32[2,3]{1,0} parameter(0)
 ; CHECK-DAG:     [[P1:%[^ ]+]] = f32[3,4]{1,0} parameter(1)
 ; CHECK:         [[GEMM:%[^ ]+]] = {{.*}} custom-call([[P0]], [[P1]]),
-; CHECK:           custom_call_target="<<CUBLAS_CUSTOM_CALL_TARGET_PLACEHOLDER>>",
+; CHECK:           custom_call_target="__cublas$lt$matmul",
 ; CHECK:           backend_config={
 ; CHECK-DAG:         "alpha_real":1
 ; CHECK-DAG:         "alpha_imag":0
@@ -462,7 +462,7 @@ ENTRY AddDotsFunc {
 )");
 }
 
-TEST_P(ParameterizedGemmRewriteTest, MultipleContractingDims) {
+TEST_F(ParameterizedGemmRewriteTest, MultipleContractingDims) {
   const char* hlo_text = R"(
 HloModule MultipleContractingCheckGemm
 
@@ -485,7 +485,7 @@ ENTRY AddDotsFunc {
 ; CHECK-DAG:     [[BITCAST0:%[^ ]+]] = f32[2,12]{0,1} bitcast([[P0]])
 ; CHECK-DAG:     [[BITCAST1:%[^ ]+]] = f32[12,5]{1,0} bitcast([[P1]])
 ; CHECK:         [[GEMM:%[^ ]+]] = {{.*}} custom-call([[BITCAST0]], [[BITCAST1]]),
-; CHECK:           custom_call_target="<<CUBLAS_CUSTOM_CALL_TARGET_PLACEHOLDER>>",
+; CHECK:           custom_call_target="__cublas$lt$matmul",
 ; CHECK:           backend_config={
 ; CHECK-DAG:         "alpha_real":1
 ; CHECK-DAG:         "alpha_imag":0
@@ -504,7 +504,7 @@ ENTRY AddDotsFunc {
 )");
 }
 
-TEST_P(ParameterizedGemmRewriteTest, ArgTransposeFoldCheck) {
+TEST_F(ParameterizedGemmRewriteTest, ArgTransposeFoldCheck) {
   const char* hlo_text = R"(
 HloModule ArgTransposeFoldGemm
 
@@ -524,7 +524,7 @@ ENTRY AddDotsFunc {
 ; CHECK-DAG:     [[P0:%[^ ]+]] = f32[3,2]{1,0} parameter(0)
 ; CHECK-DAG:     [[P1:%[^ ]+]] = f32[3,4]{1,0} parameter(1)
 ; CHECK:         [[GEMM:%[^ ]+]] = {{.*}} custom-call([[P0]], [[P1]]),
-; CHECK:           custom_call_target="<<CUBLAS_CUSTOM_CALL_TARGET_PLACEHOLDER>>",
+; CHECK:           custom_call_target="__cublas$lt$matmul",
 ; CHECK:           backend_config={
 ; CHECK-DAG:         "alpha_real":1
 ; CHECK-DAG:         "alpha_imag":0
@@ -543,7 +543,7 @@ ENTRY AddDotsFunc {
 )");
 }
 
-TEST_P(ParameterizedGemmRewriteTest, BatchedArgRowColTransposeFoldCheck) {
+TEST_F(ParameterizedGemmRewriteTest, BatchedArgRowColTransposeFoldCheck) {
   const char* hlo_text = R"(
 HloModule BatchedArgRowColTransposeFoldGemm
 
@@ -563,7 +563,7 @@ ENTRY AddDotsFunc {
 ; CHECK-DAG:     [[P0:%[^ ]+]] = f32[5,3,2]{2,1,0} parameter(0)
 ; CHECK-DAG:     [[P1:%[^ ]+]] = f32[5,3,4]{2,1,0} parameter(1)
 ; CHECK:         [[GEMM:%[^ ]+]] = {{.*}} custom-call([[P0]], [[P1]]),
-; CHECK:           custom_call_target="<<CUBLAS_CUSTOM_CALL_TARGET_PLACEHOLDER>>",
+; CHECK:           custom_call_target="__cublas$lt$matmul",
 ; CHECK:           backend_config={
 ; CHECK-DAG:         "alpha_real":1
 ; CHECK-DAG:         "alpha_imag":0
@@ -582,7 +582,7 @@ ENTRY AddDotsFunc {
 )");
 }
 
-TEST_P(ParameterizedGemmRewriteTest, BatchRowTransposeFoldCheck) {
+TEST_F(ParameterizedGemmRewriteTest, BatchRowTransposeFoldCheck) {
   const char* hlo_text = R"(
 HloModule BatchRowTransposeFoldCheck
 
@@ -602,7 +602,7 @@ ENTRY AddDotsFunc {
 ; CHECK-DAG:     [[P0:%[^ ]+]] = f32[2,5,3]{2,1,0} parameter(0)
 ; CHECK-DAG:     [[P1:%[^ ]+]] = f32[5,3,4]{2,1,0} parameter(1)
 ; CHECK:         [[GEMM:%[^ ]+]] = {{.*}} custom-call([[P0]], [[P1]]),
-; CHECK:           custom_call_target="<<CUBLAS_CUSTOM_CALL_TARGET_PLACEHOLDER>>",
+; CHECK:           custom_call_target="__cublas$lt$matmul",
 ; CHECK:           backend_config={
 ; CHECK-DAG:         "alpha_real":1
 ; CHECK-DAG:         "alpha_imag":0
@@ -621,7 +621,7 @@ ENTRY AddDotsFunc {
 )");
 }
 
-TEST_P(ParameterizedGemmRewriteTest, BatchFromMinorDimTransposeIsNotFolded) {
+TEST_F(ParameterizedGemmRewriteTest, BatchFromMinorDimTransposeIsNotFolded) {
   const char* hlo_text = R"(
 HloModule BatchFromMinorDimTransposeDoesntFold
 
@@ -641,7 +641,7 @@ ENTRY AddDotsFunc {
 ; CHECK-DAG:     [[P0:%[^ ]+]] = f32[3,2,5]{2,1,0} parameter(0)
 ; CHECK-DAG:     [[FUSION:%[^ ]+]] = f32[5,2,3]{2,1,0} fusion([[P0]])
 ; CHECK-DAG:     [[P1:%[^ ]+]] = f32[5,3,4]{2,1,0} parameter(1)
-; CHECK:         {{[^ ]+}} = {{.*}} custom-call([[FUSION]], [[P1]]), custom_call_target="<<CUBLAS_CUSTOM_CALL_TARGET_PLACEHOLDER>>",
+; CHECK:         {{[^ ]+}} = {{.*}} custom-call([[FUSION]], [[P1]]), custom_call_target="__cublas$lt$matmul",
 ; CHECK:           backend_config={
 ; CHECK-DAG:         "alpha_real":1
 ; CHECK-DAG:         "alpha_imag":0
@@ -660,7 +660,7 @@ ENTRY AddDotsFunc {
 )");
 }
 
-TEST_P(ParameterizedGemmRewriteTest, LargeBatch) {
+TEST_F(ParameterizedGemmRewriteTest, LargeBatch) {
   const char* hlo_text = R"(
 HloModule BatchedArgRowColTransposeFoldGemm
 
@@ -683,7 +683,7 @@ ENTRY AddDotsFunc {
 ; CHECK-DAG:     [[P1:%[^ ]+]] = f32[20000,4,3,4]{3,2,1,0} parameter(1)
 ; CHECK-DAG:     [[BC1:%[^ ]+]] = f32[80000,3,4]{2,1,0} bitcast([[P1]])
 ; CHECK:         [[GEMM:%[^ ]+]] = (f32[80000,2,4]{2,1,0}, s8[{{[0-9]+}}]{0}) custom-call([[BC0]], [[BC1]]),
-; CHECK:           custom_call_target="__cublas$gemm",
+; CHECK:           custom_call_target="__cublas$lt$matmul",
 ; CHECK:           backend_config={
 ; CHECK-DAG:         "alpha_real":1
 ; CHECK-DAG:         "alpha_imag":0
@@ -703,7 +703,7 @@ ENTRY AddDotsFunc {
 )");
 }
 
-TEST_P(ParameterizedGemmRewriteTest, InstrTransposeFoldCheck) {
+TEST_F(ParameterizedGemmRewriteTest, InstrTransposeFoldCheck) {
   const char* hlo_text = R"(
 HloModule InstrTransposeFoldGemm
 
@@ -723,7 +723,7 @@ ENTRY AddDotsFunc {
 ; CHECK-DAG:     [[P1:%[^ ]+]] = f32[3,4]{1,0} parameter(1)
 ; CHECK-DAG:     [[P0:%[^ ]+]] = f32[2,3]{1,0} parameter(0)
 ; CHECK:         [[GEMM:%[^ ]+]] = {{.*}} custom-call([[P1]], [[P0]]),
-; CHECK:           custom_call_target="<<CUBLAS_CUSTOM_CALL_TARGET_PLACEHOLDER>>",
+; CHECK:           custom_call_target="__cublas$lt$matmul",
 ; CHECK:           backend_config={
 ; CHECK-DAG:         "alpha_real":1
 ; CHECK-DAG:         "alpha_imag":0
@@ -742,7 +742,7 @@ ENTRY AddDotsFunc {
 )");
 }
 
-TEST_P(ParameterizedGemmRewriteTest, BatchedInstrLayoutTransposed) {
+TEST_F(ParameterizedGemmRewriteTest, BatchedInstrLayoutTransposed) {
   const char* hlo_text = R"(
 HloModule BatchedInstrLayoutCheck
 
@@ -762,7 +762,7 @@ ENTRY AddDotsFunc {
 ; CHECK-DAG:     [[P0:%[^ ]+]] = f32[5,2,3]{2,1,0} parameter(0)
 ; CHECK-DAG:     [[P1:%[^ ]+]] = f32[5,3,4]{2,1,0} parameter(1)
 ; CHECK:         [[GEMM:%[^ ]+]] = {{.*}} custom-call([[P0]], [[P1]]),
-; CHECK:           custom_call_target="<<CUBLAS_CUSTOM_CALL_TARGET_PLACEHOLDER>>",
+; CHECK:           custom_call_target="__cublas$lt$matmul",
 ; CHECK:           backend_config={
 ; CHECK-DAG:         "alpha_real":1
 ; CHECK-DAG:         "alpha_imag":0
@@ -782,7 +782,7 @@ ENTRY AddDotsFunc {
 )");
 }
 
-TEST_P(ParameterizedGemmRewriteTest, BatchedInstrLayoutBatchNotInMinorDim) {
+TEST_F(ParameterizedGemmRewriteTest, BatchedInstrLayoutBatchNotInMinorDim) {
   const char* hlo_text = R"(
 HloModule BatchedInstrLayoutBatchNotInMinorDim
 
@@ -802,7 +802,7 @@ ENTRY AddDotsFunc {
 ; CHECK-DAG:     [[P0:%[^ ]+]] = f32[5,2,3]{2,1,0} parameter(0)
 ; CHECK-DAG:     [[P1:%[^ ]+]] = f32[5,3,4]{2,1,0} parameter(1)
 ; CHECK:         [[GEMM:%[^ ]+]] = {{.*}} custom-call([[P0]], [[P1]]),
-; CHECK:           custom_call_target="<<CUBLAS_CUSTOM_CALL_TARGET_PLACEHOLDER>>",
+; CHECK:           custom_call_target="__cublas$lt$matmul",
 ; CHECK:           backend_config={
 ; CHECK-DAG:         "alpha_real":1
 ; CHECK-DAG:         "alpha_imag":0
@@ -822,7 +822,7 @@ ENTRY AddDotsFunc {
 )");
 }
 
-TEST_P(ParameterizedGemmRewriteTest, AlphaSimpleRewrite) {
+TEST_F(ParameterizedGemmRewriteTest, AlphaSimpleRewrite) {
   const char* hlo_text = R"(
 HloModule AlphaSimpleRewrite
 
@@ -844,7 +844,7 @@ ENTRY AddDotsFunc {
 ; CHECK-DAG:     [[P0:%[^ ]+]] = f32[2,2]{1,0} parameter(0)
 ; CHECK-DAG:     [[P1:%[^ ]+]] = f32[2,2]{1,0} parameter(1)
 ; CHECK:         [[GEMM:%[^ ]+]] = {{.*}} custom-call([[P0]], [[P1]]),
-; CHECK:           custom_call_target="<<CUBLAS_CUSTOM_CALL_TARGET_PLACEHOLDER>>",
+; CHECK:           custom_call_target="__cublas$lt$matmul",
 ; CHECK:           backend_config={
 ; CHECK-DAG:         "alpha_real":3
 ; CHECK-DAG:         "alpha_imag":0
@@ -863,7 +863,7 @@ ENTRY AddDotsFunc {
 )");
 }
 
-TEST_P(ParameterizedGemmRewriteTest, F64C64_CublasLtSupportTest) {
+TEST_F(ParameterizedGemmRewriteTest, F64C64_CublasLtSupportTest) {
   // This test should fail if gemm rewriter does not correctly rewrite
   // F64/C64 dots to cublas-lt or legacy cublas calls
   {
@@ -898,7 +898,7 @@ ENTRY AddDotsFunc {
   }
 }
 
-TEST_P(ParameterizedGemmRewriteTest, ComplexAlphaSimpleRewrite) {
+TEST_F(ParameterizedGemmRewriteTest, ComplexAlphaSimpleRewrite) {
   if (IsRocm() && GetDebugOptionsForTest().xla_gpu_enable_cublaslt()) {
     GTEST_SKIP() << "TODO: Unsupported C64 gpublas-lt datatype on ROCM";
   }
@@ -923,7 +923,7 @@ ENTRY AddDotsFunc {
 ; CHECK-DAG:     [[P0:%[^ ]+]] = c64[2,2]{1,0} parameter(0)
 ; CHECK-DAG:     [[P1:%[^ ]+]] = c64[2,2]{1,0} parameter(1)
 ; CHECK:         [[GEMM:%[^ ]+]] = {{.*}} custom-call([[P0]], [[P1]]),
-; CHECK:           custom_call_target="<<CUBLAS_CUSTOM_CALL_TARGET_PLACEHOLDER>>",
+; CHECK:           custom_call_target="__cublas$lt$matmul",
 ; CHECK:           backend_config={
 ; CHECK-DAG:         "alpha_real":3
 ; CHECK-DAG:         "alpha_imag":3
@@ -942,7 +942,7 @@ ENTRY AddDotsFunc {
 )");
 }
 
-TEST_P(ParameterizedGemmRewriteTest, AlphaMultipleUsersNoRewrite) {
+TEST_F(ParameterizedGemmRewriteTest, AlphaMultipleUsersNoRewrite) {
   const char* hlo_text = R"(
 HloModule AlphaMultipleUsersNoRewrite
 
@@ -962,7 +962,7 @@ ENTRY AddDotsFunc {
   MatchOptimizedHlo(hlo_text,
                     R"(
 ; CHECK:    {{[^ ]+}} = {{.*}} custom-call({{[^,]+}}, {{[^)]+}}),
-; CHECK:           custom_call_target="<<CUBLAS_CUSTOM_CALL_TARGET_PLACEHOLDER>>",
+; CHECK:           custom_call_target="__cublas$lt$matmul",
 ; CHECK:           backend_config={
 ; CHECK-DAG:         "alpha_real":1
 ; CHECK-DAG:         "alpha_imag":0
@@ -981,7 +981,7 @@ ENTRY AddDotsFunc {
 )");
 }
 
-TEST_P(ParameterizedGemmRewriteTest, AlphaVectorNoRewrite) {
+TEST_F(ParameterizedGemmRewriteTest, AlphaVectorNoRewrite) {
   const char* hlo_text = R"(
 HloModule AlphaVectorNoRewrite
 
@@ -1002,7 +1002,7 @@ ENTRY AddDotsFunc {
 ; CHECK-DAG:     [[P0:%[^ ]+]] = f32[2,2]{1,0} parameter(0)
 ; CHECK-DAG:     [[P1:%[^ ]+]] = f32[2,2]{1,0} parameter(1)
 ; CHECK:         [[GEMM:%[^ ]+]] = {{.*}} custom-call([[P0]], [[P1]]),
-; CHECK:           custom_call_target="<<CUBLAS_CUSTOM_CALL_TARGET_PLACEHOLDER>>",
+; CHECK:           custom_call_target="__cublas$lt$matmul",
 ; CHECK:           backend_config={
 ; CHECK-DAG:         "alpha_real":1
 ; CHECK-DAG:         "alpha_imag":0
@@ -1021,7 +1021,7 @@ ENTRY AddDotsFunc {
 )");
 }
 
-TEST_P(ParameterizedGemmRewriteTest, BF16Gemm) {
+TEST_F(ParameterizedGemmRewriteTest, BF16Gemm) {
   const char* hlo_text = R"(
 HloModule bf16gemm
 
@@ -1036,13 +1036,13 @@ ENTRY bf16gemm {
   if (IsRocm()) {
     MatchOptimizedHlo(hlo_text,
                       R"(
-; CHECK: {{.*}} custom-call(bf16[12,4]{1,0} {{.*}}, bf16[4,8]{1,0} {{.*}}), custom_call_target="<<CUBLAS_CUSTOM_CALL_TARGET_PLACEHOLDER>>"
+; CHECK: {{.*}} custom-call(bf16[12,4]{1,0} {{.*}}, bf16[4,8]{1,0} {{.*}}), custom_call_target="__cublas$lt$matmul"
   )",
                       /*print_operand_shape=*/true);
   } else if (HasCudaComputeCapability(se::CudaComputeCapability::Ampere())) {
     MatchOptimizedHlo(hlo_text,
                       R"(
-; CHECK: {{.*}} custom-call(bf16[16,8]{1,0} {{.*}}, bf16[8,8]{1,0} {{.*}}), custom_call_target="<<CUBLAS_CUSTOM_CALL_TARGET_PLACEHOLDER>>"
+; CHECK: {{.*}} custom-call(bf16[16,8]{1,0} {{.*}}, bf16[8,8]{1,0} {{.*}}), custom_call_target="__cublas$lt$matmul"
   )",
                       /*print_operand_shape=*/true);
   } else {
@@ -1050,7 +1050,7 @@ ENTRY bf16gemm {
   }
 }
 
-TEST_P(ParameterizedGemmRewriteTest, BF16GemmStrided) {
+TEST_F(ParameterizedGemmRewriteTest, BF16GemmStrided) {
   const char* hlo_text = R"(
 HloModule bf16gemm
 
@@ -1066,13 +1066,13 @@ ENTRY bf16gemm {
   if (IsRocm()) {
     MatchOptimizedHlo(hlo_text,
                       R"(
-    ; CHECK: {{.*}} custom-call(bf16[3,3,4]{2,1,0} {{.*}}, bf16[3,3,2]{2,1,0} {{.*}}), custom_call_target="<<CUBLAS_CUSTOM_CALL_TARGET_PLACEHOLDER>>"
+    ; CHECK: {{.*}} custom-call(bf16[3,3,4]{2,1,0} {{.*}}, bf16[3,3,2]{2,1,0} {{.*}}), custom_call_target="__cublas$lt$matmul"
     )",
                       /*print_operand_shape=*/true);
   } else if (HasCudaComputeCapability(se::CudaComputeCapability::Ampere())) {
     MatchOptimizedHlo(hlo_text,
                       R"(
-    ; CHECK: {{.*}} custom-call(bf16[3,8,8]{2,1,0} {{.*}}, bf16[3,8,8]{2,1,0} {{.*}}), custom_call_target="<<CUBLAS_CUSTOM_CALL_TARGET_PLACEHOLDER>>"
+    ; CHECK: {{.*}} custom-call(bf16[3,8,8]{2,1,0} {{.*}}, bf16[3,8,8]{2,1,0} {{.*}}), custom_call_target="__cublas$lt$matmul"
     )",
                       /*print_operand_shape=*/true);
   } else {
@@ -1080,7 +1080,7 @@ ENTRY bf16gemm {
   }
 }
 
-TEST_P(ParameterizedGemmRewriteTest, Int8Gemm) {
+TEST_F(ParameterizedGemmRewriteTest, Int8Gemm) {
   const char* hlo_text = R"(
 HloModule int8gemm
 
@@ -1096,7 +1096,7 @@ ENTRY int8gemm {
       HasCudaComputeCapability(se::CudaComputeCapability::Volta())) {
     MatchOptimizedHlo(hlo_text,
                       R"(
-; CHECK: {{.*}} custom-call(s8[12,4]{1,0} [[A:%[^ ]+]], s8[4,8]{0,1} [[B:%[^ ]+]]), custom_call_target="<<CUBLAS_CUSTOM_CALL_TARGET_PLACEHOLDER>>"
+; CHECK: {{.*}} custom-call(s8[12,4]{1,0} [[A:%[^ ]+]], s8[4,8]{0,1} [[B:%[^ ]+]]), custom_call_target="__cublas$lt$matmul"
   )",
                       /*print_operand_shape=*/true);
   } else {
@@ -1150,7 +1150,7 @@ ENTRY main.4 {
   }
 }
 
-TEST_P(ParameterizedGemmRewriteTest, Int8GemmNoAlphaRewrite) {
+TEST_F(ParameterizedGemmRewriteTest, Int8GemmNoAlphaRewrite) {
   const char* hlo_text = R"(
 HloModule int8gemm
 
@@ -1170,7 +1170,7 @@ ENTRY int8gemm {
     MatchOptimizedHlo(hlo_text,
                       R"(
 ; CHECK: {{.*}} custom-call(s8[12,4]{1,0} [[A:%[^ ]+]], s8[4,8]{0,1} [[B:%[^ ]+]]),
-; CHECK:           custom_call_target="<<CUBLAS_CUSTOM_CALL_TARGET_PLACEHOLDER>>",
+; CHECK:           custom_call_target="__cublas$lt$matmul",
 ; CHECK:           backend_config={
 ; CHECK-DAG:       "alpha_real":1
 ; CHECK-DAG:       "alpha_imag":0
@@ -1186,7 +1186,7 @@ ENTRY int8gemm {
   }
 }
 
-TEST_P(ParameterizedGemmRewriteTest, Int8GemmNoBetaRewrite) {
+TEST_F(ParameterizedGemmRewriteTest, Int8GemmNoBetaRewrite) {
   const char* hlo_text = R"(
 HloModule int8gemm
 
@@ -1205,7 +1205,7 @@ ENTRY int8gemm {
     MatchOptimizedHlo(hlo_text,
                       R"(
 ; CHECK: {{.*}} custom-call(s8[12,4]{1,0} [[A:%[^ ]+]], s8[4,8]{0,1} [[B:%[^ ]+]]),
-; CHECK:           custom_call_target="<<CUBLAS_CUSTOM_CALL_TARGET_PLACEHOLDER>>",
+; CHECK:           custom_call_target="__cublas$lt$matmul",
 ; CHECK:           backend_config={
 ; CHECK-DAG:       "alpha_real":1
 ; CHECK-DAG:       "alpha_imag":0
@@ -1222,7 +1222,7 @@ ENTRY int8gemm {
   }
 }
 
-TEST_P(ParameterizedGemmRewriteTest, Int8GemmNotMultipleOfFour) {
+TEST_F(ParameterizedGemmRewriteTest, Int8GemmNotMultipleOfFour) {
   const char* hlo_text = R"(
 HloModule int8gemm
 
@@ -1268,7 +1268,7 @@ ENTRY int8gemm {
   }
 }
 
-TEST_P(ParameterizedGemmRewriteTest, GemmTypeCombinationCheck) {
+TEST_F(ParameterizedGemmRewriteTest, GemmTypeCombinationCheck) {
   std::vector<std::tuple<absl::string_view, absl::string_view, bool>>
       type_combinations = {{"s8", "s8", true},
                            {"s32", "s32", true},
@@ -1343,7 +1343,7 @@ TEST_P(ParameterizedGemmRewriteTest, GemmTypeCombinationCheck) {
   }
 }
 
-TEST_P(ParameterizedGemmRewriteTest, UpcastingBf16ToF64) {
+TEST_F(ParameterizedGemmRewriteTest, UpcastingBf16ToF64) {
   const char* hlo_text = R"(
 HloModule test
 
@@ -1357,7 +1357,7 @@ ENTRY test {
   TF_ASSERT_OK_AND_ASSIGN(std::unique_ptr<HloModule> module,
                           ParseAndReturnVerifiedModule(hlo_text));
   GemmRewriterOptions options;
-  options.enable_cublaslt = GetDebugOptionsForTest().xla_gpu_enable_cublaslt();
+
   GemmRewriter pass(Capability(), GetToolkitVersion(), options);
   TF_ASSERT_OK_AND_ASSIGN(bool changed, this->RunHloPass(&pass, module.get()));
   EXPECT_TRUE(changed);
@@ -1369,7 +1369,7 @@ ENTRY test {
       GmockMatch(m::GetTupleElement(m::CustomCall({"__cublas$gemm"}), 0)));
 }
 
-TEST_P(ParameterizedGemmRewriteTest, UpcastingC64ToC128) {
+TEST_F(ParameterizedGemmRewriteTest, UpcastingC64ToC128) {
   const char* hlo_text = R"(
 HloModule test
 
@@ -1383,7 +1383,7 @@ ENTRY test {
   TF_ASSERT_OK_AND_ASSIGN(std::unique_ptr<HloModule> module,
                           ParseAndReturnVerifiedModule(hlo_text));
   GemmRewriterOptions options;
-  options.enable_cublaslt = GetDebugOptionsForTest().xla_gpu_enable_cublaslt();
+
   GemmRewriter pass(Capability(), GetToolkitVersion(), options);
   TF_ASSERT_OK_AND_ASSIGN(bool changed, this->RunHloPass(&pass, module.get()));
   EXPECT_TRUE(changed);
@@ -1395,7 +1395,7 @@ ENTRY test {
       GmockMatch(m::GetTupleElement(m::CustomCall({"__cublas$gemm"}), 0)));
 }
 
-TEST_P(ParameterizedGemmRewriteTest, UpcastingF16ToF32) {
+TEST_F(ParameterizedGemmRewriteTest, UpcastingF16ToF32) {
   const char* hlo_text = R"(
 HloModule test
 
@@ -1413,7 +1413,7 @@ ENTRY test {
   TF_ASSERT_OK_AND_ASSIGN(std::unique_ptr<HloModule> module,
                           ParseAndReturnVerifiedModule(hlo_text));
   GemmRewriterOptions options;
-  options.enable_cublaslt = GetDebugOptionsForTest().xla_gpu_enable_cublaslt();
+
   GemmRewriter pass(Capability(), GetToolkitVersion(), options);
   TF_ASSERT_OK_AND_ASSIGN(bool changed, this->RunHloPass(&pass, module.get()));
   EXPECT_TRUE(changed);
@@ -1422,7 +1422,7 @@ ENTRY test {
       GmockMatch(m::GetTupleElement(m::CustomCall({kCustomCallTarget}), 0)));
 }
 
-TEST_P(ParameterizedGemmRewriteTest, UpcastingF16ToF64) {
+TEST_F(ParameterizedGemmRewriteTest, UpcastingF16ToF64) {
   const char* hlo_text = R"(
 HloModule test
 
@@ -1436,7 +1436,7 @@ ENTRY test {
   TF_ASSERT_OK_AND_ASSIGN(std::unique_ptr<HloModule> module,
                           ParseAndReturnVerifiedModule(hlo_text));
   GemmRewriterOptions options;
-  options.enable_cublaslt = GetDebugOptionsForTest().xla_gpu_enable_cublaslt();
+
   GemmRewriter pass(Capability(), GetToolkitVersion(), options);
   TF_ASSERT_OK_AND_ASSIGN(bool changed, this->RunHloPass(&pass, module.get()));
   EXPECT_TRUE(changed);
@@ -1448,7 +1448,7 @@ ENTRY test {
       GmockMatch(m::GetTupleElement(m::CustomCall({"__cublas$gemm"}), 0)));
 }
 
-TEST_P(ParameterizedGemmRewriteTest, UpcastingF32ToF64) {
+TEST_F(ParameterizedGemmRewriteTest, UpcastingF32ToF64) {
   const char* hlo_text = R"(
 HloModule test
 
@@ -1462,7 +1462,7 @@ ENTRY test {
   TF_ASSERT_OK_AND_ASSIGN(std::unique_ptr<HloModule> module,
                           ParseAndReturnVerifiedModule(hlo_text));
   GemmRewriterOptions options;
-  options.enable_cublaslt = GetDebugOptionsForTest().xla_gpu_enable_cublaslt();
+
   GemmRewriter pass(Capability(), GetToolkitVersion(), options);
   TF_ASSERT_OK_AND_ASSIGN(bool changed, this->RunHloPass(&pass, module.get()));
   EXPECT_TRUE(changed);
@@ -1474,7 +1474,7 @@ ENTRY test {
       GmockMatch(m::GetTupleElement(m::CustomCall({"__cublas$gemm"}), 0)));
 }
 
-TEST_P(ParameterizedGemmRewriteTest, DoNotUpconvertOutput) {
+TEST_F(ParameterizedGemmRewriteTest, DoNotUpconvertOutput) {
   const char* hlo_text = R"(
 HloModule test
 
@@ -1492,7 +1492,7 @@ ENTRY main {
   TF_ASSERT_OK_AND_ASSIGN(std::unique_ptr<HloModule> module,
                           ParseAndReturnVerifiedModule(hlo_text));
   GemmRewriterOptions options;
-  options.enable_cublaslt = GetDebugOptionsForTest().xla_gpu_enable_cublaslt();
+
   GemmRewriter pass(Capability(), GetToolkitVersion(), options);
   TF_ASSERT_OK_AND_ASSIGN(bool changed, this->RunHloPass(&pass, module.get()));
   EXPECT_TRUE(changed);
@@ -1504,7 +1504,7 @@ ENTRY main {
                   m::GetTupleElement(m::CustomCall({CustomCallTarget()}), 0))));
 }
 
-TEST_P(ParameterizedGemmRewriteTest, UnsupportedMixTypeGemm) {
+TEST_F(ParameterizedGemmRewriteTest, UnsupportedMixTypeGemm) {
   const char* hlo_text = R"(
 HloModule test
 
@@ -1522,7 +1522,7 @@ ENTRY main {
   TF_ASSERT_OK_AND_ASSIGN(std::unique_ptr<HloModule> module,
                           ParseAndReturnVerifiedModule(hlo_text));
   GemmRewriterOptions options;
-  options.enable_cublaslt = GetDebugOptionsForTest().xla_gpu_enable_cublaslt();
+
   GemmRewriter pass(Capability(), GetToolkitVersion(), options);
   TF_ASSERT_OK_AND_ASSIGN(bool changed, this->RunHloPass(&pass, module.get()));
   EXPECT_TRUE(changed);
@@ -1534,7 +1534,7 @@ ENTRY main {
                   m::GetTupleElement(m::CustomCall({CustomCallTarget()}), 0))));
 }
 
-TEST_P(ParameterizedGemmRewriteTest, CheckIsGemmAliasedBeforeFusion) {
+TEST_F(ParameterizedGemmRewriteTest, CheckIsGemmAliasedBeforeFusion) {
   const char* hlo_text = R"(
 HloModule test
 
@@ -1554,7 +1554,7 @@ ENTRY main {
   TF_ASSERT_OK_AND_ASSIGN(std::unique_ptr<HloModule> module,
                           ParseAndReturnVerifiedModule(hlo_text));
   GemmRewriterOptions options;
-  options.enable_cublaslt = GetDebugOptionsForTest().xla_gpu_enable_cublaslt();
+
   GemmRewriter pass(Capability(), GetToolkitVersion(), options);
   TF_ASSERT_OK_AND_ASSIGN(bool changed, this->RunHloPass(&pass, module.get()));
   EXPECT_TRUE(changed);
@@ -1566,9 +1566,6 @@ ENTRY main {
               GmockMatch(m::Convert(
                   m::GetTupleElement(m::CustomCall({CustomCallTarget()}), 0))));
 }
-
-INSTANTIATE_TEST_SUITE_P(CublasTestsBothLegacyAndLt,
-                         ParameterizedGemmRewriteTest, ::testing::Bool());
 
 class SmallDotGemmRewriteTest : public GemmRewriteTest {
  public:

@@ -182,14 +182,14 @@ bool IsGpu() { return xla::test::DeviceTypeIs(test::kGpu); }
 class MatOpsDotAddTest
     : public ClientLibraryTestRunnerMixin<
           HloPjRtInterpreterReferenceMixin<HloPjRtTestBase>>,
-      public ::testing::WithParamInterface<std::tuple<bool, bool, bool, bool>> {
+      public ::testing::WithParamInterface<std::tuple<bool, bool, bool>> {
  public:
   template <typename T>
   void TestImpl() {
     bool row_major = std::get<0>(GetParam());
     bool add_lhs = std::get<1>(GetParam());
     bool transpose = std::get<2>(GetParam());
-    bool use_cublaslt = IsGpu() ? std::get<3>(GetParam()) : false;
+    bool use_cublaslt = IsGpu();
     mutable_debug_options()->set_xla_gpu_enable_cublaslt(use_cublaslt);
     Array2D<T> lhs({{1.0f, 2.0f}, {3.0f, 4.0f}});
     Array2D<T> rhs({{10.0f, 11.0f}, {12.0f, 13.0f}});
@@ -279,7 +279,7 @@ class MatOpsDotAddTest
   void TestImplBiasAddEpilogueFusion() {
     bool row_major = std::get<0>(GetParam());
     bool transpose = std::get<2>(GetParam());
-    bool use_cublaslt = IsGpu() ? std::get<3>(GetParam()) : false;
+    bool use_cublaslt = IsGpu();
     mutable_debug_options()->set_xla_gpu_enable_cublaslt(use_cublaslt);
     Array2D<T> lhs({{1.0f, 2.0f}, {3.0f, 4.0f}});
     Array2D<T> rhs({{10.0f, 11.0f}, {12.0f, 13.0f}});
@@ -317,7 +317,7 @@ class MatOpsDotAddTest
   void TestImplReluActivationEpilogueFusion() {
     bool row_major = std::get<0>(GetParam());
     bool transpose = std::get<2>(GetParam());
-    bool use_cublaslt = IsGpu() ? std::get<3>(GetParam()) : false;
+    bool use_cublaslt = IsGpu();
     mutable_debug_options()->set_xla_gpu_enable_cublaslt(use_cublaslt);
     Array2D<T> lhs({{-1.0f, 2.0f}, {3.0f, 4.0f}});
     Array2D<T> rhs({{10.0f, 11.0f}, {-12.0f, 13.0f}});
@@ -352,7 +352,7 @@ class MatOpsDotAddTest
   void TestImplBiasAddReluActivationEpilogueFusion() {
     bool row_major = std::get<0>(GetParam());
     bool transpose = std::get<2>(GetParam());
-    bool use_cublaslt = IsGpu() ? std::get<3>(GetParam()) : false;
+    bool use_cublaslt = IsGpu();
     mutable_debug_options()->set_xla_gpu_enable_cublaslt(use_cublaslt);
     Array2D<T> lhs({{-1.0f, 2.0f}, {3.0f, 4.0f}});
     Array2D<T> rhs({{10.0f, 11.0f}, {-12.0f, 13.0f}});
@@ -415,7 +415,6 @@ TEST_P(MatOpsDotAddTest, Dot_BiasAddReluActivation_2x2_2x2F32) {
 
 INSTANTIATE_TEST_CASE_P(MatOpsDotAddTestInstances, MatOpsDotAddTest,
                         ::testing::Combine(::testing::Bool(), ::testing::Bool(),
-                                           ::testing::Bool(),
                                            ::testing::Bool()));
 
 }  // namespace

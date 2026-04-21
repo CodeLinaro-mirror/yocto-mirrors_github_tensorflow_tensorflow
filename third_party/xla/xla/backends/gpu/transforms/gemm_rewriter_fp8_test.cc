@@ -86,6 +86,10 @@ class ParameterizedFp8GemmRewriteTest : public HloPjRtInterpreterReferenceMixin<
       GTEST_SKIP() << "F8 gemm rewrite is only supported in CUDA 12 and above.";
     }
 
+    if (IsCuda() && !HasFp8Support()) {
+      GTEST_SKIP() << "FP8 is not supported on this GPU architecture.";
+    }
+
     if (IsRocm() && GetToolkitVersion() < se::SemanticVersion{6, 0, 0}) {
       GTEST_SKIP()
           << "F8 gemm rewrite is only supported in ROCm 6.0 and above.";

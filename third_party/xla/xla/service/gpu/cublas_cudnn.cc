@@ -29,14 +29,8 @@ namespace xla {
 namespace gpu {
 
 bool IsCublasGemm(const HloInstruction& hlo) {
-  return IsLegacyCublasMatmul(hlo) || IsCublasLtMatmul(hlo) ||
-         IsCublasLtMatmulF8(hlo) || IsCublasLtMatmulMx(hlo) ||
-         IsCublasLtGroupedMatmul(hlo);
-}
-
-bool IsLegacyCublasMatmul(const HloInstruction& hlo) {
-  return hlo.opcode() == HloOpcode::kCustomCall &&
-         hlo.custom_call_target() == kGemmCallTarget;
+  return IsCublasLtMatmul(hlo) || IsCublasLtMatmulF8(hlo) ||
+         IsCublasLtMatmulMx(hlo) || IsCublasLtGroupedMatmul(hlo);
 }
 
 bool IsCublasLtMatmul(const HloInstruction& hlo) {

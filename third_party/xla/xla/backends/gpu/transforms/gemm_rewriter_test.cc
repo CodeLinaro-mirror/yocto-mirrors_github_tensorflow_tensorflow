@@ -683,7 +683,7 @@ ENTRY AddDotsFunc {
 ; CHECK-DAG:     [[P1:%[^ ]+]] = f32[20000,4,3,4]{3,2,1,0} parameter(1)
 ; CHECK-DAG:     [[BC1:%[^ ]+]] = f32[80000,3,4]{2,1,0} bitcast([[P1]])
 ; CHECK:         [[GEMM:%[^ ]+]] = (f32[80000,2,4]{2,1,0}, s8[{{[0-9]+}}]{0}) custom-call([[BC0]], [[BC1]]),
-; CHECK:           custom_call_target="__cublas$gemm",
+; CHECK:           custom_call_target="__cublas$lt$matmul",
 ; CHECK:           backend_config={
 ; CHECK-DAG:         "alpha_real":1
 ; CHECK-DAG:         "alpha_imag":0
@@ -1343,58 +1343,6 @@ TEST_P(ParameterizedGemmRewriteTest, GemmTypeCombinationCheck) {
   }
 }
 
-TEST_P(ParameterizedGemmRewriteTest, UpcastingBf16ToF64) {
-  const char* hlo_text = R"(
-HloModule test
-
-ENTRY test {
-  Arg_0.1 = bf16[4,3]{1,0} parameter(0)
-  Arg_1.2 = bf16[3,6]{1,0} parameter(1)
-  ROOT dot.3 = f64[4,6]{1,0} dot(Arg_0.1, Arg_1.2), lhs_contracting_dims={1}, rhs_contracting_dims={0}
-}
-)";
-
-  TF_ASSERT_OK_AND_ASSIGN(std::unique_ptr<HloModule> module,
-                          ParseAndReturnVerifiedModule(hlo_text));
-  GemmRewriterOptions options;
-  options.enable_cublaslt = GetDebugOptionsForTest().xla_gpu_enable_cublaslt();
-  GemmRewriter pass(Capability(), GetToolkitVersion(), options);
-  TF_ASSERT_OK_AND_ASSIGN(bool changed, this->RunHloPass(&pass, module.get()));
-  EXPECT_TRUE(changed);
-
-  // This is a type combination which is not supported by cublasLt, expect
-  // GemmRewriter to choose legacy cublas.
-  EXPECT_THAT(
-      module->entry_computation()->root_instruction(),
-      GmockMatch(m::GetTupleElement(m::CustomCall({"__cublas$gemm"}), 0)));
-}
-
-TEST_P(ParameterizedGemmRewriteTest, UpcastingC64ToC128) {
-  const char* hlo_text = R"(
-HloModule test
-
-ENTRY test {
-  Arg_0.1 = c64[4,3]{1,0} parameter(0)
-  Arg_1.2 = c64[3,6]{1,0} parameter(1)
-  ROOT dot.3 = c128[4,6]{1,0} dot(Arg_0.1, Arg_1.2), lhs_contracting_dims={1}, rhs_contracting_dims={0}
-}
-)";
-
-  TF_ASSERT_OK_AND_ASSIGN(std::unique_ptr<HloModule> module,
-                          ParseAndReturnVerifiedModule(hlo_text));
-  GemmRewriterOptions options;
-  options.enable_cublaslt = GetDebugOptionsForTest().xla_gpu_enable_cublaslt();
-  GemmRewriter pass(Capability(), GetToolkitVersion(), options);
-  TF_ASSERT_OK_AND_ASSIGN(bool changed, this->RunHloPass(&pass, module.get()));
-  EXPECT_TRUE(changed);
-
-  // This is a type combination which is not supported by cublasLt, expect
-  // GemmRewriter to choose legacy cublas.
-  EXPECT_THAT(
-      module->entry_computation()->root_instruction(),
-      GmockMatch(m::GetTupleElement(m::CustomCall({"__cublas$gemm"}), 0)));
-}
-
 TEST_P(ParameterizedGemmRewriteTest, UpcastingF16ToF32) {
   const char* hlo_text = R"(
 HloModule test
@@ -1413,65 +1361,13 @@ ENTRY test {
   TF_ASSERT_OK_AND_ASSIGN(std::unique_ptr<HloModule> module,
                           ParseAndReturnVerifiedModule(hlo_text));
   GemmRewriterOptions options;
-  options.enable_cublaslt = GetDebugOptionsForTest().xla_gpu_enable_cublaslt();
+
   GemmRewriter pass(Capability(), GetToolkitVersion(), options);
   TF_ASSERT_OK_AND_ASSIGN(bool changed, this->RunHloPass(&pass, module.get()));
   EXPECT_TRUE(changed);
   EXPECT_THAT(
       module->entry_computation()->root_instruction(),
       GmockMatch(m::GetTupleElement(m::CustomCall({kCustomCallTarget}), 0)));
-}
-
-TEST_P(ParameterizedGemmRewriteTest, UpcastingF16ToF64) {
-  const char* hlo_text = R"(
-HloModule test
-
-ENTRY test {
-  Arg_0.1 = f16[4,3]{1,0} parameter(0)
-  Arg_1.2 = f16[3,6]{1,0} parameter(1)
-  ROOT dot.3 = f64[4,6]{1,0} dot(Arg_0.1, Arg_1.2), lhs_contracting_dims={1}, rhs_contracting_dims={0}
-}
-)";
-
-  TF_ASSERT_OK_AND_ASSIGN(std::unique_ptr<HloModule> module,
-                          ParseAndReturnVerifiedModule(hlo_text));
-  GemmRewriterOptions options;
-  options.enable_cublaslt = GetDebugOptionsForTest().xla_gpu_enable_cublaslt();
-  GemmRewriter pass(Capability(), GetToolkitVersion(), options);
-  TF_ASSERT_OK_AND_ASSIGN(bool changed, this->RunHloPass(&pass, module.get()));
-  EXPECT_TRUE(changed);
-
-  // This is a type combination which is not supported by cublasLt, expect
-  // GemmRewriter to choose legacy cublas.
-  EXPECT_THAT(
-      module->entry_computation()->root_instruction(),
-      GmockMatch(m::GetTupleElement(m::CustomCall({"__cublas$gemm"}), 0)));
-}
-
-TEST_P(ParameterizedGemmRewriteTest, UpcastingF32ToF64) {
-  const char* hlo_text = R"(
-HloModule test
-
-ENTRY test {
-  Arg_0.1 = f32[4,3]{1,0} parameter(0)
-  Arg_1.2 = f32[3,6]{1,0} parameter(1)
-  ROOT dot.3 = f64[4,6]{1,0} dot(Arg_0.1, Arg_1.2), lhs_contracting_dims={1}, rhs_contracting_dims={0}
-}
-)";
-
-  TF_ASSERT_OK_AND_ASSIGN(std::unique_ptr<HloModule> module,
-                          ParseAndReturnVerifiedModule(hlo_text));
-  GemmRewriterOptions options;
-  options.enable_cublaslt = GetDebugOptionsForTest().xla_gpu_enable_cublaslt();
-  GemmRewriter pass(Capability(), GetToolkitVersion(), options);
-  TF_ASSERT_OK_AND_ASSIGN(bool changed, this->RunHloPass(&pass, module.get()));
-  EXPECT_TRUE(changed);
-
-  // This is a type combination which is not supported by cublasLt, expect
-  // GemmRewriter to choose legacy cublas.
-  EXPECT_THAT(
-      module->entry_computation()->root_instruction(),
-      GmockMatch(m::GetTupleElement(m::CustomCall({"__cublas$gemm"}), 0)));
 }
 
 TEST_P(ParameterizedGemmRewriteTest, DoNotUpconvertOutput) {
@@ -1492,7 +1388,7 @@ ENTRY main {
   TF_ASSERT_OK_AND_ASSIGN(std::unique_ptr<HloModule> module,
                           ParseAndReturnVerifiedModule(hlo_text));
   GemmRewriterOptions options;
-  options.enable_cublaslt = GetDebugOptionsForTest().xla_gpu_enable_cublaslt();
+
   GemmRewriter pass(Capability(), GetToolkitVersion(), options);
   TF_ASSERT_OK_AND_ASSIGN(bool changed, this->RunHloPass(&pass, module.get()));
   EXPECT_TRUE(changed);
@@ -1522,7 +1418,7 @@ ENTRY main {
   TF_ASSERT_OK_AND_ASSIGN(std::unique_ptr<HloModule> module,
                           ParseAndReturnVerifiedModule(hlo_text));
   GemmRewriterOptions options;
-  options.enable_cublaslt = GetDebugOptionsForTest().xla_gpu_enable_cublaslt();
+
   GemmRewriter pass(Capability(), GetToolkitVersion(), options);
   TF_ASSERT_OK_AND_ASSIGN(bool changed, this->RunHloPass(&pass, module.get()));
   EXPECT_TRUE(changed);
@@ -1554,7 +1450,7 @@ ENTRY main {
   TF_ASSERT_OK_AND_ASSIGN(std::unique_ptr<HloModule> module,
                           ParseAndReturnVerifiedModule(hlo_text));
   GemmRewriterOptions options;
-  options.enable_cublaslt = GetDebugOptionsForTest().xla_gpu_enable_cublaslt();
+
   GemmRewriter pass(Capability(), GetToolkitVersion(), options);
   TF_ASSERT_OK_AND_ASSIGN(bool changed, this->RunHloPass(&pass, module.get()));
   EXPECT_TRUE(changed);
@@ -1568,7 +1464,7 @@ ENTRY main {
 }
 
 INSTANTIATE_TEST_SUITE_P(CublasTestsBothLegacyAndLt,
-                         ParameterizedGemmRewriteTest, ::testing::Bool());
+                         ParameterizedGemmRewriteTest, ::testing::Values(true));
 
 class SmallDotGemmRewriteTest : public GemmRewriteTest {
  public:

@@ -53,7 +53,6 @@ limitations under the License.
 #include "xla/backends/gpu/runtime/device_to_device_copy_thunk.h"
 #include "xla/backends/gpu/runtime/dynamic_memcpy_thunk.h"
 #include "xla/backends/gpu/runtime/dynamic_slice_thunk.h"
-#include "xla/backends/gpu/runtime/gemm_thunk.h"
 #include "xla/backends/gpu/runtime/gpublas_lt_matmul_thunk.h"
 #include "xla/backends/gpu/runtime/kernel_thunk.h"
 #include "xla/backends/gpu/runtime/legacy_custom_call_thunk.h"
@@ -308,11 +307,6 @@ static absl::Status AppendCommands(ConversionContext& ctx,
     // KernelThunk implements Command directly; append borrowed pointer.
     case Thunk::Kind::kKernel:
       cmd_sequence.Append(static_cast<KernelThunk*>(&thunk));
-      return absl::OkStatus();
-    // GemmThunk implements TracedCommand directly; append as borrowed
-    // pointer — the thunk outlives the command sequence.
-    case Thunk::Kind::kGemm:
-      cmd_sequence.Append(static_cast<GemmThunk*>(&thunk));
       return absl::OkStatus();
     // CublasLtMatmulThunk implements TracedCommand directly; append as
     // borrowed pointer — the thunk outlives the command sequence.

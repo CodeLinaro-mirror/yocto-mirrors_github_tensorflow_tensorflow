@@ -40,12 +40,13 @@ struct PJRT_DeviceEvent_FunctionTable {
   // The returned string only lives as long as the device_event.
   int (*get_error_if_present)(void* device_event, PJRT_Error_Code* code,
                               const char** message, size_t* message_size);
+  const struct PJRT_DeviceEvent_FunctionTable* parent;
 };
 
 // A PJRT_DeviceEvent is a pair of pointers containing both type information
 // and the actual opaque device event object. See: xla::PjRtDeviceEventRef.
 struct PJRT_DeviceEvent {
-  struct PJRT_DeviceEvent_FunctionTable* vtable;
+  const struct PJRT_DeviceEvent_FunctionTable* vtable;
   void* device_event;
 };
 

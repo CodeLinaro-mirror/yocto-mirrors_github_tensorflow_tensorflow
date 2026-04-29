@@ -218,8 +218,11 @@ class TensorSliceDatasetOp::Dataset : public DatasetBase {
       if (ctx->restored_element_count().has_value()) {
         return global_shuffle_iterator_.Restore(prefix(), ctx, reader);
       }
-      return split_provider_->Restore(
-          [this](const std::string& key) { return full_name(key); }, reader);
+      if (split_provider_ != nullptr) {
+        return split_provider_->Restore(
+            [this](const std::string& key) { return full_name(key); }, reader);
+      }
+      return absl::OkStatus();
     }
 
    private:

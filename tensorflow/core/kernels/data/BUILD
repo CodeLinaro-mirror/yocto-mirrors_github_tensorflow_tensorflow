@@ -136,13 +136,9 @@ tf_cc_test(
         ":tensor_slice_dataset_op",
         "//tensorflow/core:core_cpu_internal",
         "//tensorflow/core:dataset_ops_op_lib",
-        "//tensorflow/core:framework",
-        "//tensorflow/core:lib_internal",
-        "//tensorflow/core:test",
         "//tensorflow/core:test_main",
-        "//tensorflow/core:testlib",
         "//tensorflow/core/data:dataset_test_base",
-        "//tensorflow/core/data:dataset_utils",
+        "//tensorflow/core/data:serialization_utils",
     ],
 )
 
@@ -1051,12 +1047,9 @@ tf_cc_test(
     deps = [
         ":iterator_ops",
         ":range_dataset_op",
-        "//tensorflow/core:framework",
-        "//tensorflow/core:test",
         "//tensorflow/core:test_main",
-        "//tensorflow/core:testlib",
         "//tensorflow/core/data:dataset_test_base",
-        "//tensorflow/core/data:dataset_utils",
+        "//tensorflow/core/data:serialization_utils",
     ],
 )
 
@@ -1431,11 +1424,7 @@ tf_cc_test(
         ":tensor_slice_dataset_op",
         "//tensorflow/core:core_cpu_internal",
         "//tensorflow/core:dataset_ops_op_lib",
-        "//tensorflow/core:framework",
-        "//tensorflow/core:lib_internal",
-        "//tensorflow/core:test",
         "//tensorflow/core:test_main",
-        "//tensorflow/core:testlib",
         "//tensorflow/core/data:dataset_test_base",
         "//tensorflow/core/data:dataset_utils",
         "//tensorflow/core/data:serialization_utils",
@@ -1611,6 +1600,7 @@ tf_cc_test(
         "//tensorflow/core:test_main",
         "//tensorflow/core/data:dataset_test_base",
         "//tensorflow/core/data:name_utils",
+        "//tensorflow/core/data:serialization_utils",
         "//tensorflow/core/framework:types_proto_cc",
         "//tensorflow/core/platform:status",
         "@com_google_absl//absl/status",

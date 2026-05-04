@@ -1097,6 +1097,22 @@ class CuDnnFusionVisitor : public DfsHloRewriteVisitor {
     }
     VLOG(4) << "Processing " << hlo->ToString();
 
+    absl::Status status = ProcessCudnnFusion(hlo, gpu_config);
+    if (!status.ok()) {
+      LOG(ERROR) << "Failed to process cuDNN fusion: " << hlo->ToString();
+      LOG(ERROR) << "Computation:\n"
+                 << hlo->fused_instructions_computation()->ToString();
+      LOG(ERROR) << "Status: " << status;
+    }
+    return status;
+  }
+
+ private:
+  absl::Status ProcessCudnnFusion(HloInstruction*& hlo,
+                                  GpuBackendConfig& gpu_config) {
+    const FusionBackendConfig& fusion_backend_config =
+        gpu_config.fusion_backend_config();
+
     auto compile_graph = [&]() -> absl::StatusOr<se::gpu::CudnnGraph> {
       TF_ASSIGN_OR_RETURN(
           se::gpu::CudnnGraph graph,

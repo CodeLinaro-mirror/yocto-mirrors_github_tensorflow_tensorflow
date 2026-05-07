@@ -122,7 +122,7 @@ class TileAnalysisTest : public HloHardwareIndependentTestBase {
     HloInstruction* root = ParseAndGetRoot(hlo_string);
     auto fusion_adaptor = HloFusionAdaptor::ForInstruction(root);
     auto tiling_space = TilingSpace::Create(*fusion_adaptor, &mlir_context_);
-    tiling_space->AssignTileSizes(tile_sizes);
+    RETURN_IF_ERROR(tiling_space->AssignTileSizes(tile_sizes));
     return TiledHloComputation::Tile(*fusion_adaptor, std::move(tiling_space));
   }
 

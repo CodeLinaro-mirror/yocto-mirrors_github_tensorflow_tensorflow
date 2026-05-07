@@ -37,10 +37,12 @@ limitations under the License.
 #include "mlir/IR/Diagnostics.h"
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/IR/Operation.h"
+#include "mlir/IR/OperationSupport.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/IR/SymbolTable.h"
 #include "mlir/IR/Value.h"
 #include "mlir/IR/Visitors.h"
+#include "mlir/Interfaces/FunctionInterfaces.h"
 #include "mlir/Parser/Parser.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Pass/PassManager.h"
@@ -273,9 +275,18 @@ void convertShardyAttrsWithoutHloShardingV3(FuncOp funcOp,
 
   // Due to `SdyRoundTripExportShardingsPass` keeping `kXlaShardingAttr`, remove
   // them purely for cleanliness of the module.
+  llvm::SmallVector<mlir::DictionaryAttr> newResultAttrs;
+  newResultAttrs.reserve(funcOp.getNumResults());
   for (int64_t resNum = 0; resNum < funcOp.getNumResults(); ++resNum) {
-    funcOp.removeResultAttr(resNum, kXlaShardingAttr);
+    mlir::DictionaryAttr dict = funcOp.getResultAttrDict(resNum);
+    mlir::NamedAttrList attrs(dict);
+    if (attrs.erase(kXlaShardingAttr)) {
+      newResultAttrs.push_back(attrs.getDictionary(funcOp.getContext()));
+    } else {
+      newResultAttrs.push_back(dict);
+    }
   }
+  mlir::function_interface_impl::setAllResultAttrDicts(funcOp, newResultAttrs);
 
   llvm::SmallVector<std::pair<CustomCallOp, DictionaryAttr>>
       funcResultShardingOps;

@@ -37,6 +37,7 @@ limitations under the License.
 #include "mlir/IR/Diagnostics.h"
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/IR/Operation.h"
+#include "mlir/IR/OperationSupport.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/IR/SymbolTable.h"
 #include "mlir/IR/Value.h"
@@ -130,8 +131,10 @@ TensorShardingAttr openShardingDims(TensorShardingAttr sharding) {
                                  sharding.getUnreducedAxes());
 }
 
-void handleFuncResultSharding(CustomCallOp funcResultSharding, FuncOp funcOp,
-                              DictionaryAttr dictAttr, IRRewriter& rewriter) {
+void handleFuncResultSharding(
+    CustomCallOp funcResultSharding, FuncOp funcOp,
+    llvm::SmallVector<DictionaryAttr>& funcResultAttrs, DictionaryAttr dictAttr,
+    IRRewriter& rewriter) {
   // This is a temporary CustomCallOp that holds the sharding from a
   // func result. When importing we want to move that sharding to the
   // func result and delete the CustomCallOp.
@@ -160,7 +163,10 @@ void handleFuncResultSharding(CustomCallOp funcResultSharding, FuncOp funcOp,
   bool hasNonFuncReturnUses = false;
   for (mlir::OpOperand& use : llvm::make_early_inc_range(resultUses)) {
     if (mlir::isa<mlir::func::ReturnOp>(use.getOwner())) {
-      funcOp.setResultAttr(use.getOperandNumber(), kShardingAttr, sharding);
+      int64_t resNum = use.getOperandNumber();
+      mlir::NamedAttrList attrs(funcResultAttrs[resNum]);
+      attrs.set(kShardingAttr, sharding);
+      funcResultAttrs[resNum] = attrs.getDictionary(funcOp.getContext());
     } else if (use.getOwner() != funcResultSharding &&
                !dynCastX64CombineCustomCall(use.getOwner())) {
       hasNonFuncReturnUses = true;
@@ -344,9 +350,15 @@ void convertShardyAttrsWithoutHloShardingV3(FuncOp funcOp,
         op, xla::ToStringRef(HloSharding::kShardingFrontendAttrName));
   });
 
+  // TODO(b/510714593): Create a shardy utility to modify func result attributes
+  // as below but in a more general way and re-use it.
+  llvm::SmallVector<DictionaryAttr> funcResultAttrs;
+  funcOp.getAllResultAttrs(funcResultAttrs);
   for (auto& [customCallOp, dictAttr] : funcResultShardingOps) {
-    handleFuncResultSharding(customCallOp, funcOp, dictAttr, rewriter);
+    handleFuncResultSharding(customCallOp, funcOp, funcResultAttrs, dictAttr,
+                             rewriter);
   }
+  funcOp.setAllResultAttrs(funcResultAttrs);
 }
 
 // Builds the shardy attributes coming from Shardy previously. This means

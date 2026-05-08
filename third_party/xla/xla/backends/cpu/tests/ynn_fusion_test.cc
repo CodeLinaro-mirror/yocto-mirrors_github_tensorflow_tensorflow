@@ -318,6 +318,32 @@ TEST_P(YnnFusionReduceWindowTest, ReduceWindow) {
   RunTest(kModuleStr);
 }
 
+TEST_P(YnnFusionReduceWindowTest, ReduceWindowWithInit) {
+  constexpr absl::string_view kModuleStr = R"(
+    HloModule reduce_window_with_init
+
+    %add {
+      %lhs = f32[] parameter(0)
+      %rhs = f32[] parameter(1)
+      ROOT %add = f32[] add(%lhs, %rhs)
+    }
+
+    ynn_fusion {
+      %param_0 = f32[4,6]{1,0} parameter(0)
+      %constant.0 = f32[] constant(1)
+      ROOT %reduce_window.0 = f32[3,9]{1,0} reduce-window(%param_0, %constant.0),
+        window={size=2x1 stride=2x1 pad=0_3x1_2 rhs_dilate=1x2}, to_apply=%add
+    }
+
+    ENTRY entry {
+      %p0 = f32[4,6]{1,0} parameter(0)
+      ROOT %fusion = f32[3,9]{1,0} fusion(%p0), kind=kCustom, calls=ynn_fusion,
+        backend_config={"fusion_config": {kind: "__ynn_fusion"}}
+    })";
+
+  RunTest(kModuleStr);
+}
+
 TEST_P(YnnFusionReduceWindowTest, ReduceWindowAndReduce) {
   constexpr absl::string_view kModuleStr = R"(
     HloModule reduce_window_and_reduce

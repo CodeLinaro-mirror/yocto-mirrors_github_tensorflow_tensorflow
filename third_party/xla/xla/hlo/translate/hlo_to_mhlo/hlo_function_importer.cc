@@ -519,13 +519,20 @@ absl::StatusOr<FuncOp> HloFunctionImporter::ImportAsFunc(
       return Internal("Expected %d results but got %d", ret_shardings.size(),
                       function.getNumResults());
     }
+
+    // TODO(b/510714593): Create a shardy utility to modify func result
+    // attributes as below but in a more general way and re-use it.
+    llvm::SmallVector<mlir::DictionaryAttr> funcResultAttrs;
+    function.getAllResultAttrs(funcResultAttrs);
     for (const auto& [ret_index, ret_sharding] :
          llvm::enumerate(ret_shardings)) {
       if (!sdy::isSizeOfOne(function.getFunctionType().getResult(ret_index))) {
-        function.setResultAttr(ret_index, xla::kMhloSharding,
-                               ConvertSharding(ret_sharding, builder_));
+        mlir::NamedAttrList attrs(funcResultAttrs[ret_index]);
+        attrs.set(xla::kMhloSharding, ConvertSharding(ret_sharding, builder_));
+        funcResultAttrs[ret_index] = attrs.getDictionary(function.getContext());
       }
     }
+    function.setAllResultAttrs(funcResultAttrs);
   }
   if (computation.execution_thread() != "main") {
     function->setAttr(

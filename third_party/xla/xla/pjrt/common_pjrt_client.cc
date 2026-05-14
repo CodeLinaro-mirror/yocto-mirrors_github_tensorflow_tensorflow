@@ -55,6 +55,7 @@ limitations under the License.
 #include "xla/pjrt/device_event.h"
 #include "xla/pjrt/device_event_utils.h"
 #include "xla/pjrt/host_callback.h"
+#include "xla/pjrt/host_memory_spaces.h"
 #include "xla/pjrt/pjrt_client.h"
 #include "xla/pjrt/pjrt_compiler.h"
 #include "xla/pjrt/pjrt_executable.h"
@@ -164,11 +165,16 @@ absl::StatusOr<xla::Shape> CommonPjRtClient::GetCopyDestinationShape(
   if (shape.IsToken()) {
     return shape;
   }
+  const xla::Layout* layout = nullptr;
+  if (src_memory_space->client() == dst_memory_space->client() &&
+      src_memory_space->kind_id() != UnpinnedHostMemorySpace::kKindId &&
+      dst_memory_space->kind_id() != UnpinnedHostMemorySpace::kKindId) {
+    layout = &shape.layout();
+  }
   return other_client->MakeDefaultShapeForMemorySpace(
       dst_memory_space,
-      xla::ShapeUtil::MakeShapeWithDescendingLayout(shape.element_type(),
-                                                    shape.dimensions()),
-      /*layout=*/nullptr);
+      xla::ShapeUtil::MakeShape(shape.element_type(), shape.dimensions()),
+      layout);
 }
 
 absl::StatusOr<std::unique_ptr<PjRtBuffer>>

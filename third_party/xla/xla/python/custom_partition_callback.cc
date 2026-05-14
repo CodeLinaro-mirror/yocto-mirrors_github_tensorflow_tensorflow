@@ -240,7 +240,16 @@ absl::StatusOr<xla::HloSharding> ReadHloSharding(
     return absl::InternalError(
         "custom_call_sharding.cc: error parsing OpShardingProto");
   }
-  return xla::HloSharding::FromProto(std::move(proto));
+  auto sharding_or = xla::HloSharding::FromProto(std::move(proto));
+  if (!sharding_or.ok()) {
+    return sharding_or.status();
+  }
+
+  xla::HloSharding sharding = std::move(sharding_or).value();
+  if (sharding.UseNamedShardingLeaf()) {
+    sharding = xla::HloSharding::V3ToV2Sharding(sharding.named_sharding());
+  }
+  return sharding;
 }
 
 absl::StatusOr<xla::Shape> ReadHloShape(JAX_CustomCallPartitioner_string data) {

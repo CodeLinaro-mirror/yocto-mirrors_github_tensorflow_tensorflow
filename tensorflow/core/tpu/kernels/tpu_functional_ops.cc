@@ -442,7 +442,7 @@ std::string HashShapeAndType(const std::string prefix,
 absl::Status GetInputOutputInfo(
     Graph* graph, GraphShapeInfo& tpu_inferred_info,
     std::map<int, InferredShape>& arg_shapes, EdgeShapes& tpu_input_shapes,
-    absl::flat_hash_map<const Edge*, DataType>& tpu_input_dtypes,
+    ::gtl::linked_hash_map<const Edge*, DataType>& tpu_input_dtypes,
     OpKernelContext* ctx) {
   // Search for the device-to-host or tpu-to-cpu edges.
   for (Node* node : graph->op_nodes()) {
@@ -687,7 +687,7 @@ namespace tpu_functional_internal {
 // --group_tensors_for_packing are true.
 GroupedEdges GroupTensorsForInputPacking(
     const EdgeShapes& tpu_input_shapes,
-    const absl::flat_hash_map<const Edge*, DataType>& tpu_input_dtypes,
+    const ::gtl::linked_hash_map<const Edge*, DataType>& tpu_input_dtypes,
     bool input_shape_opt, bool group_tensors_for_packing) {
   GroupedEdges grouped_input_edges;
   for (const auto& iter : tpu_input_shapes) {
@@ -781,7 +781,7 @@ GroupedEdges GroupTensorsForOutputPacking(Graph* graph,
 // `grouped_input_edges` maps tensor name to all edges output from this tensor.
 absl::Status CreateConcatAndSplitNodesForInputTensor(
     Graph* graph, const std::string& cluster_name, EdgeShapes* tpu_input_shapes,
-    const absl::flat_hash_map<std::string, std::vector<const Edge*>>&
+    const ::gtl::linked_hash_map<std::string, std::vector<const Edge*>>&
         grouped_input_edges,
     int32_t minimum_input_tensors_packing, bool xla_spmd_input_sharded,
     const XlaShardingInfoMap& xla_sharding_info,
@@ -789,7 +789,7 @@ absl::Status CreateConcatAndSplitNodesForInputTensor(
   for (const auto& iter : grouped_input_edges) {
     std::vector<int> last_dim_vec;
     std::vector<NodeBuilder::NodeOut> concat_nodeouts;
-    absl::flat_hash_map<std::string, int> tensor_to_split_output;
+    ::gtl::linked_hash_map<std::string, int> tensor_to_split_output;
     int rank;
     DataType dtype = DT_INVALID;
     std::string src_name;
@@ -963,7 +963,7 @@ absl::Status CreateConcatAndSplitNodesForOutputTensor(
   for (const auto& iter : shape_to_output) {
     std::vector<int> last_dim_vec;
     std::vector<NodeBuilder::NodeOut> concat_nodeouts;
-    absl::flat_hash_map<std::string, int> tensor_to_split_output;
+    ::gtl::linked_hash_map<std::string, int> tensor_to_split_output;
     int rank;
     DataType dtype = DT_INVALID;
     for (const Edge* edge : iter.second) {
@@ -1696,7 +1696,7 @@ absl::Status TPUPartitionedCallOp::ReplaceResourceArgsWithVarHandleOps(
   }
   std::vector<Node*> tpu_resource_args;
   std::vector<int> arg_indices;
-  absl::flat_hash_map<const Node*, xla::OpSharding> variable_to_xla_sharding;
+  ::gtl::linked_hash_map<const Node*, xla::OpSharding> variable_to_xla_sharding;
   for (Node* node : graph->op_nodes()) {
     if (node->IsArg()) {
       const AttrValue* attr_value;
@@ -1719,7 +1719,7 @@ absl::Status TPUPartitionedCallOp::ReplaceResourceArgsWithVarHandleOps(
   // ResourceHandle backs several variable nodes, the variable nodes refer to
   // the same underlying resource. In that case, only one variable node needs
   // to be mirrored to the TPU for that resource.
-  absl::flat_hash_map<uint64_t, Node*> tpu_variables;
+  ::gtl::linked_hash_map<uint64_t, Node*> tpu_variables;
   ResourceHandle handle;
   for (int i = 0; i < tpu_resource_args.size(); i++) {
     Node* node = tpu_resource_args[i];
@@ -2261,7 +2261,7 @@ absl::Status TPUPartitionedCallOp::OptimizeTpuInputOutputTensors(
   GraphShapeInfo tpu_inferred_info;
   std::map<int, InferredShape> arg_shapes;
   EdgeShapes tpu_input_shapes;
-  absl::flat_hash_map<const Edge*, DataType> tpu_input_dtypes;
+  ::gtl::linked_hash_map<const Edge*, DataType> tpu_input_dtypes;
 
   // Contains attrs "T", "sharding", "_tpu_replicate" for each XlaSharding op.
   XlaShardingInfoMap xla_sharding_ops;

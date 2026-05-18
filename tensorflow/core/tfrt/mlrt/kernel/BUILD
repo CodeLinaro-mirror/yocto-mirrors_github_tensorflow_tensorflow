@@ -143,8 +143,10 @@ cc_library(
         "//tensorflow/core/tfrt/mlrt/interpreter:context",
         "//tensorflow/core/tfrt/mlrt/interpreter:future",
         "//tensorflow/core/tfrt/mlrt/interpreter:register_span",
+        "//tensorflow/core/tfrt/utils:fallback_tensor",
         "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/cleanup",
+        "@com_google_absl//absl/log:check",
         "@xla//xla/tsl/platform:errors",
     ],
 )
@@ -174,6 +176,7 @@ tf_cc_shared_test(
         "//tensorflow/core/framework:tensor_testutil",
         "//tensorflow/core/kernels:math",
         "//tensorflow/core/ops:math_ops_op_lib",
+        "//tensorflow/core/platform:threadpool_interface",
         "//tensorflow/core/tfrt/fallback:device_with_custom_allocator",
         "//tensorflow/core/tfrt/fallback:fallback_state",
         "//tensorflow/core/tfrt/mlrt/bytecode:executable",

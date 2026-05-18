@@ -18,11 +18,13 @@ limitations under the License.
 #include <utility>
 #include <vector>
 
+#include "absl/log/check.h"
 #include "tensorflow/core/framework/device_base.h"
 #include "tensorflow/core/framework/op_kernel.h"
 #include "tensorflow/core/tfrt/fallback/op_kernel_runner.h"
 #include "tensorflow/core/tfrt/mlrt/interpreter/future.h"
 #include "tensorflow/core/tfrt/mlrt/interpreter/register_span.h"
+#include "tensorflow/core/tfrt/utils/fallback_tensor.h"
 
 namespace tensorflow {
 namespace tf_mlrt {
@@ -62,12 +64,20 @@ void LaunchAsyncOpKernel(
 
   auto* op_kernel_context_ptr = &async_state->context;
 
-  auto done_callback = [async_state = std::move(async_state)]() {
+  if (params.inc_num_deferred_ops_function) {
+    params.inc_num_deferred_ops_function();
+  }
+
+  auto done_callback = [async_state = std::move(async_state),
+                        dec_fn = params.dec_num_deferred_ops_function]() {
     auto& op_kernel_context = async_state->context;
 
     if (!op_kernel_context.status().ok()) {
       for (auto& result : async_state->results) {
         std::move(result).SetError(op_kernel_context.status());
+      }
+      if (dec_fn) {
+        dec_fn();
       }
       return;
     }
@@ -77,6 +87,10 @@ void LaunchAsyncOpKernel(
       std::move(async_state->results[i])
           .Set<tensorflow::tfrt_stub::FallbackTensor>(
               std::move(*op_kernel_context.mutable_output(i)));
+    }
+
+    if (dec_fn) {
+      dec_fn();
     }
   };
 

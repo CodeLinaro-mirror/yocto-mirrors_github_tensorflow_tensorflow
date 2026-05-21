@@ -672,16 +672,17 @@ bool MMapWeightCacheProvider::StopBuildStep() {
   return LoadLastBuildStep();
 }
 
-void MMapWeightCacheProvider::MapTensorIdentifiers(
+bool MMapWeightCacheProvider::MapTensorIdentifiers(
     const TfLiteTensor* tensors, const size_t size,
     const std::unordered_map<size_t, size_t>& tensor_index_to_identifier) {
   for (const auto [index, identifier] : tensor_index_to_identifier) {
-    XNNPACK_ABORT_CHECK(index < size,
-                        "Tensor index corresponds to a non existing tensor.");
+    XNNPACK_RETURN_CHECK(index < size,
+                         "Tensor index corresponds to a non existing tensor.");
     const TfLiteTensor& t = tensors[index];
     buffer_address_to_identifier_.emplace(
         t.data.data, OriginalBufferMetadata{identifier, t.bytes});
   }
+  return true;
 }
 
 void MMapWeightCacheProvider::RemapDataBuffer(const void* const buffer,
@@ -743,13 +744,16 @@ size_t MMapWeightCacheProvider::LookUpOrInsert(
 }
 
 void* MMapWeightCacheProvider::OffsetToAddr(const size_t offset) {
-  // While the cache is being built, the buffer could grow and need to be
-  // reallocated so we cannot ensure pointer stability.
   auto it = offset_to_addr_.find(offset);
-  XNNPACK_ABORT_CHECK(it != offset_to_addr_.end(),
-                      "No address is mapped to the given offset. This is a "
-                      "critical error that should not happen. Check that the "
-                      "model hasn't changed since the cache was created.");
+  if (it == offset_to_addr_.end()) {
+    WriteStaleFlag();
+    XNNPACK_ABORT_CHECK(
+        false,  // The check for finding the offset if done above.
+        "No address is mapped to the given offset (%zu). This is a critical "
+        "error that should not happen. Check that the model hasn't changed "
+        "since the cache was created.",
+        offset);
+  }
   return it->second;
 }
 

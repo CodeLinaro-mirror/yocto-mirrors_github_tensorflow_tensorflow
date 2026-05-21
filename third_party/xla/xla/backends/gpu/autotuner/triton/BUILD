@@ -131,6 +131,7 @@ cc_library(
         "//xla/hlo/utils:hlo_traversal",
         "//xla/service:hlo_cost_analysis",
         "//xla/service:instruction_fusion",
+        "//xla/service/gpu:backend_configs_cc",
         "//xla/service/gpu:matmul_utils",
         "//xla/service/gpu/model:block_level_parameters",
         "//xla/service/gpu/model:fusion_analysis_cache",
@@ -159,6 +160,7 @@ xla_cc_test(
     deps = [
         ":cost_model_config_optimization",
         "//xla:autotuning_proto_cc",
+        "//xla:xla_proto_cc",
         "//xla/hlo/analysis:symbolic_map",
         "//xla/hlo/ir:hlo",
         "//xla/hlo/testlib:hlo_hardware_independent_test_base",

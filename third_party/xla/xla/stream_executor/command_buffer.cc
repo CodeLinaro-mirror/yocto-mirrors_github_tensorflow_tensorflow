@@ -20,7 +20,6 @@ limitations under the License.
 #include <memory>
 #include <utility>
 
-#include "absl/base/no_destructor.h"
 #include "absl/base/optimization.h"
 #include "absl/functional/function_ref.h"
 #include "absl/synchronization/mutex.h"
@@ -28,8 +27,8 @@ limitations under the License.
 namespace stream_executor {
 
 CommandBuffer::ResourceTypeId CommandBuffer::GetNextResourceTypeId() {
-  absl::NoDestructor<std::atomic<int64_t>> counter(1);
-  return ResourceTypeId(counter->fetch_add(1));
+  static std::atomic<int64_t> counter(1);
+  return ResourceTypeId(counter.fetch_add(1));
 }
 
 CommandBuffer::Resource* CommandBuffer::GetOrNullResource(
@@ -58,11 +57,8 @@ CommandBuffer::Resource* CommandBuffer::GetOrCreateResource(
   // Acquire lock again to insert the new resource
   {
     absl::MutexLock lock(resource_mutex_);
-    auto it = resources_.find(type_id);
-    if (ABSL_PREDICT_TRUE(it == resources_.end())) {
-      // We won the race — insert our resource
-      resources_.emplace(type_id, std::move(resource));
-    } else {
+    auto [it, inserted] = resources_.try_emplace(type_id, std::move(resource));
+    if (!inserted) {
       // Another thread inserted it in the meantime
       ptr = it->second.get();
     }

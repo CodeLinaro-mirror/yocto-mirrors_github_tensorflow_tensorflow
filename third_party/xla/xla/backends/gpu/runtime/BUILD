@@ -436,6 +436,7 @@ cc_library(
         ":execution_stream_id",
         ":thunk",
         ":thunk_executor",
+        ":thunk_id",
         ":thunk_proto_cc",
         "//xla:util",
         "//xla/stream_executor:command_buffer",

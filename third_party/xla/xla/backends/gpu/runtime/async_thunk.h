@@ -27,6 +27,7 @@ limitations under the License.
 #include "xla/backends/gpu/runtime/thunk.h"
 #include "xla/backends/gpu/runtime/thunk.pb.h"
 #include "xla/backends/gpu/runtime/thunk_executor.h"
+#include "xla/backends/gpu/runtime/thunk_id.h"
 #include "xla/stream_executor/command_buffer.h"
 
 namespace xla::gpu {
@@ -71,7 +72,6 @@ class AsyncStartThunk : public Thunk {
       ThunkInfo thunk_info, const AsyncStartThunkProto& proto,
       const Deserializer& deserializer, AsyncExecutionMap& async_executions);
 
-  AsyncExecutionId async_execution_id() const;
   std::shared_ptr<AsyncExecution> async_execution() const;
 
   std::string ToString(int indent) const override;
@@ -118,7 +118,7 @@ class AsyncDoneThunk : public Command {
       ThunkInfo thunk_info, const AsyncDoneThunkProto& proto,
       AsyncExecutionMap& async_executions);
 
-  AsyncExecutionId async_execution_id() const;
+  ThunkId async_start_thunk_id() const;
   std::shared_ptr<AsyncExecution> async_execution() const;
 
   std::string ToString(int indent) const override;

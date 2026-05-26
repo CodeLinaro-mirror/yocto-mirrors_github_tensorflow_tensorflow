@@ -34,12 +34,6 @@ limitations under the License.
 
 namespace xla::gpu {
 
-// Unique identifier for async execution scopes. The same identifier shared
-// between start and done thunks means that they belong to the same execution
-// scope. This identifier is used during thunk serialization and deserialization
-// to/from proto to connect done thunks to their corresponding start thunks.
-TSL_LIB_GTL_DEFINE_INT_TYPE(AsyncExecutionId, uint64_t);
-
 // AsyncExecution is a helper class to manage async execution of XLA thunks.
 //
 // XLA has several asynchronous operations (mostly communication operations,
@@ -81,6 +75,8 @@ class AsyncExecution {
   // as a key in the execution scoped state and its profile annotation for
   // logging.
   explicit AsyncExecution(Thunk::ThunkInfo start_thunk_info);
+
+  ThunkId start_thunk_id() const { return start_thunk_info_.thunk_id; }
 
   // An RAII guard that automatically records an event on a given async stream
   // when it goes out of scope.
@@ -126,10 +122,10 @@ class AsyncExecution {
       ABSL_GUARDED_BY(mu_);
 };
 
-// Map from AsyncExecutionId to shared AsyncExecution, used during
+// Map from (Start)ThunkId to shared AsyncExecution, used during
 // deserialization to connect AsyncStartThunk and AsyncDoneThunk pairs.
 using AsyncExecutionMap =  // NOLINT
-    absl::flat_hash_map<AsyncExecutionId, std::shared_ptr<AsyncExecution>>;
+    absl::flat_hash_map<ThunkId, std::shared_ptr<AsyncExecution>>;
 
 }  // namespace xla::gpu
 

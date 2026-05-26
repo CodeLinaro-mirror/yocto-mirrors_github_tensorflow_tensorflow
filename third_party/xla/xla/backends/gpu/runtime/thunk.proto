@@ -64,7 +64,7 @@ message ThunkMetadataListProto {
 }
 
 message AsyncStartThunkProto {
-  uint64 async_execution_id = 1;
+  reserved 1;  // Was async_execution_id.
   ThunkSequenceProto thunks = 3;
 
   oneof execution_stream_id {

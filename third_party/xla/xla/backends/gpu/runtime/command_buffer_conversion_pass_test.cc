@@ -15,6 +15,7 @@ limitations under the License.
 
 #include "xla/backends/gpu/runtime/command_buffer_conversion_pass.h"
 
+#include <atomic>
 #include <cstdint>
 #include <memory>
 #include <optional>
@@ -219,10 +220,13 @@ std::unique_ptr<ConvolutionThunk> CreateConvolutionThunk(
 
 std::unique_ptr<AsyncStartThunk> WrapInAsyncStartThunk(
     std::unique_ptr<AllGatherThunk> start_thunk) {
+  static std::atomic<uint64_t> next_id{1};
   ThunkSequence sequence;
   sequence.push_back(std::move(start_thunk));
-  return std::make_unique<AsyncStartThunk>(
-      Thunk::ThunkInfo(), CommunicationStreamId(0), std::move(sequence));
+  Thunk::ThunkInfo thunk_info;
+  thunk_info.thunk_id = ThunkId(next_id.fetch_add(1));
+  return std::make_unique<AsyncStartThunk>(thunk_info, CommunicationStreamId(0),
+                                           std::move(sequence));
 }
 
 std::unique_ptr<AsyncDoneThunk> CreateAllGatherDoneThunk(Thunk* start_thunk) {

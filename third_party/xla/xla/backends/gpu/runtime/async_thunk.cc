@@ -34,6 +34,7 @@ limitations under the License.
 #include "xla/backends/gpu/runtime/thunk.h"
 #include "xla/backends/gpu/runtime/thunk.pb.h"
 #include "xla/backends/gpu/runtime/thunk_executor.h"
+#include "xla/backends/gpu/runtime/thunk_id.h"
 #include "xla/stream_executor/command_buffer.h"
 #include "xla/stream_executor/stream.h"
 #include "xla/util.h"
@@ -64,7 +65,7 @@ std::string AsyncStartThunk::ToString(int indent) const {
   std::string indent_str(indent * 2, ' ');
   std::string result;
   absl::StrAppendFormat(&result, "stream=%v, async_id=%v\n",
-                        execution_stream_id_, async_execution_id());
+                        execution_stream_id_, thunk_info().thunk_id);
   absl::StrAppend(&result, executor_.thunks().ToString(indent + 1));
   return result;
 }
@@ -117,10 +118,6 @@ absl::Status AsyncStartThunk::TransformNested(Transformer callback) {
   return executor_.thunks().TransformNested(callback);
 }
 
-AsyncExecutionId AsyncStartThunk::async_execution_id() const {
-  return absl::bit_cast<AsyncExecutionId>(async_execution_.get());
-}
-
 std::shared_ptr<AsyncExecution> AsyncStartThunk::async_execution() const {
   return async_execution_;
 }
@@ -135,7 +132,7 @@ AsyncDoneThunk::AsyncDoneThunk(ThunkInfo thunk_info,
       async_execution_(std::move(async_execution)) {}
 
 std::string AsyncDoneThunk::ToString(int indent) const {
-  return absl::StrFormat("async_id=%v", async_execution_id());
+  return absl::StrFormat("async_id=%v", async_start_thunk_id());
 }
 
 absl::Status AsyncDoneThunk::ExecuteOnStream(const ExecuteParams& params) {
@@ -156,8 +153,8 @@ absl::StatusOr<const se::CommandBuffer::Command*> AsyncDoneThunk::Record(
   return Internal("Invalid record action");
 }
 
-AsyncExecutionId AsyncDoneThunk::async_execution_id() const {
-  return absl::bit_cast<AsyncExecutionId>(async_execution_.get());
+ThunkId AsyncDoneThunk::async_start_thunk_id() const {
+  return async_execution_->start_thunk_id();
 }
 
 std::shared_ptr<AsyncExecution> AsyncDoneThunk::async_execution() const {
@@ -173,7 +170,6 @@ absl::StatusOr<ThunkProto> AsyncStartThunk::ToProto() const {
   *proto.mutable_thunk_info() = thunk_info().ToProto();
 
   AsyncStartThunkProto* start_proto = proto.mutable_async_start_thunk();
-  start_proto->set_async_execution_id(async_execution_id().value());
 
   if (execution_stream_id_.is_computation()) {
     start_proto->set_computation_stream_id(
@@ -215,7 +211,7 @@ absl::StatusOr<std::unique_ptr<AsyncStartThunk>> AsyncStartThunk::FromProto(
   auto start_thunk = std::make_unique<AsyncStartThunk>(
       std::move(thunk_info), execution_stream_id, std::move(nested));
 
-  AsyncExecutionId id(proto.async_execution_id());
+  ThunkId id = start_thunk->thunk_info().thunk_id;
   async_executions[id] = start_thunk->async_execution();
 
   return start_thunk;
@@ -226,14 +222,14 @@ absl::StatusOr<ThunkProto> AsyncDoneThunk::ToProto() const {
   *proto.mutable_thunk_info() = thunk_info().ToProto();
 
   AsyncDoneThunkProto* done_proto = proto.mutable_async_done_thunk();
-  done_proto->set_async_execution_id(async_execution_id().value());
+  done_proto->set_async_execution_id(async_start_thunk_id().value());
   return proto;
 }
 
 absl::StatusOr<std::unique_ptr<AsyncDoneThunk>> AsyncDoneThunk::FromProto(
     ThunkInfo thunk_info, const AsyncDoneThunkProto& proto,
     AsyncExecutionMap& async_executions) {
-  AsyncExecutionId id(proto.async_execution_id());
+  ThunkId id(proto.async_execution_id());
   auto it = async_executions.find(id);
   if (it == async_executions.end()) {
     return Internal(

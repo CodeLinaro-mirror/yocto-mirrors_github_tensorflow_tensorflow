@@ -375,15 +375,13 @@ size_t CheckAsyncRegion(absl::Span<const std::unique_ptr<Thunk>> thunks,
       return 0;  // All thunks in the region must be convertible.
     }
 
-    // Track AsyncStartThunk/AsyncDoneThunk pairs via AsyncExecutionId.
+    // Track AsyncStartThunk/AsyncDoneThunk pairs via ThunkId.
     if (thunk->kind() == Thunk::kAsyncStart) {
-      unpaired_ids.insert(static_cast<const AsyncStartThunk&>(*thunk)
-                              .async_execution_id()
-                              .value());
+      unpaired_ids.insert(thunk->thunk_info().thunk_id.value());
     }
     if (thunk->kind() == Thunk::kAsyncDone) {
       auto id = static_cast<const AsyncDoneThunk&>(*thunk)
-                    .async_execution_id()
+                    .async_start_thunk_id()
                     .value();
       auto it = unpaired_ids.find(id);
       if (it == unpaired_ids.end()) {

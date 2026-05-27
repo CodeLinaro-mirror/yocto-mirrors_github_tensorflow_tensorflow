@@ -5619,6 +5619,93 @@ ENTRY %entry {
   }
 }
 
+TEST_F(LatencyHidingSchedulerTest,
+       MemoryPressureTrackingWithChainedCallsNegate) {
+  absl::string_view hlo_string = R"(
+HloModule memory_pressure_test_negate, is_scheduled=true
+
+called_computation_1 {
+  param = (f32[1024], f32[1024]) parameter(0)
+  gte0 = f32[1024] get-tuple-element(param), index=0
+  gte1 = f32[1024] get-tuple-element(param), index=1
+  neg0 = f32[1024] negate(gte0)
+  neg1 = f32[1024] negate(gte1)
+  ROOT t = (f32[1024], f32[1024]) tuple(neg0, neg1)
+}
+
+called_computation_2 {
+  param = (f32[1024], f32[1024]) parameter(0)
+  gte0 = f32[1024] get-tuple-element(param), index=0
+  gte1 = f32[1024] get-tuple-element(param), index=1
+  neg0 = f32[1024] negate(gte0)
+  neg1 = f32[1024] negate(gte1)
+  ROOT t = (f32[1024], f32[1024]) tuple(neg0, neg1)
+}
+
+called_computation_3 {
+  param = (f32[1024], f32[1024]) parameter(0)
+  gte0 = f32[1024] get-tuple-element(param), index=0
+  gte1 = f32[1024] get-tuple-element(param), index=1
+  neg0 = f32[1024] negate(gte0)
+  neg1 = f32[1024] negate(gte1)
+  ROOT t = (f32[1024], f32[1024]) tuple(neg0, neg1)
+}
+
+ENTRY main {
+  p0 = (f32[1024], f32[1024]) parameter(0)
+  
+  // Call 1
+  gte_in_0 = f32[1024] get-tuple-element(p0), index=0
+  gte_in_1 = f32[1024] get-tuple-element(p0), index=1
+  tuple.1 = (f32[1024], f32[1024]) tuple(gte_in_0, gte_in_1)
+  call.1 = (f32[1024], f32[1024]) call(tuple.1), to_apply=called_computation_1
+  
+  // Call 2
+  gte_c1_0 = f32[1024] get-tuple-element(call.1), index=0
+  gte_c1_1 = f32[1024] get-tuple-element(call.1), index=1
+  tuple.2 = (f32[1024], f32[1024]) tuple(gte_c1_0, gte_c1_1)
+  call.2 = (f32[1024], f32[1024]) call(tuple.2), to_apply=called_computation_2
+
+  // Call 3
+  gte_c2_0 = f32[1024] get-tuple-element(call.2), index=0
+  gte_c2_1 = f32[1024] get-tuple-element(call.2), index=1
+  tuple.3 = (f32[1024], f32[1024]) tuple(gte_c2_0, gte_c2_1)
+  call.3 = (f32[1024], f32[1024]) call(tuple.3), to_apply=called_computation_3
+
+  gte_c3_0 = f32[1024] get-tuple-element(call.3), index=0
+  gte_c3_1 = f32[1024] get-tuple-element(call.3), index=1
+  
+  // Dummy async op to force scheduling
+  c0 = f32[1] constant({0})
+  cp = f32[1] collective-permute(c0), source_target_pairs={{0,1},{1,0}}
+
+  ROOT root = (f32[1024], f32[1024], f32[1]) tuple(gte_c3_0, gte_c3_1, cp)
+}
+)";
+
+  TF_ASSERT_OK_AND_ASSIGN(auto hlo_module, ParseHloText(hlo_string));
+  auto sched_config = GetDefaultSchedConfig();
+  sched_config.memory_limit = 40000;  // Increased limit to allow 32KB peak
+
+  TF_ASSERT_OK_AND_ASSIGN(auto scheduler_setup,
+                          SetupScheduler(hlo_module.get(), sched_config));
+  auto scheduler = std::move(scheduler_setup.first);
+  auto scheduler_core = std::move(scheduler_setup.second);
+
+  TF_EXPECT_OK(scheduler->Run(hlo_module.get()));
+
+  // Mathematical justification for peak memory:
+  // - Data: (f32[1024], f32[1024]) -> 8KB.
+  // - Default ShapeSizeBytes double-counts: tuple pointer buffer (8KB) +
+  // elements (8KB) = 16KB total per call output.
+  // - At call.3, B3 (16KB) and B2 (16KB) are live simultaneously (B3 elements
+  // used by root, B2 allocated by call.3).
+  // - Peak = 16KB (B3) + 16KB (B2) = 32KB (32768 bytes).
+  // - Dummy collective-permute (16 bytes) may overlap, resulting in max 32784
+  // bytes.
+  EXPECT_LE(scheduler_core->GetMemoryPeak(), 32784);
+}
+
 class LatencyHidingSchedulerBenchmark : public LatencyHidingSchedulerTest {
  public:
   void TestBody() override {}

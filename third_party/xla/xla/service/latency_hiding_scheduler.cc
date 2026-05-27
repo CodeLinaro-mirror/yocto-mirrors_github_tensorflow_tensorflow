@@ -128,6 +128,21 @@ bool IsNopInstruction(HloOpcode op, const HloInstruction& hlo) {
           hlo.users().front()->opcode() == HloOpcode::kWhile);
 }
 
+bool InstructionCallsComputationTransitively(
+    const HloInstruction* instruction, const HloComputation* computation) {
+  for (const HloComputation* called_comp : instruction->called_computations()) {
+    if (called_comp == computation) {
+      return true;
+    }
+    for (const HloInstruction* instr : called_comp->instructions()) {
+      if (InstructionCallsComputationTransitively(instr, computation)) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
 bool InstructionDefinesValue(const HloInstruction* instruction,
                              const HloValue* value) {
   if (value->defining_instruction() == instruction) {
@@ -152,6 +167,10 @@ bool InstructionDefinesValue(const HloInstruction* instruction,
     return instruction->async_wrapped_instruction() ==
            value->defining_instruction();
   }
+  if (!instruction->called_computations().empty()) {
+    return InstructionCallsComputationTransitively(
+        instruction, value->defining_instruction()->parent());
+  }
   return false;
 }
 
@@ -174,6 +193,10 @@ bool InstructionFirstDefinesBuffer(
     }
     return instruction->async_wrapped_instruction() ==
            buffer_value_info.first_definition;
+  }
+  if (!instruction->called_computations().empty()) {
+    return InstructionCallsComputationTransitively(
+        instruction, buffer_value_info.first_definition->parent());
   }
   return false;
 }

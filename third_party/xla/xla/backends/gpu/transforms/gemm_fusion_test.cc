@@ -1950,6 +1950,108 @@ ENTRY main {
   RunAndFilecheckHloRewrite(hlo_text, GemmFusion(gpu_version_), std::nullopt);
 }
 
+TEST_P(GemmFusionTest, TritonTransposeConcatGemmFusion) {
+  if (!GetParam()) {
+    GTEST_SKIP() << "Tiling propagation is not enabled.";
+  }
+
+  TF_ASSERT_OK_AND_ASSIGN(std::unique_ptr<VerifiedHloModule> module,
+                          ParseAndReturnVerifiedModule(R"(
+HloModule module
+
+ENTRY main {
+  p_lhs = bf16[512,6144] parameter(0)
+  p_q = s8[32,6144,256] parameter(1)
+  p_kv = s8[2,8,6144,256] parameter(2)
+
+  // Q path (offset 0)
+  trans_q = s8[6144,32,256] transpose(p_q), dimensions={1,0,2}
+  bitcast_q = s8[6144,8192] bitcast(trans_q)
+
+  // KV path (offset 8192)
+  trans_kv = s8[6144,2,8,256] transpose(p_kv), dimensions={2,0,1,3}
+  bitcast_kv = s8[6144,4096] bitcast(trans_kv)
+
+  cat = s8[6144,12288] concatenate(bitcast_q, bitcast_kv), dimensions={1}
+  cvt = bf16[6144,12288] convert(cat)
+
+  ROOT d = bf16[512,12288] dot(p_lhs, cvt),
+    lhs_contracting_dims={1}, rhs_contracting_dims={0}
+}
+)"));
+
+  TF_ASSERT_OK_AND_ASSIGN(bool changed,
+                          GemmFusion(gpu_version_).Run(module.get()));
+  EXPECT_TRUE(changed);
+  EXPECT_THAT(
+      module->entry_computation()->root_instruction(),
+      GmockMatch(m::Fusion(m::Parameter(), m::Parameter(), m::Parameter())));
+}
+
+TEST_P(GemmFusionTest, TritonTransposeConcatGemmFusionUnaligned) {
+  if (!GetParam()) {
+    GTEST_SKIP() << "Tiling propagation is not enabled.";
+  }
+
+  TF_ASSERT_OK_AND_ASSIGN(std::unique_ptr<VerifiedHloModule> module,
+                          ParseAndReturnVerifiedModule(R"(
+HloModule module
+
+ENTRY main {
+  p_lhs = bf16[512,6144] parameter(0)
+  p_q = s8[30,6144,273] parameter(1)
+  p_kv = s8[2,8,6144,256] parameter(2)
+
+  // Q path (offset 0)
+  trans_q = s8[6144,30,273] transpose(p_q), dimensions={1,0,2}
+  bitcast_q = s8[6144,8190] bitcast(trans_q)
+
+  // KV path (offset 8190 - unaligned!)
+  trans_kv = s8[6144,2,8,256] transpose(p_kv), dimensions={2,0,1,3}
+  bitcast_kv = s8[6144,4096] bitcast(trans_kv)
+
+  cat = s8[6144,12286] concatenate(bitcast_q, bitcast_kv), dimensions={1}
+  cvt = bf16[6144,12286] convert(cat)
+
+  ROOT d = bf16[512,12286] dot(p_lhs, cvt),
+    lhs_contracting_dims={1}, rhs_contracting_dims={0}
+}
+)"));
+
+  TF_ASSERT_OK_AND_ASSIGN(bool changed,
+                          GemmFusion(gpu_version_).Run(module.get()));
+  EXPECT_TRUE(changed);
+  EXPECT_THAT(module->entry_computation()->root_instruction(),
+              GmockMatch(m::Fusion(
+                  m::Parameter(),
+                  m::Concatenate(m::Bitcast(m::Transpose(m::Parameter())),
+                                 m::Bitcast(m::Transpose(m::Parameter()))))));
+}
+
+TEST_P(GemmFusionTest, TritonTransposeConcatGemmFusionCrash) {
+  if (!GetParam()) {
+    GTEST_SKIP() << "Tiling propagation is not enabled.";
+  }
+
+  TF_ASSERT_OK_AND_ASSIGN(std::unique_ptr<VerifiedHloModule> module,
+                          ParseAndReturnVerifiedModule(R"(
+HloModule module
+
+ENTRY main {
+  p0 = f32[32,16,8]{1,2,0} parameter(0)
+  slice = f32[32,8,8]{1,2,0} slice(p0), slice={[0:32], [0:8], [0:8]}
+  transpose = f32[32,8,8]{2,1,0} transpose(slice), dimensions={0,1,2}
+  reshape = f32[32,64]{1,0} reshape(transpose)
+  weight = f32[64,8]{1,0} parameter(1)
+  dot = f32[32,8]{1,0} dot(reshape, weight), lhs_contracting_dims={1}, rhs_contracting_dims={0}
+  ROOT root = f32[32,8]{1,0} copy(dot)
+}
+)"));
+
+  EXPECT_THAT(GemmFusion(gpu_version_).Run(module.get()).status(),
+              absl_testing::IsOk());
+}
+
 }  // namespace
 }  // namespace gpu
 }  // namespace xla

@@ -175,9 +175,7 @@ void SinkInInvariantOps(mlir::ModuleOp module) {
 
     mlir::OpResult original = *p.second.begin();
     auto *new_op = builder.clone(*original.getDefiningOp());
-
-    use->get().replaceAllUsesWith(
-        new_op->getResult(original.getResultNumber()));
+    use->set(new_op->getResult(original.getResultNumber()));
   }
 }
 

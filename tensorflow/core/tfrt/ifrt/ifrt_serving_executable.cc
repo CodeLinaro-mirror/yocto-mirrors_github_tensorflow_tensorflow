@@ -842,6 +842,32 @@ absl::Status IfrtServingExecutable::LoadAndRegisterVariableOnExecutable(
     device_ids.push_back(device->Id().value());
   }
 
+  const bool is_portable_execution = UsePortableExecution();
+  std::vector<IfrtLoadedVariableRegistry::LoadedVariable>* slot_vec = nullptr;
+  if (is_portable_execution) {
+    if (!std::holds_alternative<CachedExecutableBundle::DeviceVariables>(
+            executable_bundle->variable_arrays)) {
+      executable_bundle->variable_arrays
+          .emplace<CachedExecutableBundle::DeviceVariables>();
+    }
+    xla::ifrt::DeviceId device_id = device_list->devices()[0]->Id();
+    std::vector<IfrtLoadedVariableRegistry::LoadedVariable>& variable_arrays =
+        std::get<CachedExecutableBundle::DeviceVariables>(
+            executable_bundle->variable_arrays)[device_id];
+    variable_arrays.reserve(variable_arg_indices.size());
+    slot_vec = &variable_arrays;
+  } else {
+    if (!std::holds_alternative<CachedExecutableBundle::SlotVariables>(
+            executable_bundle->variable_arrays)) {
+      executable_bundle->variable_arrays
+          .emplace<CachedExecutableBundle::SlotVariables>();
+    }
+    std::vector<IfrtLoadedVariableRegistry::LoadedVariable>& variable_arrays =
+        std::get<CachedExecutableBundle::SlotVariables>(
+            executable_bundle->variable_arrays);
+    variable_arrays.reserve(variable_arg_indices.size());
+    slot_vec = &variable_arrays;
+  }
   for (const int i : variable_arg_indices) {
     if (inputs[i].dtype() != tensorflow::DT_STRING ||
         !tensorflow::TensorShapeUtils::IsScalar(inputs[i].shape())) {
@@ -860,7 +886,7 @@ absl::Status IfrtServingExecutable::LoadAndRegisterVariableOnExecutable(
     };
     TF_ASSIGN_OR_RETURN(auto loaded_variable,
                         ifrt_loaded_variable_registry_.GetLoadedVariable(key));
-    executable_bundle->variable_arrays.emplace(key, std::move(loaded_variable));
+    slot_vec->push_back(std::move(loaded_variable));
   }
   return absl::OkStatus();
 }
@@ -1067,16 +1093,6 @@ IfrtServingExecutable::ExecuteCore(absl::Span<const tensorflow::Tensor> inputs,
         " but got ", dtypes_and_shapes.size(), " arguments"));
   }
 
-  // Determine the effective device IDs for this execution.
-  std::vector<int> portable_device_ids;
-  if (UsePortableExecution()) {
-    portable_device_ids.reserve(device_list->size());
-    for (xla::ifrt::Device* device : device_list->devices()) {
-      portable_device_ids.push_back(device->Id().value());
-    }
-  }
-  absl::Span<const int> effective_device_ids =
-      UsePortableExecution() ? portable_device_ids : assigned_device_ids_;
   int variable_arg_index = 0;
   std::vector<tsl::Future<xla::ifrt::ArrayRef>> variable_args;
   variable_args.reserve(variable_arg_indices.size());
@@ -1091,19 +1107,39 @@ IfrtServingExecutable::ExecuteCore(absl::Span<const tensorflow::Tensor> inputs,
       std::unique_ptr<H2DTransferExecutor> user_inputs_h2d_transfer_executor,
       h2d_transfer_executor_factory_->CreateH2DTransferExecutor(*ifrt_client_));
 
+  const bool use_portable_execution = UsePortableExecution();
+  const std::vector<IfrtLoadedVariableRegistry::LoadedVariable>*
+      variable_arrays = nullptr;
+  if (use_portable_execution) {
+    xla::ifrt::DeviceId device_id = device_list->devices().front()->Id();
+    const auto& device_map = std::get<CachedExecutableBundle::DeviceVariables>(
+        executable_bundle->variable_arrays);
+    auto it = device_map.find(device_id);
+    if (it == device_map.end()) {
+      return absl::InternalError(
+          absl::StrCat("Variable arrays not found for device id: ", device_id));
+    }
+    variable_arrays = &it->second;
+  } else {
+    variable_arrays = &std::get<CachedExecutableBundle::SlotVariables>(
+        executable_bundle->variable_arrays);
+  }
+
+  xla::ifrt::ShardingRef portable_sharding;
+  if (use_portable_execution) {
+    auto it = executable_bundle->portable_single_device_shardings.find(
+        device_list->devices().front()->Id());
+    if (it == executable_bundle->portable_single_device_shardings.end()) {
+      return absl::InternalError(absl::StrCat(
+          "Portable single device sharding not found for device id: ",
+          device_list->devices().front()->Id()));
+    }
+    portable_sharding = it->second;
+  }
   for (int i = 0; i < inputs.size(); i++) {
     if (variable_arg_index < variable_arg_indices.size() &&
         i == variable_arg_indices[variable_arg_index]) {
-      IfrtLoadedVariableRegistry::KeyView key_view(
-          effective_device_ids, inputs[i].scalar<tsl::tstring>()(),
-          executable_bundle->arg_hlo_shardings[i],
-          executable_bundle->xla_input_shapes[i]);
-      auto it = executable_bundle->variable_arrays.find(key_view);
-      if (it == executable_bundle->variable_arrays.end()) {
-        return absl::InternalError(absl::StrCat(
-            "Variable array not found for key: ", key_view.input_name));
-      }
-      variable_args.push_back((*it).second.array);
+      variable_args.push_back((*variable_arrays)[variable_arg_index].array);
       variable_arg_index++;
     } else {
       // If the input shape is not the same as the shape after Tf2Hlo
@@ -1123,21 +1159,11 @@ IfrtServingExecutable::ExecuteCore(absl::Span<const tensorflow::Tensor> inputs,
         }
       }
       xla::ifrt::LayoutRef layout_ref = executable_bundle->xla_input_layouts[i];
+
       xla::ifrt::ShardingRef ifrt_sharding =
-          executable_bundle->arg_ifrt_shardings[i];
-      if (UsePortableExecution()) {
-        // Portable execution is only supported for single-device programs.
-        auto sharding_it =
-            executable_bundle->portable_single_device_shardings.find(
-                device_list->devices().front()->Id());
-        if (sharding_it ==
-            executable_bundle->portable_single_device_shardings.end()) {
-          return absl::InternalError(absl::StrCat(
-              "Portable single device sharding not found for device id: ",
-              device_list->devices().front()->Id()));
-        }
-        ifrt_sharding = sharding_it->second;
-      }
+          use_portable_execution ? portable_sharding
+                                 : executable_bundle->arg_ifrt_shardings[i];
+
       input_handles.push_back(
           {.tensor = reshaped,
            .ifrt_dtype = executable_bundle->ifrt_input_dtypes[i],

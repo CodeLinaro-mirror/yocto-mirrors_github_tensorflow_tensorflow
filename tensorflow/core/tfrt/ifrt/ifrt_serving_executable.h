@@ -210,11 +210,12 @@ class IfrtServingExecutable {
     xla::ifrt::LoadedExecutableRef ifrt_executable;
     tensorflow::tpu::TPUCompileMetadataProto compile_metadata;
     std::vector<std::unique_ptr<TfHostCallback>> host_callbacks;
-    absl::flat_hash_map<IfrtLoadedVariableRegistry::Key,
-                        IfrtLoadedVariableRegistry::LoadedVariable,
-                        IfrtLoadedVariableRegistry::KeyHash,
-                        IfrtLoadedVariableRegistry::KeyEq>
-        variable_arrays;
+
+    std::vector<IfrtLoadedVariableRegistry::LoadedVariable>
+        variable_arrays_by_slot;
+    absl::flat_hash_map<xla::ifrt::DeviceId,
+                        std::vector<IfrtLoadedVariableRegistry::LoadedVariable>>
+        variable_arrays_by_device;
     std::vector<xla::HloSharding> arg_hlo_shardings;
     std::vector<xla::ifrt::ShardingRef> arg_ifrt_shardings;
     // Only populated when portable execution is used, currently only single

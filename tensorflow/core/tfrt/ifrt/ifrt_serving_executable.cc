@@ -842,6 +842,17 @@ absl::Status IfrtServingExecutable::LoadAndRegisterVariableOnExecutable(
     device_ids.push_back(device->Id().value());
   }
 
+  const bool is_portable_execution = UsePortableExecution();
+  std::vector<IfrtLoadedVariableRegistry::LoadedVariable>* slot_vec;
+  if (is_portable_execution) {
+    xla::ifrt::DeviceId device_id = device_list->devices()[0]->Id();
+    auto& v = executable_bundle->variable_arrays_by_device[device_id];
+    slot_vec = &v;
+  } else {
+    executable_bundle->variable_arrays_by_slot.reserve(
+        variable_arg_indices.size());
+    slot_vec = &executable_bundle->variable_arrays_by_slot;
+  }
   for (const int i : variable_arg_indices) {
     if (inputs[i].dtype() != tensorflow::DT_STRING ||
         !tensorflow::TensorShapeUtils::IsScalar(inputs[i].shape())) {
@@ -860,7 +871,7 @@ absl::Status IfrtServingExecutable::LoadAndRegisterVariableOnExecutable(
     };
     TF_ASSIGN_OR_RETURN(auto loaded_variable,
                         ifrt_loaded_variable_registry_.GetLoadedVariable(key));
-    executable_bundle->variable_arrays.emplace(key, std::move(loaded_variable));
+    slot_vec->push_back(std::move(loaded_variable));
   }
   return absl::OkStatus();
 }
@@ -1091,19 +1102,25 @@ IfrtServingExecutable::ExecuteCore(absl::Span<const tensorflow::Tensor> inputs,
       std::unique_ptr<H2DTransferExecutor> user_inputs_h2d_transfer_executor,
       h2d_transfer_executor_factory_->CreateH2DTransferExecutor(*ifrt_client_));
 
+  const bool use_portable_execution = UsePortableExecution();
+  const std::vector<IfrtLoadedVariableRegistry::LoadedVariable>*
+      variable_arrays = nullptr;
+  if (use_portable_execution) {
+    xla::ifrt::DeviceId device_id = device_list->devices().front()->Id();
+    auto it = executable_bundle->variable_arrays_by_device.find(device_id);
+    if (it == executable_bundle->variable_arrays_by_device.end()) {
+      return absl::InternalError(
+          absl::StrCat("Variable arrays not found for device id: ", device_id));
+    }
+    variable_arrays = &it->second;
+  } else {
+    variable_arrays = &executable_bundle->variable_arrays_by_slot;
+  }
+
   for (int i = 0; i < inputs.size(); i++) {
     if (variable_arg_index < variable_arg_indices.size() &&
         i == variable_arg_indices[variable_arg_index]) {
-      IfrtLoadedVariableRegistry::KeyView key_view(
-          effective_device_ids, inputs[i].scalar<tsl::tstring>()(),
-          executable_bundle->arg_hlo_shardings[i],
-          executable_bundle->xla_input_shapes[i]);
-      auto it = executable_bundle->variable_arrays.find(key_view);
-      if (it == executable_bundle->variable_arrays.end()) {
-        return absl::InternalError(absl::StrCat(
-            "Variable array not found for key: ", key_view.input_name));
-      }
-      variable_args.push_back((*it).second.array);
+      variable_args.push_back((*variable_arrays)[variable_arg_index].array);
       variable_arg_index++;
     } else {
       // If the input shape is not the same as the shape after Tf2Hlo

@@ -8585,8 +8585,8 @@ HloComputation* HloParserImpl::CreateAsyncWrappedComputation(
   std::vector<HloInstruction*> async_wrapped_operands;
   // Some async-wrapped opcodes require a certain number of operands.
   // for example, kDot, without providing the 2 operands, CreateInstruction
-  // will fail and crash. When there are not enough operands at creation time
-  // (when late binding is used), we add dummy operands, and update the
+  // will fail. When there is not enough operands at creation time (when late
+  // binding is not used), we will add dummy operands, and update the
   // async-wrapped computation later.
   std::optional<int8_t> async_wrapped_opcode_arity =
       HloOpcodeArity(async_wrapped_opcode);
@@ -8600,7 +8600,6 @@ HloComputation* HloParserImpl::CreateAsyncWrappedComputation(
     if (i < operand_shapes.size()) {
       param_shape = operand_shapes[i];
     } else {
-      // Use a dummy shape for the operand.
       param_shape = ShapeUtil::MakeShape(F32, {1});
     }
     async_wrapped_operands.push_back(async_wrapped_builder.AddInstruction(
@@ -8659,10 +8658,9 @@ void HloParserImpl::UpdateAsyncWrappedComputation(
 }
 
 // Updates the async-wrapped computation to match the called computation.
-// This is used to update the async-wrapped computation when parsing call-start
-// or fusion-start. In these cases, the called computation is specified,
-// allowing us to fully infer and update the shape of the async-wrapped
-// computation to match.
+// This is used to update the async-wrapped computation, used when parsing
+// call-start or fusion-start, in which the called computation is specified
+// and we can correctly infer the async-wrapped computation.
 void HloParserImpl::UpdateAsyncWrappedComputation(
     HloComputation* async_wrapped_computation,
     const HloComputation* called_computation) {

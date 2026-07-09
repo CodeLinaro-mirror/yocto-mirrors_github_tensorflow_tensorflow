@@ -32,6 +32,7 @@ cc_library(
     hdrs = ["proto_matchers.h"],
     visibility = [
         "//pathways:__subpackages__",  # For OSS
+        "//platforms/xla:__subpackages__",  # copybara:strip(google-only)
         "//xla:__subpackages__",
     ],
     deps = [

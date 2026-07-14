@@ -460,6 +460,12 @@ bool BFloat16Propagation::AllUsersConsumeBF16(const HloInstruction& hlo,
         // async-done consumes whatever async-start gives it.
         continue;
       }
+      if (use.instruction->opcode() == HloOpcode::kBitcast &&
+          use.instruction->operand(use.operand_number)
+                  ->shape()
+                  .element_type() == BF16) {
+        continue;
+      }
       if (bfloat16_support_->EffectiveOperandPrecisionIsLowPrecision(
               *use.instruction, use.operand_number)) {
         continue;
@@ -523,6 +529,11 @@ bool BFloat16Propagation::ShouldKeepPrecisionUnchanged(
         << "Non-associative kScan reached BFloat16Propagation; ScanExpander "
            "must run upstream. "
         << inst->ToString();
+  }
+  if (inst->opcode() == HloOpcode::kBitcast &&
+      inst->shape().element_type() !=
+          inst->operand(0)->shape().element_type()) {
+    return true;
   }
   return (inst->opcode() == HloOpcode::kCustomCall &&
           !inst->IsCustomCall("AllocateBuffer")) ||
@@ -616,7 +627,9 @@ void BFloat16Propagation::DetermineInstructionPrecision(HloInstruction* hlo,
           // Since we use HloValues from the dataflow analysis, this can also
           // affect HLO instructions beyond the root, e.g., if the root is a
           // Tuple HLO, then its operands are also affected.
-          values_that_must_be_kept_as_f32_.insert(value);
+          if (value->shape().element_type() == F32) {
+            values_that_must_be_kept_as_f32_.insert(value);
+          }
         }
       });
     }
@@ -756,6 +769,9 @@ void BFloat16Propagation::AdjustCalledComputationRoot(HloInstruction* hlo) {
       if (OutputTypeAfterChange(root, index) == output_type) {
         return;
       }
+      if (output_type == BF16 && ShouldKeepPrecisionUnchanged(root)) {
+        return;
+      }
       AddToOrRemoveFromBF16ChangeSet(root, index, output_type);
       // It's possible that output_type is F32, but the root instruction's
       // type is BF16; e.g., a fusion node's output was changed to BF16
@@ -769,7 +785,9 @@ void BFloat16Propagation::AdjustCalledComputationRoot(HloInstruction* hlo) {
           // values_that_must_be_kept_as_f32_ will ensure the
           // correctness of the adjustment for HLOs that will be
           // processed later.
-          values_that_must_be_kept_as_f32_.insert(value);
+          if (value->shape().element_type() == F32) {
+            values_that_must_be_kept_as_f32_.insert(value);
+          }
         }
       }
       VLOG(2) << "Called computation root " << root->ToString()
@@ -911,12 +929,21 @@ bool BFloat16Propagation::ResolveInconsistencyOfAliasingBuffersHelper(
   auto insts = computation->MakeInstructionPostOrder();
   // Do the adjustment on each instruction in the computation in reverse
   // topological order.
+  int loop_counter = 0;
   while (true) {
+    loop_counter++;
+    if (loop_counter > 5) {
+      LOG(INFO) << "LOOP_DEBUG: outer while iteration " << loop_counter
+                << " for computation=" << computation->name();
+    }
     bool any_change = false;
     for (auto inst_it = insts.rbegin(); inst_it != insts.rend(); ++inst_it) {
       auto hlo = *inst_it;
       auto adjust_hlo_output = [&](const Shape& /* subshape */,
                                    const ShapeIndex& index) {
+        if (ShouldKeepPrecisionUnchanged(hlo)) {
+          return;
+        }
         const PrimitiveType output_type = OutputTypeAfterChange(hlo, index);
         VLOG(2) << "output_type is " << ((output_type == BF16) ? "BF16" : "F32")
                 << " for :" << hlo->ToString() << "\n";
@@ -931,7 +958,6 @@ bool BFloat16Propagation::ResolveInconsistencyOfAliasingBuffersHelper(
           }
           VLOG(2) << "Adjust to F32 due to aliased dataflow value: "
                   << value->ToString() << "\n";
-          CHECK_EQ(value_type, F32);
           type = F32;
           break;
         }
@@ -956,7 +982,6 @@ bool BFloat16Propagation::ResolveInconsistencyOfAliasingBuffersHelper(
               }
               VLOG(2) << "Adjust to F32 due to InputOutPair: "
                       << value->ToString() << "\n";
-              CHECK_EQ(value_type, F32);
               type = F32;
               break;
             }
@@ -977,7 +1002,9 @@ bool BFloat16Propagation::ResolveInconsistencyOfAliasingBuffersHelper(
             // topological order. Adding the value to
             // values_that_must_be_kept_as_f32_ will ensure the correctness
             // of the adjustment for HLOs that will be processed later.
-            values_that_must_be_kept_as_f32_.insert(value);
+            if (value->shape().element_type() == F32) {
+              values_that_must_be_kept_as_f32_.insert(value);
+            }
           }
         }
         if (type != output_type) {
@@ -1007,6 +1034,8 @@ bool BFloat16Propagation::ResolveInconsistencyOfAliasingBuffersHelper(
                    hlo->while_condition(), &visited_in_while) ||
                ResolveInconsistencyOfAliasingBuffersHelper(hlo->while_body(),
                                                            &visited_in_while)) {
+          LOG(INFO) << "LOOP_DEBUG: kWhile iteration on hlo="
+                    << hlo->ToString();
           visited_in_while.clear();
           ShapeUtil::ForEachSubshape(hlo->shape(), adjust_hlo_output);
           AdjustCalledComputationRoot(hlo);

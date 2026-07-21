@@ -495,10 +495,12 @@ bool LegalizeSchedulingAnnotations::RemoveTrivialGroups(
                                        annotated_instructions.begin(),
                                        annotated_instructions.end());
     }
-    // Remove the groups without any async operations across all computations.
+    // Remove the groups without any async operations nor TPU custom calls
+    // across all computations.
     if (absl::c_none_of(instructions_across_comps, [](HloInstruction* instr) {
           return IsSupportedAsyncOp(instr, /*supports_async_start=*/true,
-                                    /*check_sync_versions=*/true);
+                                    /*check_sync_versions=*/true) ||
+                 instr->IsCustomCall("tpu_custom_call");
         })) {
       for (HloInstruction* instr : instructions_across_comps) {
         VLOG(1) << "Removing group id: " << group_id
@@ -508,25 +510,34 @@ bool LegalizeSchedulingAnnotations::RemoveTrivialGroups(
       }
     }
     if (!deleted_instructions.empty()) {
+      for (HloInstruction* instr : deleted_instructions) {
+        instruction_to_annotation.erase(instr);
+      }
+      std::vector<Annotation> annotations_to_erase;
       for (auto& [annotation, comp_inst_vector] : annotation_to_instruction) {
+        std::vector<HloComputation*> comps_to_erase;
         for (auto& [comp, annotated_instructions] : comp_inst_vector) {
           std::vector<HloInstruction*> updated_annotated_instructions;
           for (HloInstruction* instr : annotated_instructions) {
             if (!deleted_instructions.contains(instr)) {
               updated_annotated_instructions.push_back(instr);
-            } else {
-              instruction_to_annotation.erase(instr);
             }
           }
           if (updated_annotated_instructions.empty()) {
-            comp_inst_vector.erase(comp);
+            comps_to_erase.push_back(comp);
           } else {
-            comp_inst_vector[comp] = updated_annotated_instructions;
+            comp_inst_vector[comp] = std::move(updated_annotated_instructions);
           }
         }
-        if (comp_inst_vector.empty()) {
-          annotation_to_instruction.erase(annotation);
+        for (HloComputation* comp : comps_to_erase) {
+          comp_inst_vector.erase(comp);
         }
+        if (comp_inst_vector.empty()) {
+          annotations_to_erase.push_back(annotation);
+        }
+      }
+      for (const Annotation& annotation : annotations_to_erase) {
+        annotation_to_instruction.erase(annotation);
       }
     }
     VLOG(3) << "Retaining nontrivial group: " << group_id;

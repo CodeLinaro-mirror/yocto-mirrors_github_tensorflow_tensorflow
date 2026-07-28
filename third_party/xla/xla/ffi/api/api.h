@@ -1524,7 +1524,7 @@ struct AttrDecoding;
 //   struct CtxDecoding<MyType> {
 //    using Type = <handler argument type for context type MyType>;
 //    static std::optional<Type> Decode(const XLA_FFI_Api* api,
-//                                      XLA_FFI_ExecutionContext* ctx);
+//                                      XLA_FFI_InvokeContext* ctx);
 //   }
 //
 template <typename T>
@@ -1542,7 +1542,7 @@ struct CtxDecoding;
 //   template<ExecutionStage stage>
 //   struct ResultEncoding<stage, absl::Status> {
 //     XLA_FFI_Error* Encode(const XLA_FFI_Api* api,
-//                           XLA_FFI_ExecutionContext* ctx,
+//                           XLA_FFI_InvokeContext* ctx,
 //                           absl::Status status) {...}
 //   };
 //
@@ -1561,7 +1561,7 @@ struct CtxDecoding;
 //   template<ExecutionStage stage>
 //   struct ResultEncoding<state, xla::ffi::Future> {
 //     std::variant<XLA_FFI_Error*, XLA_FFI_Future*> Encode(
-//       const XLA_FFI_Api* api, XLA_FFI_ExecutionContext* ctx,
+//       const XLA_FFI_Api* api, XLA_FFI_InvokeContext* ctx,
 //       xla::ffi::Future future) {...}
 //   };
 //
@@ -1964,18 +1964,99 @@ struct internal::Decode<internal::AttrsTag<T>> {
 };
 
 //===----------------------------------------------------------------------===//
+// Helpers for creating and reading extensions.
+//===----------------------------------------------------------------------===//
+// Creates an extension header for a given extension struct.
+// Eg:
+// struct MyExtension {
+//   static constexpr int64_t kExtensionType = 1234;
+//   XLA_FFI_Extension extension_base;
+//   int32_t my_data;
+// };
+// ...
+// MyExtension ext;
+// ext.extension_base = MakeExtensionHeader<MyExtension>();
+template <typename T>
+inline XLA_FFI_Extension MakeExtensionHeader() {
+  return XLA_FFI_Extension{
+      /*.struct_size =*/sizeof(T),
+      /*.id =*/
+      XLA_FFI_ExtensionId{/*extension_type=*/T::kExtensionType,
+                          /*major_version=*/T::kMajorVersion,
+                          /*minor_version=*/T::kMinorVersion},
+      /*.next =*/nullptr,
+  };
+}
+
+// Result type for `ContextBase::FindExtension`.
+// If both extension and error are null, the extension was not found.
+// In all other cases, strictly one of extension or error will be non-null.
+template <typename ExtensionStruct>
+struct ExtensionResult {
+  const ExtensionStruct* extension;
+  // If non-null, the caller is responsible for destroying the error using
+  // `Destroy` function.
+  XLA_FFI_Error* error;
+
+  void Destroy(const XLA_FFI_Api* api) {
+    if (error != nullptr) {
+      internal::DestroyError(api, error);
+    }
+  }
+};
+
+//===----------------------------------------------------------------------===//
 // Type-safe wrapper for accessing context.
 //===----------------------------------------------------------------------===//
 
 namespace internal {
 
+inline XLA_FFI_Error* MakeError(const XLA_FFI_Api* api, XLA_FFI_Error_Code errc,
+                                std::string message) {
+  XLA_FFI_Error_Create_Args args;
+  args.struct_size = XLA_FFI_Error_Create_Args_STRUCT_SIZE;
+  args.extension_start = nullptr;
+  args.errc = errc;
+  args.message = message.c_str();
+  return api->XLA_FFI_Error_Create(&args);
+}
+
 class ContextBase {
  public:
-  ContextBase(const XLA_FFI_Api* api, XLA_FFI_ExecutionContext* ctx)
+  ContextBase(const XLA_FFI_Api* api, XLA_FFI_InvokeContext* ctx)
       : api_(api), ctx_(ctx) {}
 
   const XLA_FFI_Api* api() const { return api_; }
-  XLA_FFI_ExecutionContext* ctx() const { return ctx_; }
+  XLA_FFI_InvokeContext* ctx() const { return ctx_; }
+
+  // Searches for an extension with the given `ExtensionStruct::kExtensionType`.
+  // If not found, returns a null extension and a null error.
+  // Eg (continuing from MakeExtensionHeader example):
+  // MyExtension* ext = context.FindExtension<MyExtension>();
+  template <typename ExtensionStruct>
+  ExtensionResult<ExtensionStruct> FindExtension() const {
+    if (ctx_ == nullptr) {
+      return {nullptr,
+              MakeError(api_, XLA_FFI_Error_Code_FAILED_PRECONDITION,
+                        "Context is null when searching for extension")};
+    }
+
+    XLA_FFI_InvokeContext_FindExtension_Args args;
+    args.struct_size = XLA_FFI_InvokeContext_FindExtension_Args_STRUCT_SIZE;
+    args.extension_start = nullptr;
+    args.ctx = ctx_;
+    args.extension_type = ExtensionStruct::kExtensionType;
+    args.extension = nullptr;
+
+    XLA_FFI_Error* error = api_->XLA_FFI_InvokeContext_FindExtension(&args);
+    if (error != nullptr) {
+      return {nullptr, error};
+    }
+    // T::kExtensionType is the contract based on which this reinterpret_cast
+    // is safe.
+    // NOLINTNEXTLINE
+    return {reinterpret_cast<const ExtensionStruct*>(args.extension), nullptr};
+  }
 
  protected:
   template <typename T>
@@ -1986,7 +2067,7 @@ class ContextBase {
 
  private:
   const XLA_FFI_Api* api_;
-  XLA_FFI_ExecutionContext* ctx_;
+  XLA_FFI_InvokeContext* ctx_;
 };
 
 }  // namespace internal

@@ -267,6 +267,62 @@ TEST(FfiTest, RunId) {
   TF_ASSERT_OK(status);
 }
 
+struct MyExtension {
+  static constexpr int64_t kExtensionType = 1234;
+  static constexpr int64_t kMajorVersion = 1;
+  static constexpr int64_t kMinorVersion = 2;
+  XLA_FFI_Extension extension_base;
+  int32_t my_data;
+};
+
+struct AnotherExtension {
+  static constexpr int64_t kExtensionType = 1236;
+  static constexpr int64_t kMajorVersion = 3;
+  static constexpr int64_t kMinorVersion = 4;
+  XLA_FFI_Extension extension_base;
+  int32_t my_data;
+};
+
+TEST(FfiTest, FindExtension) {
+  MyExtension test_ext;
+  test_ext.extension_base = MakeExtensionHeader<MyExtension>();
+  test_ext.my_data = 42;
+
+  bool handler_called = false;
+
+  auto handler =
+      Ffi::Bind().Ctx<Context>().To([&](Context context) -> absl::Status {
+        {
+          auto extension_result = context.FindExtension<MyExtension>();
+          EXPECT_EQ(extension_result.error, nullptr);
+          const MyExtension* ext = extension_result.extension;
+          EXPECT_NE(ext, nullptr);
+          EXPECT_EQ(ext->my_data, 42);
+          EXPECT_EQ(ext->extension_base.id.major_version,
+                    MyExtension::kMajorVersion);
+          EXPECT_EQ(ext->extension_base.id.minor_version,
+                    MyExtension::kMinorVersion);
+        }
+        {  // Check non-existent extension
+          auto extension_result = context.FindExtension<AnotherExtension>();
+          EXPECT_EQ(extension_result.extension, nullptr);
+          EXPECT_EQ(extension_result.error, nullptr);
+        }
+        handler_called = true;
+        return absl::OkStatus();
+      });
+
+  CallFrameBuilder builder(/*num_args=*/0, /*num_rets=*/0);
+  auto call_frame = builder.Build();
+
+  InvokeContext context;
+  context.extension_start = reinterpret_cast<XLA_FFI_Extension*>(&test_ext);
+
+  auto status = Invoke(Api(), *handler, call_frame, context);
+  EXPECT_TRUE(handler_called);
+  ASSERT_OK(status);
+}
+
 TEST(FfiTest, BuiltinAttributes) {
   CallFrameBuilder::AttributesBuilder attrs;
   attrs.Insert("pred", true);

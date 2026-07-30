@@ -670,89 +670,131 @@ absl::Status ResetMemorySpaceInLayout(ShapeLayout& mutable_shape_layout) {
 
 }  // namespace
 
+absl::Status LayoutAssignment::AddInfeedConstraints(
+    HloInstruction* instruction) {
+  // Infeed layouts must match the layout of the original inserted
+  // instruction.
+  // TODO(b/31425034): Change infeeds to be more like parameters, with
+  // shapes in the ComputationLayout.
+  return SetInstructionLayout(instruction->shape(), instruction,
+                              /*mandatory=*/true, /*dfs=*/true,
+                              /*allow_alias=*/false);
+}
+
+absl::Status LayoutAssignment::AddOutfeedConstraints(
+    HloInstruction* instruction) {
+  return SetOperandLayout(instruction->outfeed_shape(), instruction, 0,
+                          /*mandatory=*/true, /*dfs=*/true);
+}
+
+absl::Status LayoutAssignment::AddParameterConstraints(
+    HloInstruction* instruction, LayoutConstraints* constraints) {
+  // Allow some parameter/result layouts to be unset in the entry computation.
+  // Parameter layouts must match the respective layout in ComputationLayout, if
+  // there is one.
+  if (reverse_computation_order_ ||
+      (constraints->computation()->IsEntryComputation() &&
+       entry_computation_layout_->AnyLayoutSet()) ||
+      (conditional_mismatch_.count(constraints->computation()) == 0 &&
+       constraints->computation_constraint().parameter_layout_is_set())) {
+    ShapeLayout parameter_layout =
+        constraints->computation_layout().parameter_layout(
+            instruction->parameter_number());
+    if (parameter_layout.AnyLayoutIsSet()) {
+      // Clear out memory space in layout. Host offloader will do the analysis
+      // later.
+      RETURN_IF_ERROR(ResetMemorySpaceInLayout(parameter_layout));
+      Shape param_shape = parameter_layout.shape();
+      RETURN_IF_ERROR(SetInstructionLayout(param_shape, instruction));
+      if (reverse_computation_order_) {
+        RETURN_IF_ERROR(
+            PropagateParameterLayoutToUsers(instruction, param_shape, this));
+      }
+    }
+  }
+  return absl::OkStatus();
+}
+
+absl::Status LayoutAssignment::AddCollectiveConstraints(
+    HloInstruction* instruction) {
+  RETURN_IF_ERROR(SetInstructionLayout(instruction->shape(), instruction));
+  for (int64_t i = 0; i < instruction->operand_count(); ++i) {
+    CHECK(instruction->shape().IsArray() ||
+          (instruction->shape().IsTuple() &&
+           instruction->shape().tuple_shapes().size() > i));
+    const Shape& shape = instruction->shape().IsTuple()
+                             ? instruction->shape().tuple_shapes(i)
+                             : instruction->shape();
+    RETURN_IF_ERROR(SetOperandLayout(shape, instruction, i,
+                                     /*mandatory=*/true, /*dfs=*/true));
+  }
+  return absl::OkStatus();
+}
+
+absl::Status LayoutAssignment::AddCrossModuleAllReduceConstraints(
+    HloInstruction* instruction,
+    ChannelLayoutConstraints* channel_constraints) {
+  auto get_channel_constraints = [&](const HloInstruction* inst) {
+    return IsHostSendRecv(inst) ? &host_channel_constraints_
+                                : channel_constraints;
+  };
+  CHECK(get_channel_constraints(instruction))
+      << "Multi-module layout assignment requires ChannelLayoutConstraints";
+  int64_t channel_id = instruction->channel_id().value();
+  if (!get_channel_constraints(instruction)->IsChannelConstrained(channel_id)) {
+    return absl::OkStatus();
+  }
+  // TODO(b/68493863): Change to use SetOperandLayout().
+  const Shape& buffer_shape = instruction->operand(0)->shape();
+  TF_RET_CHECK(buffer_shape.IsArray());
+  Shape new_buffer_shape =
+      get_channel_constraints(instruction)
+          ->LayoutShapeForChannel(buffer_shape, channel_id);
+  return SetInstructionLayout(new_buffer_shape, instruction);
+}
+
+absl::Status LayoutAssignment::AddInstructionLayoutConstraints(
+    ChannelLayoutConstraints* channel_constraints,
+    LayoutConstraints* constraints) {
+  // Constrain layouts of instructions which define values with pre-existing
+  // layouts.
+  for (auto* instruction : constraints->computation()->instructions()) {
+    switch (instruction->opcode()) {
+      case HloOpcode::kInfeed:
+        RETURN_IF_ERROR(AddInfeedConstraints(instruction));
+        break;
+      case HloOpcode::kOutfeed:
+        RETURN_IF_ERROR(AddOutfeedConstraints(instruction));
+        break;
+      case HloOpcode::kParameter:
+        RETURN_IF_ERROR(AddParameterConstraints(instruction, constraints));
+        break;
+      default:
+        if (IsLayoutConstrainedCollective(instruction)) {
+          RETURN_IF_ERROR(AddCollectiveConstraints(instruction));
+        } else if (instruction->IsCrossModuleAllReduce() &&
+                   !instruction->GetModule()
+                        ->config()
+                        .use_spmd_partitioning()) {
+          RETURN_IF_ERROR(AddCrossModuleAllReduceConstraints(
+              instruction, channel_constraints));
+        }
+        break;
+    }
+  }
+  return absl::OkStatus();
+}
+
 absl::Status LayoutAssignment::AddMandatoryConstraints(
     ChannelLayoutConstraints* channel_constraints,
     LayoutConstraints* constraints) {
   VLOG(2) << "Adding mandatory layout constraints to computation "
           << constraints->computation()->name();
 
-  auto get_channel_constraints = [&](const HloInstruction* instruction) {
-    return IsHostSendRecv(instruction) ? &host_channel_constraints_
-                                       : channel_constraints;
-  };
-
   // Constrain layouts of instructions which define values with pre-existing
   // layouts.
-  for (auto* instruction : constraints->computation()->instructions()) {
-    if (instruction->opcode() == HloOpcode::kInfeed) {
-      // Infeed layouts must match the layout of the original inserted
-      // instruction.
-      // TODO(b/31425034): Change infeeds to be more like parameters, with
-      // shapes in the ComputationLayout.
-      RETURN_IF_ERROR(SetInstructionLayout(instruction->shape(), instruction,
-                                           /*mandatory=*/true, /*dfs=*/true,
-                                           /*allow_alias=*/false));
-    } else if (instruction->opcode() == HloOpcode::kOutfeed) {
-      // Constrain the input to the Outfeed instruction to be the expected
-      // layout of the Outfeed.
-      RETURN_IF_ERROR(SetOperandLayout(instruction->outfeed_shape(),
-                                       instruction, 0,
-                                       /*mandatory=*/true, /*dfs=*/true));
-    } else if (instruction->opcode() == HloOpcode::kParameter) {
-      if (reverse_computation_order_ ||
-          (constraints->computation()->IsEntryComputation() &&
-           entry_computation_layout_->AnyLayoutSet()) ||
-          (conditional_mismatch_.count(constraints->computation()) == 0 &&
-           constraints->computation_constraint().parameter_layout_is_set())) {
-        ShapeLayout parameter_layout =
-            constraints->computation_layout().parameter_layout(
-                instruction->parameter_number());
-        // Allow some parameter/result layouts to be unset in the entry
-        // computation.
-        if (parameter_layout.AnyLayoutIsSet()) {
-          // Clear out memory space in layout. Host offloader will do the
-          // analysis later.
-          RETURN_IF_ERROR(ResetMemorySpaceInLayout(parameter_layout));
-          // Parameter layouts must match the respective layout in
-          // ComputationLayout, if there is one.
-          Shape param_shape = parameter_layout.shape();
-          RETURN_IF_ERROR(SetInstructionLayout(param_shape, instruction));
-          if (reverse_computation_order_) {
-            RETURN_IF_ERROR(PropagateParameterLayoutToUsers(instruction,
-                                                            param_shape, this));
-          }
-        }
-      }
-    } else if (IsLayoutConstrainedCollective(instruction)) {
-      RETURN_IF_ERROR(SetInstructionLayout(instruction->shape(), instruction));
-      for (int64_t i = 0; i < instruction->operand_count(); ++i) {
-        CHECK(instruction->shape().IsArray() ||
-              instruction->shape().IsTuple() &&
-                  instruction->shape().tuple_shapes().size() > i);
-        const Shape& shape = instruction->shape().IsTuple()
-                                 ? instruction->shape().tuple_shapes(i)
-                                 : instruction->shape();
-        RETURN_IF_ERROR(SetOperandLayout(shape, instruction, i,
-                                         /*mandatory=*/true, /*dfs=*/true));
-      }
-    } else if (instruction->IsCrossModuleAllReduce() &&
-               !instruction->GetModule()->config().use_spmd_partitioning()) {
-      CHECK(get_channel_constraints(instruction))
-          << "Multi-module layout assignment requires ChannelLayoutConstraints";
-      int64_t channel_id = instruction->channel_id().value();
-      if (!get_channel_constraints(instruction)
-               ->IsChannelConstrained(channel_id)) {
-        continue;
-      }
-      // TODO(b/68493863): Change to use SetOperandLayout().
-      const Shape& buffer_shape = instruction->operand(0)->shape();
-      TF_RET_CHECK(buffer_shape.IsArray());
-      Shape new_buffer_shape =
-          get_channel_constraints(instruction)
-              ->LayoutShapeForChannel(buffer_shape, channel_id);
-      RETURN_IF_ERROR(SetInstructionLayout(new_buffer_shape, instruction));
-    }
-  }
+  RETURN_IF_ERROR(
+      AddInstructionLayoutConstraints(channel_constraints, constraints));
 
   // Constrain layouts of instructions which call computations which have
   // already been assigned layouts. Instructions which call computations in a
@@ -2616,16 +2658,7 @@ absl::Status LayoutAssignment::ClearComputationLayouts(
   return absl::OkStatus();
 }
 
-absl::Status LayoutAssignment::RunOnComputation(
-    LayoutConstraints* constraints,
-    ChannelLayoutConstraints* channel_constraints) {
-  HloComputation* computation = constraints->computation();
-  VLOG(1) << "LayoutAssignment::RunOnComputation(" << computation->name()
-          << ")";
-  VLOG(4) << computation->ToString() << "\n";
-
-  // Initialize the set of unconstrained buffers with all array-shaped logical
-  // buffers in this computation.
+void LayoutAssignment::InitUnconstrainedBuffers(HloComputation* computation) {
   for (HloInstruction* inst : computation->instructions()) {
     points_to_analysis_->GetPointsToSet(inst).ForEachElement(
         [&](const ShapeIndex&, const PointsToSet::BufferList& buffers) {
@@ -2639,15 +2672,10 @@ absl::Status LayoutAssignment::RunOnComputation(
           }
         });
   }
+}
 
-  // Add mandatory constraints required for correctness (e.g., entry
-  // parameter layouts).
-  RETURN_IF_ERROR(AddMandatoryConstraints(channel_constraints, constraints));
-
-  // Add backend-specific constraints.
-  RETURN_IF_ERROR(AddBackendConstraints(constraints));
-
-  // Constrain layouts for custom calls that have specific layout requirements.
+absl::Status LayoutAssignment::AddCustomCallConstraints(
+    LayoutConstraints* constraints) {
   for (HloInstruction* instruction :
        constraints->computation()->MakeInstructionPostOrder()) {
     if (!IsLayoutConstrainedCustomCall(instruction)) {
@@ -2678,11 +2706,10 @@ absl::Status LayoutAssignment::RunOnComputation(
       }
     }
   }
+  return absl::OkStatus();
+}
 
-  // Propagate the mandatory and backend constraints.
-  RETURN_IF_ERROR(PropagateConstraints(constraints));
-
-  // Record instructions that lack layout constraints before applying defaults.
+void LayoutAssignment::RecordUnconstrainedLayoutInstructions() {
   for (LogicalBuffer::Id buffer_id : unconstrained_buffer_ids_) {
     VLOG(5)
         << "unconstrained instruction:"
@@ -2691,9 +2718,10 @@ absl::Status LayoutAssignment::RunOnComputation(
     unconstrained_layout_instructions_.insert(
         points_to_analysis_->GetBuffer(buffer_id).instruction());
   }
+}
 
-  // Iteratively assign layouts to remaining unconstrained buffers and
-  // propagate.
+absl::Status LayoutAssignment::AssignLayoutsToUnconstrainedBuffers(
+    LayoutConstraints* constraints) {
   while (!unconstrained_buffer_ids_.empty()) {
     int unconstrained_count = unconstrained_buffer_ids_.size();
 
@@ -2718,6 +2746,40 @@ absl::Status LayoutAssignment::RunOnComputation(
     // unconstrained buffers decreased.
     CHECK_LT(unconstrained_buffer_ids_.size(), unconstrained_count);
   }
+  return absl::OkStatus();
+}
+
+absl::Status LayoutAssignment::RunOnComputation(
+    LayoutConstraints* constraints,
+    ChannelLayoutConstraints* channel_constraints) {
+  HloComputation* computation = constraints->computation();
+  VLOG(1) << "LayoutAssignment::RunOnComputation(" << computation->name()
+          << ")";
+  VLOG(4) << computation->ToString() << "\n";
+
+  // Initialize the set of unconstrained buffers with all array-shaped logical
+  // buffers in this computation.
+  InitUnconstrainedBuffers(computation);
+
+  // Add mandatory constraints required for correctness (e.g., entry
+  // parameter layouts).
+  RETURN_IF_ERROR(AddMandatoryConstraints(channel_constraints, constraints));
+
+  // Add backend-specific constraints.
+  RETURN_IF_ERROR(AddBackendConstraints(constraints));
+
+  // Constrain layouts for custom calls that have specific layout requirements.
+  RETURN_IF_ERROR(AddCustomCallConstraints(constraints));
+
+  // Propagate the mandatory, backend, and custom call constraints.
+  RETURN_IF_ERROR(PropagateConstraints(constraints));
+
+  // Record instructions that lack layout constraints before applying defaults.
+  RecordUnconstrainedLayoutInstructions();
+
+  // Iteratively assign layouts to remaining unconstrained buffers and
+  // propagate.
+  RETURN_IF_ERROR(AssignLayoutsToUnconstrainedBuffers(constraints));
 
   RETURN_IF_ERROR(CalculateComputationLayout(constraints));
   // Record layouts of communication operations to ensure consistency across
@@ -2817,12 +2879,22 @@ absl::Status LayoutAssignment::PropagateComputationLayouts(
   return absl::OkStatus();
 }
 
-absl::StatusOr<bool> LayoutAssignment::RunImpl(
+// Prepares the HLO module for layout assignment by modifying the graph to
+// avoid layout conflicts and simplify propagation.
+//
+// Specifically, this method:
+// 1. Adds copies to operands of instructions that alias inputs to outputs
+//    (like Send and certain CustomCalls) when those operands have layout
+//    constraints. This decouples the input and output layouts, avoiding
+//    propagation conflicts that are difficult to resolve later due to
+//    complex buffer aliasing.
+// 2. Clones conditional branch computations that have multiple callsites.
+//    This allows each conditional callsite to have independent layout
+//    assignments for its branches, preventing conflicts if different
+//    callsites require different layouts for the same branch.
+absl::Status LayoutAssignment::PrepareHloForLayoutAssignment(
     HloModule* module,
     const absl::flat_hash_set<absl::string_view>& execution_threads) {
-  VLOG(2) << "Running layout assignment on module " << module->name();
-  RETURN_IF_ERROR(Init(module));
-
   std::vector<std::pair<HloInstruction*, int64_t>> operands_to_copy;
   for (HloComputation* computation : module->computations(execution_threads)) {
     for (HloInstruction* instruction : computation->instructions()) {
@@ -2904,9 +2976,12 @@ absl::StatusOr<bool> LayoutAssignment::RunImpl(
       }
     }
   }
+  return absl::OkStatus();
+}
 
-  // Verify computation layout is sane.
-  HloComputation* entry = module->entry_computation();
+absl::Status LayoutAssignment::VerifyEntryComputationLayout(
+    const HloModule* module) const {
+  const HloComputation* entry = module->entry_computation();
   TF_RET_CHECK(entry_computation_layout_->parameter_count() ==
                entry->num_parameters());
   for (int64_t i = 0; i < entry->num_parameters(); ++i) {
@@ -2916,39 +2991,120 @@ absl::StatusOr<bool> LayoutAssignment::RunImpl(
   }
   TF_RET_CHECK(ShapeUtil::Compatible(entry_computation_layout_->result_shape(),
                                      entry->root_instruction()->shape()));
+  return absl::OkStatus();
+}
+
+absl::StatusOr<std::vector<HloComputation*>> LayoutAssignment::SetupPropagation(
+    HloModule* module,
+    const absl::flat_hash_set<absl::string_view>& execution_threads) {
+  ASSIGN_OR_RETURN(auto points_to_analysis, TuplePointsToAnalysis::Run(module));
+  points_to_analysis_ = std::move(points_to_analysis);
+  auto computations_to_work =
+      module->MakeNonfusionComputations(execution_threads);
+  // If the reverse_computation_order_ flag is set, reverse the ordering of
+  // traversing computations, to generate an alternative layout assignment.
+  if (reverse_computation_order_ && !computations_to_work.empty()) {
+    absl::c_reverse(computations_to_work);
+    VLOG(2) << "reversing traversal order for computation:";
+  }
+  HloComputation* entry = module->entry_computation();
+  computation_layouts_.emplace(
+      entry, new LayoutConstraints(entry,
+                                   entry_computation_layout_->AnyLayoutSet()
+                                       ? entry_computation_layout_
+                                       : nullptr,
+                                   entry_computation_layout_->AnyLayoutSet()
+                                       ? LayoutConstraint::kGivenPriority
+                                       : LayoutConstraint::kDefaultPriority));
+  return computations_to_work;
+}
+
+absl::StatusOr<bool> LayoutAssignment::ResolveInputOutputAliasing(
+    HloModule* module, ComputationLayout* entry_constraint) {
+  bool changed = false;
+  // Ensure that input-output aliasing requirements are met. Aliased
+  // parameters and results must have the same layout. If they mismatch, we
+  // resolve the mismatch by resetting one to match the other (respecting
+  // forced layouts) and set `changed = true` to trigger another propagation
+  // round.
+  RETURN_IF_ERROR(module->input_output_alias_config().ForEachAliasWithStatus(
+      [&](const ShapeIndex& output_index,
+          const HloInputOutputAliasConfig::Alias& alias) {
+        const auto param = alias.parameter_number;
+        const auto& index = alias.parameter_index;
+        bool param_is_forced =
+            ShapeUtil::GetSubshape(
+                saved_entry_computation_layout_.parameter_shape(param), index)
+                .has_layout();
+        bool result_is_forced =
+            ShapeUtil::GetSubshape(
+                saved_entry_computation_layout_.result_shape(), output_index)
+                .has_layout();
+        if (param_is_forced && result_is_forced) {
+          return absl::OkStatus();
+        }
+        auto* entry = module->entry_computation();
+        ASSIGN_OR_RETURN(
+            auto param_layout,
+            InferArrayLayout(entry->parameter_instruction(param), index));
+        ASSIGN_OR_RETURN(
+            auto result_layout,
+            InferArrayLayout(entry->root_instruction(), output_index));
+        if (param_layout.minor_to_major() == result_layout.minor_to_major()) {
+          return absl::OkStatus();
+        }
+        changed = true;
+        if (!param_is_forced) {
+          entry_computation_layout_->mutable_parameter_layout(param)
+              ->ResetLayout(result_layout, index);
+          entry_computation_layout_->mutable_result_layout()->ResetLayout(
+              result_layout, output_index);
+          entry_constraint->mutable_parameter_layout(param)->ResetLayout(
+              result_layout, index);
+          entry_constraint->mutable_result_layout()->ResetLayout(result_layout,
+                                                                 output_index);
+          return absl::OkStatus();
+        }
+        entry_computation_layout_->mutable_parameter_layout(param)->ResetLayout(
+            param_layout, index);
+        entry_computation_layout_->mutable_result_layout()->ResetLayout(
+            param_layout, output_index);
+        entry_constraint->mutable_parameter_layout(param)->ResetLayout(
+            param_layout, index);
+        entry_constraint->mutable_result_layout()->ResetLayout(param_layout,
+                                                               output_index);
+        return absl::OkStatus();
+      }));
+  return changed;
+}
+
+absl::StatusOr<bool> LayoutAssignment::RunImpl(
+    HloModule* module,
+    const absl::flat_hash_set<absl::string_view>& execution_threads) {
+  // All layouts are reset then reassigned by this pass.
+  VLOG(2) << "Running layout assignment on module " << module->name();
+  RETURN_IF_ERROR(Init(module));
+
+  RETURN_IF_ERROR(PrepareHloForLayoutAssignment(module, execution_threads));
+
+  RETURN_IF_ERROR(VerifyEntryComputationLayout(module));
+
+  ASSIGN_OR_RETURN(auto computations_to_work,
+                   SetupPropagation(module, execution_threads));
+
+  bool changed = true;
   // Perform multiple propagation rounds to resolve layouts across computation
   // boundaries. We run at least kNumberOfPropagationRounds (typically 2).
   // Layouts are allowed to flow naturally in the first round, and any detected
   // inconsistencies at boundary instructions are resolved with higher-priority
   // constraints in subsequent rounds.
-  ASSIGN_OR_RETURN(auto points_to_analysis, TuplePointsToAnalysis::Run(module));
-  points_to_analysis_ = std::move(points_to_analysis);
-  auto computations_to_work =
-      module->MakeNonfusionComputations(execution_threads);
-  // If the reverse_comptation_order_ flag is set, reverse the ordering of
-  // traversing computations, to generate an alternative layout assignment.
-  if (reverse_computation_order_ && !computations_to_work.empty()) {
-    absl::c_reverse(computations_to_work);
-
-    VLOG(2) << "reversing traversal order for computation:";
-  }
-  computation_layouts_.emplace(
-      module->entry_computation(),
-      new LayoutConstraints(entry,
-                            entry_computation_layout_->AnyLayoutSet()
-                                ? entry_computation_layout_
-                                : nullptr,
-                            entry_computation_layout_->AnyLayoutSet()
-                                ? LayoutConstraint::kGivenPriority
-                                : LayoutConstraint::kDefaultPriority));
-  bool changed = true;
   for (int64_t i = 0; changed || i < kNumberOfPropagationRounds; ++i) {
     changed = false;
     VLOG(1) << "Running " << (i == 0 ? "un" : "") << "constrained pass";
     RETURN_IF_ERROR(ClearPreviousPassSideEffects(module, execution_threads));
+    // Layouts are propagated within each computation. In the first round,
+    // non-entry computations start with unconstrained layouts.
     for (auto* computation : computations_to_work) {
-      // Layouts are propagated within each computation. In the first round,
-      // non-entry computations start with unconstrained layouts.
       LayoutConstraints* constraints =
           mutable_computation_constraints(computation);
       RETURN_IF_ERROR(
@@ -2959,67 +3115,17 @@ absl::StatusOr<bool> LayoutAssignment::RunImpl(
         mutable_computation_constraints(module->entry_computation())
             ->mutable_computation_constraint()
             ->mutable_computation_layout();
-    // Ensure that input-output aliasing requirements are met. Aliased
-    // parameters and results must have the same layout. If they mismatch, we
-    // resolve the mismatch by resetting one to match the other (respecting
-    // forced layouts) and set `changed = true` to trigger another propagation
-    // round.
-    RETURN_IF_ERROR(module->input_output_alias_config().ForEachAliasWithStatus(
-        [&](const ShapeIndex& output_index,
-            const HloInputOutputAliasConfig::Alias& alias) {
-          const auto param = alias.parameter_number;
-          const auto& index = alias.parameter_index;
-          bool param_is_forced =
-              ShapeUtil::GetSubshape(
-                  saved_entry_computation_layout_.parameter_shape(param), index)
-                  .has_layout();
-          bool result_is_forced =
-              ShapeUtil::GetSubshape(
-                  saved_entry_computation_layout_.result_shape(), output_index)
-                  .has_layout();
-          if (param_is_forced && result_is_forced) {
-            return absl::OkStatus();
-          }
-          auto* entry = module->entry_computation();
-          ASSIGN_OR_RETURN(
-              auto param_layout,
-              InferArrayLayout(entry->parameter_instruction(param), index));
-          ASSIGN_OR_RETURN(
-              auto result_layout,
-              InferArrayLayout(entry->root_instruction(), output_index));
-          if (param_layout.minor_to_major() == result_layout.minor_to_major()) {
-            return absl::OkStatus();
-          }
-          changed = true;
-          if (!param_is_forced) {
-            entry_computation_layout_->mutable_parameter_layout(param)
-                ->ResetLayout(result_layout, index);
-            entry_computation_layout_->mutable_result_layout()->ResetLayout(
-                result_layout, output_index);
-            entry_constraint->mutable_parameter_layout(param)->ResetLayout(
-                result_layout, index);
-            entry_constraint->mutable_result_layout()->ResetLayout(
-                result_layout, output_index);
-            return absl::OkStatus();
-          }
-          entry_computation_layout_->mutable_parameter_layout(param)
-              ->ResetLayout(param_layout, index);
-          entry_computation_layout_->mutable_result_layout()->ResetLayout(
-              param_layout, output_index);
-          entry_constraint->mutable_parameter_layout(param)->ResetLayout(
-              param_layout, index);
-          entry_constraint->mutable_result_layout()->ResetLayout(param_layout,
-                                                                 output_index);
-          return absl::OkStatus();
-        }));
+    ASSIGN_OR_RETURN(bool aliasing_changed,
+                     ResolveInputOutputAliasing(module, entry_constraint));
+    changed |= aliasing_changed;
   }
 
+  // All logical buffers should have constraints at this point. All that
+  // remains is assign the constraints to the buffers and infer layouts for
+  // aliased buffers.
   for (auto* computation : computations_to_work) {
     LayoutConstraints* constraints =
         FindOrDie(computation_layouts_, computation).get();
-    // All logical buffers should have constraints at this point. All that
-    // remains is assign the constraints to the buffers and infer layouts for
-    // aliased buffers.
     RETURN_IF_ERROR(AssignLayouts(*constraints));
   }
   RETURN_IF_ERROR(PropagateComputationLayouts(module->entry_computation(),
@@ -3029,7 +3135,6 @@ absl::StatusOr<bool> LayoutAssignment::RunImpl(
   RETURN_IF_ERROR(CheckLayouts(module, execution_threads));
 #endif  // NDEBUG
 
-  // All layouts are reset then reassigned by this pass.
   return true;
 }
 

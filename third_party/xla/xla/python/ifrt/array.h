@@ -27,6 +27,7 @@ limitations under the License.
 #include "absl/types/span.h"
 #include "llvm/Support/ExtensibleRTTI.h"
 #include "xla/pjrt/pjrt_layout.h"
+#include "xla/python/ifrt/array_spec.h"
 #include "xla/python/ifrt/dtype.h"
 #include "xla/python/ifrt/layout.h"
 #include "xla/python/ifrt/shape.h"
@@ -72,6 +73,14 @@ class Array : public llvm::RTTIExtends<Array, Value> {
   Array& operator=(const Array&) = delete;
   Array& operator=(Array&&) = delete;
 
+  // Prefer `array_spec` over other methods below for dtype shape sharding
+  // layout, because the implementation can optimize this better and avoid
+  // repeated virtual dispatch.
+  virtual const ArraySpec& array_spec() const = 0;
+
+  // TODO(zuguang) gauge how feasible is it to make these methods non-virtual,
+  // or even remove them and solely rely on `array_spec`; note the error from
+  // `pjrt_layout` is not surfaced by `array_spec`.
   virtual DType dtype() const = 0;
   virtual const Shape& shape() const = 0;
   virtual const Sharding& sharding() const = 0;

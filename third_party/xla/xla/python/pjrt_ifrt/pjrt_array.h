@@ -32,6 +32,7 @@ limitations under the License.
 #include "xla/pjrt/pjrt_client.h"
 #include "xla/pjrt/pjrt_layout.h"
 #include "xla/python/ifrt/array.h"
+#include "xla/python/ifrt/array_spec.h"
 #include "xla/python/ifrt/device.h"
 #include "xla/python/ifrt/device_list.h"
 #include "xla/python/ifrt/dtype.h"
@@ -141,6 +142,11 @@ class PjRtArray final
     return client_;
   }
 
+  const ArraySpec& array_spec() const override {
+    DCHECK(spec_);  // has_static_shape
+    return *spec_;
+  }
+
   DType dtype() const override {
     DCHECK(this);
     return dtype_;
@@ -233,6 +239,7 @@ class PjRtArray final
   friend tsl::RCReference<T> tsl::MakeRef(Args&&... args);
 
   PjRtCompatibleClient* client_;
+  std::unique_ptr<ArraySpec> spec_;
   DType dtype_;
   std::variant<Shape, DynamicShape> shape_;
   ShardingRef sharding_;

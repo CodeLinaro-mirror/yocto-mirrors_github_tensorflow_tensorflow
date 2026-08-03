@@ -40,6 +40,7 @@ limitations under the License.
 #include "xla/pjrt/pjrt_layout.h"
 #include "xla/pjrt/utils.h"
 #include "xla/python/ifrt/array.h"
+#include "xla/python/ifrt/array_spec.h"
 #include "xla/python/ifrt/basic_device_list.h"
 #include "xla/python/ifrt/device.h"
 #include "xla/python/ifrt/device_list.h"
@@ -313,23 +314,25 @@ PjRtArray::PjRtArray(PjRtCompatibleClient* client, DType dtype, Shape shape,
                      ShardingRef sharding, PjRtBuffers pjrt_buffers,
                      std::shared_ptr<const xla::PjRtLayout> layout)
     : client_(client),
+      spec_(new ArraySpec{dtype, shape, sharding, layout}),
       dtype_(dtype),
-      shape_(std::move(shape)),
-      sharding_(std::move(sharding)),
+      shape_(shape),
+      sharding_(sharding),
       pjrt_buffers_(std::move(pjrt_buffers)),
-      layout_(layout != nullptr ? PjRtLayout::Create(std::move(layout))
-                                : nullptr),
+      layout_(layout != nullptr ? PjRtLayout::Create(layout) : nullptr),
       user_context_(UserContextScope::current()) {}
 
 PjRtArray::PjRtArray(PjRtCompatibleClient* client, DType dtype, Shape shape,
                      ShardingRef sharding, PjRtBuffers pjrt_buffers,
                      std::shared_ptr<const xla::ifrt::PjRtLayout> layout)
     : client_(client),
+      spec_(new ArraySpec{dtype, shape, sharding,
+                          layout != nullptr ? layout->pjrt_layout() : nullptr}),
       dtype_(dtype),
-      shape_(std::move(shape)),
-      sharding_(std::move(sharding)),
+      shape_(shape),
+      sharding_(sharding),
       pjrt_buffers_(std::move(pjrt_buffers)),
-      layout_(std::move(layout)),
+      layout_(layout),
       user_context_(UserContextScope::current()) {}
 
 PjRtArray::PjRtArray(PjRtCompatibleClient* client, DType dtype,

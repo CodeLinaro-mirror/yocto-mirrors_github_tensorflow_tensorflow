@@ -106,21 +106,21 @@ class YNNPackDelegateKernel : public SimpleDelegateKernelInterface {
       uint32_t val_id = next_external_id++;
 
       ynn_type ynn_type = GetYnnType(tensor.type);
-      TF_LITE_ENSURE_MSG(context, ynn_type != ynn_type_invalid,
-                         "Unsupported type %d for input tensor %d in Build",
-                         tensor.type, tensor_index);
+      if (ynn_type == ynn_type_invalid) {
+        continue;
+      }
 
       TF_LITE_ENSURE_MSG(context, tensor.dims->size <= YNN_MAX_TENSOR_RANK,
                          "Tensor %d rank %d exceeds max %d", tensor_index,
                          tensor.dims->size, YNN_MAX_TENSOR_RANK);
-      if (tensor.allocation_type == kTfLiteMmapRo) {
-        size_t dims[YNN_MAX_TENSOR_RANK];
+      if (IsConstant(tensor)) {
+        size_t dims[YNN_MAX_TENSOR_RANK] = {0};
         std::copy_n(tensor.dims->data, tensor.dims->size, dims);
         TF_LITE_ENSURE_YNN_STATUS(ynn_define_tensor(
             subgraph_, ynn_type, tensor.dims->size, dims, tensor.data.raw,
             /*flags=*/0, &val_id));
       } else {
-        size_t dims[YNN_MAX_TENSOR_RANK];
+        size_t dims[YNN_MAX_TENSOR_RANK] = {0};
         const size_t* dims_ptr = nullptr;
         if (options_.static_shape) {
           std::copy_n(tensor.dims->data, tensor.dims->size, dims);
@@ -152,7 +152,7 @@ class YNNPackDelegateKernel : public SimpleDelegateKernelInterface {
       TF_LITE_ENSURE_MSG(context, tensor.dims->size <= YNN_MAX_TENSOR_RANK,
                          "Tensor %d rank %d exceeds max %d", tensor_index,
                          tensor.dims->size, YNN_MAX_TENSOR_RANK);
-      size_t dims[YNN_MAX_TENSOR_RANK];
+      size_t dims[YNN_MAX_TENSOR_RANK] = {0};
       std::copy_n(tensor.dims->data, tensor.dims->size, dims);
 
       TF_LITE_ENSURE_YNN_STATUS(
@@ -298,6 +298,9 @@ class YNNPackDelegateKernel : public SimpleDelegateKernelInterface {
   TfLiteStatus Prepare(TfLiteContext* context, TfLiteNode* node) override {
     bool rebuild_required = false;
     for (size_t i = 0; i < input_tensor_indices_.size(); ++i) {
+      if (input_shapes_[i].empty()) {
+        continue;
+      }
       const TfLiteTensor& tensor = context->tensors[input_tensor_indices_[i]];
       if (options_.static_shape) {
         if (tensor.dims->size != input_shapes_[i].size() ||
@@ -322,7 +325,7 @@ class YNNPackDelegateKernel : public SimpleDelegateKernelInterface {
     // Set input shapes in YNNPACK.
     for (const auto& input : inputs_) {
       const TfLiteTensor& tensor = context->tensors[input.tensor_index];
-      size_t dims[YNN_MAX_TENSOR_RANK];
+      size_t dims[YNN_MAX_TENSOR_RANK] = {0};
       std::copy_n(tensor.dims->data, tensor.dims->size, dims);
       TF_LITE_ENSURE_YNN_STATUS(ynn_set_external_value_shape(
           runtime_, input.val_id, tensor.dims->size, dims));
@@ -363,7 +366,7 @@ class YNNPackDelegateKernel : public SimpleDelegateKernelInterface {
       for (const auto& dummy : dummy_inputs_) {
         const TfLiteTensor& param_tensor =
             context->tensors[dummy.param_tensor_index];
-        size_t dims[YNN_MAX_TENSOR_RANK];
+        size_t dims[YNN_MAX_TENSOR_RANK] = {0};
         std::copy_n(dummy.full_dims, dummy.rank, dims);
         size_t num_elements = tflite::NumElements(&param_tensor);
         if (num_elements > 0) {

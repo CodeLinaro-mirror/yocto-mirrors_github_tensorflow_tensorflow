@@ -64,7 +64,7 @@ TfLiteStatus IsUnaryOpSupported(const TfLiteRegistration* registration,
 
   if (op == ynn_unary_convert) {
     // Reject constant inputs to allow TFLite caching optimization.
-    TF_LITE_ENSURE_MSG(context, input.allocation_type != kTfLiteMmapRo,
+    TF_LITE_ENSURE_MSG(context, !IsConstant(input),
                        "Constant input for convert is not supported");
     // YNNPACK convert to integer uses rounding, but TFLite Cast expects
     // truncation. Reject all float-to-integer conversions.

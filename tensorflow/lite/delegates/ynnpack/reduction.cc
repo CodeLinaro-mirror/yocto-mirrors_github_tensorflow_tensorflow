@@ -47,7 +47,7 @@ TfLiteStatus IsReductionSupported(const TfLiteRegistration* registration,
 
   TF_LITE_ENSURE(context, QuantizationParamsEqual(input, output));
 
-  TF_LITE_ENSURE(context, axes.allocation_type == kTfLiteMmapRo);
+  TF_LITE_ENSURE(context, IsConstant(axes));
   TF_LITE_ENSURE_EQ(context, axes.type, kTfLiteInt32);
 
   // YNNPACK reduce only supports 0D or 1D axes for now.

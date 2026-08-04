@@ -103,7 +103,7 @@ TfLiteStatus GetReshapeTargetShape(TfLiteContext* context,
   if (tflite_node->inputs->size == 2) {
     const TfLiteTensor& shape_tensor =
         context->tensors[tflite_node->inputs->data[1]];
-    if (shape_tensor.allocation_type == kTfLiteMmapRo) {
+    if (IsConstant(shape_tensor)) {
       int num_elements = tflite::NumElements(&shape_tensor);
       TF_LITE_ENSURE_MSG(context, num_elements <= YNN_MAX_TENSOR_RANK,
                          "Reshape shape elements %d exceeds max %d",
@@ -148,7 +148,7 @@ TfLiteStatus IsTransposeSupported(const TfLiteRegistration* registration,
   TF_LITE_ENSURE_EQ(context, input.type, output.type);
   TF_LITE_ENSURE(context, QuantizationParamsEqual(input, output));
 
-  TF_LITE_ENSURE(context, perm.allocation_type == kTfLiteMmapRo);
+  TF_LITE_ENSURE(context, IsConstant(perm));
   TF_LITE_ENSURE_EQ(context, perm.type, kTfLiteInt32);
 
   TF_LITE_ENSURE_EQ(context, perm.dims->size, 1);
@@ -192,8 +192,8 @@ TfLiteStatus IsSliceSupported(const TfLiteRegistration* registration,
   TF_LITE_ENSURE_EQ(context, input.type, output.type);
   TF_LITE_ENSURE(context, QuantizationParamsEqual(input, output));
 
-  TF_LITE_ENSURE(context, begin.allocation_type == kTfLiteMmapRo);
-  TF_LITE_ENSURE(context, end_or_size.allocation_type == kTfLiteMmapRo);
+  TF_LITE_ENSURE(context, IsConstant(begin));
+  TF_LITE_ENSURE(context, IsConstant(end_or_size));
 
   TF_LITE_ENSURE_EQ(context, begin.type, kTfLiteInt32);
   TF_LITE_ENSURE_EQ(context, end_or_size.type, kTfLiteInt32);
@@ -209,7 +209,7 @@ TfLiteStatus IsSliceSupported(const TfLiteRegistration* registration,
 
   if (is_strided) {
     const TfLiteTensor& strides = context->tensors[node->inputs->data[3]];
-    TF_LITE_ENSURE(context, strides.allocation_type == kTfLiteMmapRo);
+    TF_LITE_ENSURE(context, IsConstant(strides));
     TF_LITE_ENSURE_EQ(context, strides.type, kTfLiteInt32);
     TF_LITE_ENSURE_EQ(context, strides.dims->size, 1);
     TF_LITE_ENSURE_EQ(context, strides.dims->data[0], input.dims->size);
@@ -271,7 +271,7 @@ TfLiteStatus IsExpandDimsSupported(const TfLiteRegistration* registration,
   TF_LITE_ENSURE_EQ(context, input.type, output.type);
   TF_LITE_ENSURE(context, QuantizationParamsEqual(input, output));
 
-  TF_LITE_ENSURE(context, axis.allocation_type == kTfLiteMmapRo);
+  TF_LITE_ENSURE(context, IsConstant(axis));
   TF_LITE_ENSURE_EQ(context, axis.type, kTfLiteInt32);
   TF_LITE_ENSURE_MSG(context, axis.dims->size <= 1,
                      "Axis tensor must be 0D or 1D");
@@ -340,7 +340,7 @@ TfLiteStatus IsReshapeSupported(const TfLiteRegistration* registration,
 
   if (node->inputs->size == 2) {
     const TfLiteTensor& shape = context->tensors[node->inputs->data[1]];
-    TF_LITE_ENSURE(context, shape.allocation_type == kTfLiteMmapRo);
+    TF_LITE_ENSURE(context, IsConstant(shape));
     TF_LITE_ENSURE_EQ(context, shape.type, kTfLiteInt32);
   }
 
@@ -379,7 +379,7 @@ TfLiteStatus IsPadSupported(const TfLiteRegistration* registration,
   TF_LITE_ENSURE_EQ(context, input.type, output.type);
   TF_LITE_ENSURE(context, QuantizationParamsEqual(input, output));
 
-  TF_LITE_ENSURE(context, paddings.allocation_type == kTfLiteMmapRo);
+  TF_LITE_ENSURE(context, IsConstant(paddings));
   TF_LITE_ENSURE(
       context, paddings.type == kTfLiteInt32 || paddings.type == kTfLiteInt64);
   TF_LITE_ENSURE(context, paddings.data.raw != nullptr);
@@ -392,7 +392,7 @@ TfLiteStatus IsPadSupported(const TfLiteRegistration* registration,
     const TfLiteTensor& constant_value =
         context->tensors[node->inputs->data[2]];
     TF_LITE_ENSURE_EQ(context, constant_value.type, input.type);
-    TF_LITE_ENSURE(context, constant_value.allocation_type == kTfLiteMmapRo);
+    TF_LITE_ENSURE(context, IsConstant(constant_value));
     TF_LITE_ENSURE(context, constant_value.data.raw != nullptr);
     TF_LITE_ENSURE_EQ(context, tflite::NumElements(&constant_value), 1);
   }
@@ -679,7 +679,7 @@ TfLiteStatus DefineReshapeNode(TfLiteContext* context, ynn_subgraph_t subgraph,
   TF_LITE_ENSURE(context, input_val_id != YNN_INVALID_VALUE_ID);
   TF_LITE_ENSURE(context, output_val_id != YNN_INVALID_VALUE_ID);
 
-  size_t ynn_dims[YNN_MAX_TENSOR_RANK];
+  size_t ynn_dims[YNN_MAX_TENSOR_RANK] = {0};
   for (int i = 0; i < target_shape_size; ++i) {
     if (target_shape[i] == -1) {
       ynn_dims[i] = 0;
@@ -864,7 +864,7 @@ TfLiteStatus IsSplitSupported(const TfLiteRegistration* registration,
   const TfLiteTensor& value = context->tensors[node->inputs->data[1]];
 
   TF_LITE_ENSURE_EQ(context, split_dim.type, kTfLiteInt32);
-  TF_LITE_ENSURE_EQ(context, split_dim.allocation_type, kTfLiteMmapRo);
+  TF_LITE_ENSURE(context, IsConstant(split_dim));
 
   TF_LITE_ENSURE(context, IsTensorSupported(value));
 
@@ -1086,8 +1086,7 @@ TfLiteStatus IsGatherSupported(const TfLiteRegistration* registration,
     const TfLiteTensor& axis_tensor = context->tensors[node->inputs->data[2]];
     TF_LITE_ENSURE_EQ(context, axis_tensor.type, kTfLiteInt32);
     TF_LITE_ENSURE_EQ(context, tflite::NumElements(&axis_tensor), 1);
-    TF_LITE_ENSURE_MSG(context, axis_tensor.allocation_type == kTfLiteMmapRo,
-                       "Gather axis must be constant");
+    TF_LITE_ENSURE(context, IsConstant(axis_tensor));
     axis = axis_tensor.data.i32[0];
   } else {
     const auto* params =

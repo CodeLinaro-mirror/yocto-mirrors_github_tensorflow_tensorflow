@@ -358,12 +358,11 @@ void AddXtileToVectorPasses(mlir::OpPassManager& pm, bool msan_enabled) {
   pm.addNestedPass<mlir::func::FuncOp>(
       mlir::stablehlo::createStablehloTargetIndependentOptimizationPass());
 
-  pm.addPass(xtile::createStablehloLowerToArithPass());
   // Has to run before legalize-to-linalg for specialized implementations of
   // SHLO ops for XTile. It also has to run before
   // legalize-unsigned-integers-as-signless, as we need to choose the right
   // lowering for Convert based on unsigned type.
-  pm.addPass(xtile::createStablehloLowerToXtilePass());
+  pm.addPass(xtile::createStablehloLowerToArithPass());
   // This pass and the Canonicalizer pass need to run before ShloToVectorPass,
   // otherwise the LowerReduce pattern does not work due to
   // UnrealizedConversionCast in the reducer body.

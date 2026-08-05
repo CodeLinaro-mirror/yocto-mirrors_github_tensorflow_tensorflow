@@ -87,12 +87,12 @@ void VerifyUndonatableAndContentsMatch(xla::ifrt::Array* array,
 TEST(UndonatableBufferConverterTest, ConvertsBuffersAndPreservesContents) {
   auto input_tensor =
       test::AsTensor<int32_t>({1, 2, 3, 4}, TensorShape({2, 2}));
-  ASSERT_OK_AND_ASSIGN(std::shared_ptr<xla::ifrt::Client> client,
-                       xla::ifrt::test_util::GetClient());
+  TF_ASSERT_OK_AND_ASSIGN(std::shared_ptr<xla::ifrt::Client> client,
+                          xla::ifrt::test_util::GetClient());
   tsl::thread::ThreadPool thread_pool(tsl::Env::Default(), tsl::ThreadOptions(),
                                       "Converter", /*num_threads=*/4);
-  ASSERT_OK_AND_ASSIGN(auto array,
-                       MakeTestArray(*client, input_tensor, thread_pool));
+  TF_ASSERT_OK_AND_ASSIGN(auto array,
+                          MakeTestArray(*client, input_tensor, thread_pool));
 
   TF_ASSERT_OK(MakeArrayBuffersUndonatable(array.get()));
   VerifyUndonatableAndContentsMatch(array.get(), input_tensor);
@@ -101,12 +101,12 @@ TEST(UndonatableBufferConverterTest, ConvertsBuffersAndPreservesContents) {
 TEST(UndonatableBufferConverterTest, SecondConversionIsANoOp) {
   auto input_tensor =
       test::AsTensor<int32_t>({1, 2, 3, 4}, TensorShape({2, 2}));
-  ASSERT_OK_AND_ASSIGN(std::shared_ptr<xla::ifrt::Client> client,
-                       xla::ifrt::test_util::GetClient());
+  TF_ASSERT_OK_AND_ASSIGN(std::shared_ptr<xla::ifrt::Client> client,
+                          xla::ifrt::test_util::GetClient());
   tsl::thread::ThreadPool thread_pool(tsl::Env::Default(), tsl::ThreadOptions(),
                                       "Converter", /*num_threads=*/4);
-  ASSERT_OK_AND_ASSIGN(auto array,
-                       MakeTestArray(*client, input_tensor, thread_pool));
+  TF_ASSERT_OK_AND_ASSIGN(auto array,
+                          MakeTestArray(*client, input_tensor, thread_pool));
 
   TF_ASSERT_OK(MakeArrayBuffersUndonatable(array.get()));
   TF_ASSERT_OK(MakeArrayBuffersUndonatable(array.get()));

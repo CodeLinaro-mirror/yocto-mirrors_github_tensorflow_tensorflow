@@ -463,6 +463,7 @@ absl::Status ConstraintPropagator::PropagateConstraintsExact(
     }
     case HloOpcode::kBitcast:
     case HloOpcode::kBitcastConvert:
+    case HloOpcode::kConvert:
     case HloOpcode::kCopy:
     case HloOpcode::kDynamicReshape:
     case HloOpcode::kReshape:
@@ -482,6 +483,27 @@ absl::Status ConstraintPropagator::PropagateConstraintsExact(
       sc.no_duplicates = false;
       sc.needs_sorted_indices = false;
       states_[instruction->operand(0)].MergeStructural(sc);
+      break;
+    }
+    case HloOpcode::kPad: {
+      states_[instruction->operand(0)].AddConstraint(output_interval);
+      states_[instruction->operand(1)].AddConstraint(output_interval);
+      StructuralConstraints sc = output_structural;
+      sc.no_duplicates = false;
+      sc.needs_sorted_indices = false;
+      states_[instruction->operand(0)].MergeStructural(sc);
+      break;
+    }
+    case HloOpcode::kSelect: {
+      states_[instruction->operand(1)].AddConstraint(output_interval);
+      states_[instruction->operand(2)].AddConstraint(output_interval);
+      // Combining elements from two different branches breaks uniqueness
+      // and sorting order across the resulting tensor.
+      StructuralConstraints sc = output_structural;
+      sc.no_duplicates = false;
+      sc.needs_sorted_indices = false;
+      states_[instruction->operand(1)].MergeStructural(sc);
+      states_[instruction->operand(2)].MergeStructural(sc);
       break;
     }
     case HloOpcode::kBroadcast:

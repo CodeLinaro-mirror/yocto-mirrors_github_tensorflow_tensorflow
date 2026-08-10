@@ -23,6 +23,7 @@ limitations under the License.
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
+#include "absl/types/span.h"
 #include "xla/tsl/platform/status_macros.h"
 #include "xla/hlo/ir/hlo_casting_utils.h"
 #include "xla/hlo/ir/hlo_computation.h"
@@ -62,15 +63,9 @@ HloInstruction* InsertCallMarkerBefore(HloInstruction* instruction) {
 }
 
 HloInstruction* InsertCallMarkerAfter(HloInstruction* instruction) {
-  HloModule* module = instruction->GetModule();
-  Shape shape = instruction->shape();
-  if (instruction->parent() == module->entry_computation() &&
-      instruction->parent()->root_instruction() == instruction) {
-    shape = module->entry_computation_layout().result_layout().shape();
-  }
   std::unique_ptr<HloInstruction> call_after_ptr =
       HloInstruction::CreateCustomCall(
-          shape, {instruction}, kCallMarkerAfterTarget, "",
+          instruction->shape(), {instruction}, kCallMarkerAfterTarget, "",
           CustomCallApiVersion::API_VERSION_ORIGINAL);
   Cast<HloCustomCallInstruction>(call_after_ptr.get())
       ->set_custom_call_has_side_effect(true);
@@ -158,6 +153,41 @@ absl::Status WrapCallWithCustomCall(HloInstruction* instruction) {
 
   return absl::OkStatus();
 }
+// Returns whether the computation's root instruction has a dataflow or
+// control dependency on at least one of its parameter instructions by
+// performing a backward DFS traversal starting from the root.
+bool RootDependsOnParameters(const HloComputation* computation) {
+  const auto& params = computation->parameter_instructions();
+  if (params.empty()) {
+    return false;
+  }
+  absl::flat_hash_set<const HloInstruction*> param_set(params.begin(),
+                                                       params.end());
+  absl::flat_hash_set<const HloInstruction*> visited;
+  std::vector<const HloInstruction*> worklist = {
+      computation->root_instruction()};
+  visited.insert(computation->root_instruction());
+
+  auto add_to_worklist = [&](absl::Span<HloInstruction* const> instructions) {
+    for (const HloInstruction* inst : instructions) {
+      if (visited.insert(inst).second) {
+        worklist.push_back(inst);
+      }
+    }
+  };
+
+  while (!worklist.empty()) {
+    const HloInstruction* current = worklist.back();
+    worklist.pop_back();
+
+    if (param_set.contains(current)) {
+      return true;
+    }
+    add_to_worklist(current->operands());
+    add_to_worklist(current->control_predecessors());
+  }
+  return false;
+}
 }  // namespace
 
 absl::StatusOr<bool> CallMarker::RunImpl(
@@ -168,14 +198,12 @@ absl::StatusOr<bool> CallMarker::RunImpl(
   for (HloComputation* computation : module->MakeComputationPostOrder()) {
     for (HloInstruction* instruction :
          computation->MakeInstructionPostOrder()) {
-      // Don't mark calls that are non-inlineable or have no operands.
-      // Instructions that don't have operands can't be reliably marked since
-      // we can't introduce data dependencies between them and the wrapping
-      // custom calls.
-      if (instruction->operand_count() == 0) {
-        continue;
-      }
-      if (inliner_.ShouldInline(*call_graph, instruction)) {
+      // Don't mark calls that are non-inlineable or have no operands or
+      // if their arguments are unused (not connected to the called
+      // computation's root), as no dataflow link can be created between th
+      // _before and _after markers.
+      if (inliner_.ShouldInline(*call_graph, instruction) &&
+          RootDependsOnParameters(instruction->to_apply())) {
         inlineable_calls.push_back(instruction);
       }
     }
